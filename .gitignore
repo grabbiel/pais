@@ -39,3 +39,35 @@
 
 # debug information files
 *.dwo
+
+# build trees 
+/build/
+/build-*/
+/out/
+/cmake-build-*/
+CMakeCache.txt
+cmake/
+cmake_install.cmake
+*.ninja
+*.ninja_*
+Makefile
+*.sln
+*.vcxproj*
+*.xcodeproj
+*.pbxproj
+
+/compile_commands.json
+**/_deps/**
+
+.vscode/
+.idea/
+.DS_Store
+
+.cache/
+
+schemas/**/generated/**
+.clang-format
+.clang-tidy
+.editorconfig
+CMakeLists.txt
+CMakePresets.json

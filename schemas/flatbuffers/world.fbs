@@ -1,0 +1,6 @@
+namespace pixel.net;
+
+table Vec2 { x:float; y:float; }
+table EntityDelta { id:uint; pos:Vec2; dir:byte; }
+table WorldDelta { seq:uint; entities:[EntityDelta]; }
+root_type WorldDelta;
