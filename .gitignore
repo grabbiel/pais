@@ -71,3 +71,4 @@ schemas/**/generated/**
 .editorconfig
 CMakeLists.txt
 CMakePresets.json
+.clangd
