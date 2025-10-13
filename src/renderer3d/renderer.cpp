@@ -44,6 +44,7 @@ typedef void(APIENTRYP PFNGLGETPROGRAMINFOLOGPROC)(GLuint, GLsizei, GLsizei *,
 typedef GLint(APIENTRYP PFNGLGETUNIFORMLOCATIONPROC)(GLuint, const GLchar *);
 typedef void(APIENTRYP PFNGLUNIFORM1IPROC)(GLint, GLint);
 typedef void(APIENTRYP PFNGLUNIFORM1FPROC)(GLint, GLfloat);
+typedef void(APIENTRYP PFNGLUNIFORM2FPROC)(GLint, GLfloat, GLfloat);
 typedef void(APIENTRYP PFNGLUNIFORM3FPROC)(GLint, GLfloat, GLfloat, GLfloat);
 typedef void(APIENTRYP PFNGLUNIFORM4FPROC)(GLint, GLfloat, GLfloat, GLfloat,
                                            GLfloat);
@@ -77,6 +78,7 @@ PFNGLGETPROGRAMINFOLOGPROC glGetProgramInfoLog = nullptr;
 PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation = nullptr;
 PFNGLUNIFORM1IPROC glUniform1i = nullptr;
 PFNGLUNIFORM1FPROC glUniform1f = nullptr;
+PFNGLUNIFORM2FPROC glUniform2f = nullptr;
 PFNGLUNIFORM3FPROC glUniform3f = nullptr;
 PFNGLUNIFORM4FPROC glUniform4f = nullptr;
 PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv = nullptr;
@@ -164,6 +166,10 @@ void Shader::set_int(const std::string &name, int value) {
 
 void Shader::set_float(const std::string &name, float value) {
   glUniform1f(glGetUniformLocation(program_, name.c_str()), value);
+}
+
+void Shader::set_vec2(const std::string &name, const Vec2 &value) {
+  glUniform2f(glGetUniformLocation(program_, name.c_str()), value.x, value.y);
 }
 
 void Shader::set_vec3(const std::string &name, const Vec3 &value) {
@@ -320,6 +326,7 @@ void Renderer::load_gl_functions() {
   LOAD_GL_FUNC(glGetUniformLocation);
   LOAD_GL_FUNC(glUniform1i);
   LOAD_GL_FUNC(glUniform1f);
+  LOAD_GL_FUNC(glUniform2f);
   LOAD_GL_FUNC(glUniform3f);
   LOAD_GL_FUNC(glUniform4f);
   LOAD_GL_FUNC(glUniformMatrix4fv);
