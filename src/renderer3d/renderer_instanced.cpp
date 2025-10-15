@@ -64,9 +64,33 @@ std::unique_ptr<InstancedMesh> InstancedMesh::create(const Mesh &base_mesh,
   glBindVertexArray(instanced->vao_);
 
   // Copy base mesh data
-  // Note: This is a simplified approach. In production, you'd want to
-  // extract vertices/indices from the base mesh properly.
-  // For now, we assume the mesh data is accessible or we create a new mesh.
+  const auto &vertices = base_mesh.vertices();
+  glBindBuffer(GL_ARRAY_BUFFER, instanced->vbo_);
+  glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex),
+               vertices.data(), GL_STATIC_DRAW);
+
+  // Copy base mesh index data
+  const auto &indices = base_mesh.indices();
+  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, instanced->ebo_);
+  glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32_t),
+               indices.data(), GL_STATIC_DRAW);
+
+  // Setup base vertex attributes (same as regular mesh)
+  glEnableVertexAttribArray(0);
+  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                        (void *)offsetof(Vertex, position));
+
+  glEnableVertexAttribArray(1);
+  glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                        (void *)offsetof(Vertex, normal));
+
+  glEnableVertexAttribArray(2);
+  glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                        (void *)offsetof(Vertex, texcoord));
+
+  glEnableVertexAttribArray(3);
+  glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                        (void *)offsetof(Vertex, color));
 
   instanced->setup_instance_buffer();
 
@@ -176,7 +200,7 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
                                        const Material &base_material) {
   // Get instanced shader (you'd need to add this to Renderer)
   // For now, we'll use the default shader
-  Shader *shader = renderer.get_shader(renderer.default_shader());
+  Shader *shader = renderer.get_shader(renderer.instanced_shader());
   if (!shader)
     return;
 

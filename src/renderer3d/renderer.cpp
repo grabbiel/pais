@@ -197,6 +197,9 @@ std::unique_ptr<Mesh> Mesh::create(const std::vector<Vertex> &vertices,
   mesh->vertex_count_ = vertices.size();
   mesh->index_count_ = indices.size();
 
+  mesh->vertices_ = vertices;
+  mesh->indices_ = indices;
+
   glGenVertexArrays(1, &mesh->vao_);
   glGenBuffers(1, &mesh->vbo_);
   glGenBuffers(1, &mesh->ebo_);
@@ -485,6 +488,93 @@ void Renderer::setup_default_shaders() {
   )";
 
   default_shader_ = create_shader_from_source(vert_3d, frag_3d);
+
+  std::string vert_instanced = R"(
+    #version 330 core
+    layout (location = 0) in vec3 aPos;
+    layout (location = 1) in vec3 aNormal;
+    layout (location = 2) in vec2 aTexCoord;
+    layout (location = 3) in vec4 aColor;
+    
+    // Instance attributes
+    layout (location = 4) in vec3 instancePos;
+    layout (location = 5) in vec3 instanceRot;
+    layout (location = 6) in vec3 instanceScale;
+    layout (location = 7) in vec4 instanceColor;
+    
+    out vec3 FragPos;
+    out vec3 Normal;
+    out vec2 TexCoord;
+    out vec4 Color;
+    
+    uniform mat4 view;
+    uniform mat4 projection;
+    
+    mat4 rotationMatrix(vec3 euler) {
+      float cx = cos(radians(euler.x));
+      float sx = sin(radians(euler.x));
+      float cy = cos(radians(euler.y));
+      float sy = sin(radians(euler.y));
+      float cz = cos(radians(euler.z));
+      float sz = sin(radians(euler.z));
+      
+      mat4 rotX = mat4(1, 0, 0, 0, 0, cx, -sx, 0, 0, sx, cx, 0, 0, 0, 0, 1);
+      mat4 rotY = mat4(cy, 0, sy, 0, 0, 1, 0, 0, -sy, 0, cy, 0, 0, 0, 0, 1);
+      mat4 rotZ = mat4(cz, -sz, 0, 0, sz, cz, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+      
+      return rotZ * rotY * rotX;
+    }
+    
+    void main() {
+      mat4 model = mat4(1.0);
+      model[3] = vec4(instancePos, 1.0);
+      
+      mat4 scale = mat4(instanceScale.x, 0, 0, 0,
+                        0, instanceScale.y, 0, 0,
+                        0, 0, instanceScale.z, 0,
+                        0, 0, 0, 1);
+      
+      mat4 rotation = rotationMatrix(instanceRot);
+      model = model * rotation * scale;
+      
+      FragPos = vec3(model * vec4(aPos, 1.0));
+      Normal = mat3(transpose(inverse(model))) * aNormal;
+      TexCoord = aTexCoord;
+      Color = aColor * instanceColor;
+      
+      gl_Position = projection * view * vec4(FragPos, 1.0);
+    }
+  )";
+
+  std::string frag_instanced = R"(
+    #version 330 core
+    out vec4 FragColor;
+    
+    in vec3 FragPos;
+    in vec3 Normal;
+    in vec2 TexCoord;
+    in vec4 Color;
+    
+    uniform sampler2D uTexture;
+    uniform bool useTexture;
+    uniform vec3 lightPos;
+    uniform vec3 viewPos;
+    
+    void main() {
+      vec3 lightColor = vec3(1.0, 1.0, 1.0);
+      float ambientStrength = 0.3;
+      vec3 ambient = ambientStrength * lightColor;
+      vec3 norm = normalize(Normal);
+      vec3 lightDir = normalize(lightPos - FragPos);
+      float diff = max(dot(norm, lightDir), 0.0);
+      vec3 diffuse = diff * lightColor;
+      vec4 texColor = useTexture ? texture(uTexture, TexCoord) : vec4(1.0);
+      vec3 result = (ambient + diffuse) * texColor.rgb * Color.rgb;
+      FragColor = vec4(result, texColor.a * Color.a);
+    }
+  )";
+
+  instanced_shader_ = create_shader_from_source(vert_instanced, frag_instanced);
 
   std::string vert_sprite = R"(
     #version 330 core

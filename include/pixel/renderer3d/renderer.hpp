@@ -172,13 +172,22 @@ public:
   size_t vertex_count() const { return vertex_count_; }
   size_t index_count() const { return index_count_; }
 
+  const std::vector<Vertex> &vertices() const { return vertices_; }
+  const std::vector<uint32_t> &indices() const { return indices_; }
+
+  uint32_t vao() const { return vao_; }
+  uint32_t vbo() const { return vbo_; }
+  uint32_t ebo() const { return ebo_; }
+
 private:
   Mesh() = default;
+  size_t vertex_count_ = 0;
+  size_t index_count_ = 0;
+  std::vector<Vertex> vertices_;
+  std::vector<uint32_t> indices_;
   uint32_t vao_ = 0;
   uint32_t vbo_ = 0;
   uint32_t ebo_ = 0;
-  size_t vertex_count_ = 0;
-  size_t index_count_ = 0;
 };
 
 // ============================================================================
@@ -269,6 +278,7 @@ public:
 
   ShaderID default_shader() const { return default_shader_; }
   ShaderID sprite_shader() const { return sprite_shader_; }
+  ShaderID instanced_shader() const { return instanced_shader_; }
 
 private:
   Renderer() = default;
@@ -286,6 +296,7 @@ private:
   ShaderID next_shader_id_ = 1;
   ShaderID default_shader_ = INVALID_SHADER;
   ShaderID sprite_shader_ = INVALID_SHADER;
+  ShaderID instanced_shader_ = INVALID_SHADER;
 
   std::unordered_map<std::string, TextureID> texture_path_to_id_;
   std::unordered_map<TextureID, TextureInfo> textures_;
