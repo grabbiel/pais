@@ -36,10 +36,16 @@ public:
   uint32_t vao() const { return vao_; }
   size_t index_count() const { return index_count_; }
 
+  // Check if using persistent mapped buffers
+  bool using_persistent_mapping() const { return persistent_mapped_; }
+
 private:
   InstancedMesh() = default;
   void setup_instance_buffer();
+  void setup_persistent_buffer();
   void update_instance_buffer();
+  void update_persistent_buffer();
+  void wait_for_previous_frame();
 
   uint32_t vao_ = 0;
   uint32_t vbo_ = 0;          // Base mesh VBO
@@ -52,6 +58,11 @@ private:
 
   std::vector<InstanceData> instance_data_;
   bool needs_update_ = false;
+
+  // Persistent mapped buffer support
+  bool persistent_mapped_ = false;
+  void *mapped_buffer_ = nullptr;
+  uint64_t sync_fence_ = 0; // GLsync object for synchronization
 };
 
 // ============================================================================

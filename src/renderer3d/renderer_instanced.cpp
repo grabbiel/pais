@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <iostream>
 #include <random>
 
 // Platform-specific OpenGL function loading
@@ -10,6 +11,15 @@
 typedef void(APIENTRYP PFNGLDRAWELEMENTSINSTANCEDPROC)(GLenum, GLsizei, GLenum,
                                                        const void *, GLsizei);
 typedef void(APIENTRYP PFNGLVERTEXATTRIBDIVISORPROC)(GLuint, GLuint);
+typedef void(APIENTRYP PFNGLBUFFERSTORAGEPROC)(GLenum, GLsizeiptr, const void *,
+                                               GLbitfield);
+typedef void *(APIENTRYP PFNGLMAPBUFFERRANGEPROC)(GLenum, GLintptr, GLsizeiptr,
+                                                  GLbitfield);
+typedef GLboolean(APIENTRYP PFNGLUNMAPBUFFERPROC)(GLenum);
+typedef uint64_t(APIENTRYP PFNGLFENCESYNCPROC)(GLenum, GLbitfield);
+typedef void(APIENTRYP PFNGLDELETESYNCPROC)(uint64_t);
+typedef GLenum(APIENTRYP PFNGLCLIENTWAITSYNCPROC)(uint64_t, GLbitfield,
+                                                  uint64_t);
 
 extern PFNGLGENBUFFERSPROC glGenBuffers;
 extern PFNGLBINDBUFFERPROC glBindBuffer;
@@ -23,6 +33,14 @@ extern PFNGLDELETEVERTEXARRAYSPROC glDeleteVertexArrays;
 
 PFNGLDRAWELEMENTSINSTANCEDPROC glDrawElementsInstanced = nullptr;
 PFNGLVERTEXATTRIBDIVISORPROC glVertexAttribDivisor = nullptr;
+PFNGLBUFFERSTORAGEPROC glBufferStorage = nullptr;
+PFNGLMAPBUFFERRANGEPROC glMapBufferRange = nullptr;
+PFNGLUNMAPBUFFERPROC glUnmapBuffer = nullptr;
+PFNGLFENCESYNCPROC glFenceSync = nullptr;
+PFNGLDELETESYNCPROC glDeleteSync = nullptr;
+PFNGLCLIENTWAITSYNCPROC glClientWaitSync = nullptr;
+
+static bool g_persistent_mapping_supported = false;
 
 static void load_instancing_functions() {
   static bool loaded = false;
@@ -34,11 +52,69 @@ static void load_instancing_functions() {
   glVertexAttribDivisor =
       (PFNGLVERTEXATTRIBDIVISORPROC)glfwGetProcAddress("glVertexAttribDivisor");
 
+  // Try to load persistent mapping functions
+  glBufferStorage =
+      (PFNGLBUFFERSTORAGEPROC)glfwGetProcAddress("glBufferStorage");
+  glMapBufferRange =
+      (PFNGLMAPBUFFERRANGEPROC)glfwGetProcAddress("glMapBufferRange");
+  glUnmapBuffer = (PFNGLUNMAPBUFFERPROC)glfwGetProcAddress("glUnmapBuffer");
+  glFenceSync = (PFNGLFENCESYNCPROC)glfwGetProcAddress("glFenceSync");
+  glDeleteSync = (PFNGLDELETESYNCPROC)glfwGetProcAddress("glDeleteSync");
+  glClientWaitSync =
+      (PFNGLCLIENTWAITSYNCPROC)glfwGetProcAddress("glClientWaitSync");
+
+  g_persistent_mapping_supported =
+      (glBufferStorage && glMapBufferRange && glFenceSync && glClientWaitSync);
+
+  if (g_persistent_mapping_supported) {
+    std::cout << "Persistent mapped buffers: SUPPORTED" << std::endl;
+  } else {
+    std::cout << "Persistent mapped buffers: NOT SUPPORTED (using fallback)"
+              << std::endl;
+  }
+
   loaded = true;
 }
 #else
 #include <GLFW/glfw3.h>
-static void load_instancing_functions() {} // No-op on non-Windows
+
+// Define GL constants if not available
+#ifndef GL_MAP_PERSISTENT_BIT
+#define GL_MAP_PERSISTENT_BIT 0x0040
+#define GL_MAP_COHERENT_BIT 0x0080
+#define GL_DYNAMIC_STORAGE_BIT 0x0100
+#define GL_CLIENT_STORAGE_BIT 0x0200
+#define GL_SYNC_GPU_COMMANDS_COMPLETE 0x9117
+#define GL_SYNC_FLUSH_COMMANDS_BIT 0x00000001
+#define GL_ALREADY_SIGNALED 0x911A
+#define GL_TIMEOUT_EXPIRED 0x911B
+#define GL_CONDITION_SATISFIED 0x911C
+#define GL_WAIT_FAILED 0x911D
+#endif
+
+// Check for persistent mapping support at runtime
+static bool g_persistent_mapping_supported = false;
+
+static void load_instancing_functions() {
+#ifdef __APPLE__
+  // macOS OpenGL is stuck at 4.1 - persistent mapping not available
+  g_persistent_mapping_supported = false;
+  std::cout << "Persistent mapped buffers: NOT SUPPORTED (macOS OpenGL 4.1)"
+            << std::endl;
+#else
+  // Linux - check for extension at runtime
+  const char *extensions = (const char *)glGetString(GL_EXTENSIONS);
+  if (extensions && strstr(extensions, "GL_ARB_buffer_storage")) {
+    g_persistent_mapping_supported = true;
+    std::cout << "Persistent mapped buffers: SUPPORTED" << std::endl;
+  } else {
+    g_persistent_mapping_supported = false;
+    std::cout << "Persistent mapped buffers: NOT SUPPORTED (missing extension)"
+              << std::endl;
+  }
+#endif
+}
+
 #endif
 
 namespace pixel::renderer3d {
@@ -92,7 +168,12 @@ std::unique_ptr<InstancedMesh> InstancedMesh::create(const Mesh &base_mesh,
   glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
                         (void *)offsetof(Vertex, color));
 
-  instanced->setup_instance_buffer();
+  // Try to setup persistent mapped buffer, fallback to regular if not supported
+  if (g_persistent_mapping_supported) {
+    instanced->setup_persistent_buffer();
+  } else {
+    instanced->setup_instance_buffer();
+  }
 
   glBindVertexArray(0);
 
@@ -100,6 +181,40 @@ std::unique_ptr<InstancedMesh> InstancedMesh::create(const Mesh &base_mesh,
 }
 
 InstancedMesh::~InstancedMesh() {
+  // Cleanup persistent mapping if active
+  if (persistent_mapped_ && mapped_buffer_) {
+    glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_);
+#ifdef _WIN32
+    if (glUnmapBuffer) {
+      glUnmapBuffer(GL_ARRAY_BUFFER);
+    }
+#elif !defined(__APPLE__)
+    // Linux
+    typedef GLboolean (*PFNGLUNMAPBUFFERPROC)(GLenum);
+    PFNGLUNMAPBUFFERPROC glUnmapBufferFunc =
+        (PFNGLUNMAPBUFFERPROC)glfwGetProcAddress("glUnmapBuffer");
+    if (glUnmapBufferFunc) {
+      glUnmapBufferFunc(GL_ARRAY_BUFFER);
+    }
+#endif
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+  }
+
+  if (sync_fence_) {
+#ifdef _WIN32
+    if (glDeleteSync)
+      glDeleteSync(sync_fence_);
+#elif !defined(__APPLE__)
+    // Linux
+    typedef void (*PFNGLDELETESYNCPROC)(GLsync);
+    PFNGLDELETESYNCPROC glDeleteSyncFunc =
+        (PFNGLDELETESYNCPROC)glfwGetProcAddress("glDeleteSync");
+    if (glDeleteSyncFunc) {
+      glDeleteSyncFunc((GLsync)sync_fence_);
+    }
+#endif
+  }
+
   if (vao_)
     glDeleteVertexArrays(1, &vao_);
   if (vbo_)
@@ -111,40 +226,144 @@ InstancedMesh::~InstancedMesh() {
 }
 
 void InstancedMesh::setup_instance_buffer() {
-  // Reserve space for instance data
+  // Traditional approach - allocate mutable buffer
   instance_data_.reserve(max_instances_);
 
-  // Bind instance buffer
   glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_);
   glBufferData(GL_ARRAY_BUFFER, max_instances_ * sizeof(InstanceData), nullptr,
                GL_DYNAMIC_DRAW);
 
   // Setup instance attributes
-  // Attribute 4: Position (vec3)
   glEnableVertexAttribArray(4);
   glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
                         (void *)offsetof(InstanceData, position));
   glVertexAttribDivisor(4, 1);
 
-  // Attribute 5: Rotation (vec3)
   glEnableVertexAttribArray(5);
   glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
                         (void *)offsetof(InstanceData, rotation));
   glVertexAttribDivisor(5, 1);
 
-  // Attribute 6: Scale (vec3)
   glEnableVertexAttribArray(6);
   glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
                         (void *)offsetof(InstanceData, scale));
   glVertexAttribDivisor(6, 1);
 
-  // Attribute 7: Color (vec4)
   glEnableVertexAttribArray(7);
   glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
                         (void *)offsetof(InstanceData, color));
   glVertexAttribDivisor(7, 1);
 
   glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+  persistent_mapped_ = false;
+  std::cout << "Using traditional buffer updates" << std::endl;
+}
+
+void InstancedMesh::setup_persistent_buffer() {
+  // Modern approach - persistent mapped buffer
+  instance_data_.reserve(max_instances_);
+
+  glBindBuffer(GL_ARRAY_BUFFER, instance_vbo_);
+
+  // Create immutable storage with persistent mapping flags
+  GLbitfield flags = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT |
+                     GL_MAP_COHERENT_BIT | GL_DYNAMIC_STORAGE_BIT;
+
+  bool success = false;
+
+#ifdef _WIN32
+  if (glBufferStorage) {
+    glBufferStorage(GL_ARRAY_BUFFER, max_instances_ * sizeof(InstanceData),
+                    nullptr, flags);
+    success = true;
+  }
+#elif defined(__APPLE__)
+  // macOS doesn't support glBufferStorage - this should never be called
+  // but add safety check anyway
+  std::cerr << "ERROR: setup_persistent_buffer called on macOS - this is a bug!"
+            << std::endl;
+  setup_instance_buffer();
+  return;
+#else
+  // Linux - try to use glBufferStorage if available
+  // We need to get the function pointer first
+  typedef void (*PFNGLBUFFERSTORAGEPROC)(GLenum, GLsizeiptr, const void *,
+                                         GLbitfield);
+  PFNGLBUFFERSTORAGEPROC glBufferStorageFunc =
+      (PFNGLBUFFERSTORAGEPROC)glfwGetProcAddress("glBufferStorage");
+
+  if (glBufferStorageFunc) {
+    glBufferStorageFunc(GL_ARRAY_BUFFER, max_instances_ * sizeof(InstanceData),
+                        nullptr, flags);
+    success = true;
+  }
+#endif
+
+  if (!success) {
+    std::cerr << "Failed to create persistent buffer storage, falling back"
+              << std::endl;
+    setup_instance_buffer();
+    return;
+  }
+
+  // Map the buffer persistently
+  void *mapped = nullptr;
+
+#ifdef _WIN32
+  if (glMapBufferRange) {
+    mapped = glMapBufferRange(GL_ARRAY_BUFFER, 0,
+                              max_instances_ * sizeof(InstanceData), flags);
+  }
+#else
+  // Linux - get function pointer
+  typedef void *(*PFNGLMAPBUFFERRANGEPROC)(GLenum, GLintptr, GLsizeiptr,
+                                           GLbitfield);
+  PFNGLMAPBUFFERRANGEPROC glMapBufferRangeFunc =
+      (PFNGLMAPBUFFERRANGEPROC)glfwGetProcAddress("glMapBufferRange");
+
+  if (glMapBufferRangeFunc) {
+    mapped = glMapBufferRangeFunc(GL_ARRAY_BUFFER, 0,
+                                  max_instances_ * sizeof(InstanceData), flags);
+  }
+#endif
+
+  mapped_buffer_ = mapped;
+
+  if (!mapped_buffer_) {
+    std::cerr << "Failed to map buffer persistently, falling back to regular "
+                 "buffer"
+              << std::endl;
+    setup_instance_buffer();
+    return;
+  }
+
+  // Setup instance attributes (same as before)
+  glEnableVertexAttribArray(4);
+  glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                        (void *)offsetof(InstanceData, position));
+  glVertexAttribDivisor(4, 1);
+
+  glEnableVertexAttribArray(5);
+  glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                        (void *)offsetof(InstanceData, rotation));
+  glVertexAttribDivisor(5, 1);
+
+  glEnableVertexAttribArray(6);
+  glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                        (void *)offsetof(InstanceData, scale));
+  glVertexAttribDivisor(6, 1);
+
+  glEnableVertexAttribArray(7);
+  glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                        (void *)offsetof(InstanceData, color));
+  glVertexAttribDivisor(7, 1);
+
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+  persistent_mapped_ = true;
+  std::cout << "Using persistent mapped buffers (zero-copy updates)"
+            << std::endl;
 }
 
 void InstancedMesh::update_instance_buffer() {
@@ -155,6 +374,66 @@ void InstancedMesh::update_instance_buffer() {
   glBufferData(GL_ARRAY_BUFFER, instance_data_.size() * sizeof(InstanceData),
                instance_data_.data(), GL_DYNAMIC_DRAW);
   glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+  needs_update_ = false;
+}
+
+void InstancedMesh::wait_for_previous_frame() {
+  if (!sync_fence_)
+    return;
+
+#ifdef _WIN32
+  if (glClientWaitSync) {
+    GLenum result = glClientWaitSync(sync_fence_, GL_SYNC_FLUSH_COMMANDS_BIT,
+                                     1000000000); // 1 second timeout
+    if (result == GL_WAIT_FAILED) {
+      std::cerr << "Sync wait failed!" << std::endl;
+    }
+  }
+  if (glDeleteSync) {
+    glDeleteSync(sync_fence_);
+  }
+#elif defined(__APPLE__)
+  // Should never reach here on macOS
+  std::cerr << "ERROR: Fence sync on macOS - this shouldn't happen!"
+            << std::endl;
+#else
+  // Linux - get function pointers
+  typedef GLenum (*PFNGLCLIENTWAITSYNCPROC)(GLsync, GLbitfield, uint64_t);
+  typedef void (*PFNGLDELETESYNCPROC)(GLsync);
+
+  PFNGLCLIENTWAITSYNCPROC glClientWaitSyncFunc =
+      (PFNGLCLIENTWAITSYNCPROC)glfwGetProcAddress("glClientWaitSync");
+  PFNGLDELETESYNCPROC glDeleteSyncFunc =
+      (PFNGLDELETESYNCPROC)glfwGetProcAddress("glDeleteSync");
+
+  if (glClientWaitSyncFunc && glDeleteSyncFunc) {
+    GLenum result =
+        glClientWaitSyncFunc((GLsync)sync_fence_, GL_SYNC_FLUSH_COMMANDS_BIT,
+                             1000000000); // 1 second timeout
+    if (result == GL_WAIT_FAILED) {
+      std::cerr << "Sync wait failed!" << std::endl;
+    }
+    glDeleteSyncFunc((GLsync)sync_fence_);
+  }
+#endif
+
+  sync_fence_ = 0;
+}
+
+void InstancedMesh::update_persistent_buffer() {
+  if (!needs_update_ || !mapped_buffer_)
+    return;
+
+  // Wait for previous frame to finish reading the buffer
+  wait_for_previous_frame();
+
+  // Direct memory write (zero-copy!)
+  memcpy(mapped_buffer_, instance_data_.data(),
+         instance_data_.size() * sizeof(InstanceData));
+
+  // With GL_MAP_COHERENT_BIT, writes are automatically visible to GPU
+  // No need for glFlushMappedBufferRange or memory barrier
 
   needs_update_ = false;
 }
@@ -176,13 +455,36 @@ void InstancedMesh::draw() const {
   if (instance_count_ == 0)
     return;
 
-  // Update buffer if needed (const_cast is safe here for lazy update)
-  const_cast<InstancedMesh *>(this)->update_instance_buffer();
+  // Update buffer if needed
+  if (persistent_mapped_) {
+    const_cast<InstancedMesh *>(this)->update_persistent_buffer();
+  } else {
+    const_cast<InstancedMesh *>(this)->update_instance_buffer();
+  }
 
   glBindVertexArray(vao_);
   glDrawElementsInstanced(GL_TRIANGLES, index_count_, GL_UNSIGNED_INT, 0,
                           instance_count_);
   glBindVertexArray(0);
+
+  // Place fence for next frame's synchronization
+  if (persistent_mapped_ && needs_update_) {
+#ifdef _WIN32
+    if (glFenceSync) {
+      const_cast<InstancedMesh *>(this)->sync_fence_ =
+          glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    }
+#elif !defined(__APPLE__)
+    // Linux
+    typedef GLsync (*PFNGLFENCESYNCPROC)(GLenum, GLbitfield);
+    PFNGLFENCESYNCPROC glFenceSyncFunc =
+        (PFNGLFENCESYNCPROC)glfwGetProcAddress("glFenceSync");
+    if (glFenceSyncFunc) {
+      const_cast<InstancedMesh *>(this)->sync_fence_ =
+          (uint64_t)glFenceSyncFunc(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    }
+#endif
+  }
 }
 
 // ============================================================================
@@ -198,8 +500,6 @@ RendererInstanced::create_instanced_mesh(const Mesh &mesh,
 void RendererInstanced::draw_instanced(Renderer &renderer,
                                        const InstancedMesh &mesh,
                                        const Material &base_material) {
-  // Get instanced shader (you'd need to add this to Renderer)
-  // For now, we'll use the default shader
   Shader *shader = renderer.get_shader(renderer.instanced_shader());
   if (!shader)
     return;
