@@ -13,6 +13,8 @@ struct InstanceData {
   Vec3 rotation{0, 0, 0};
   Vec3 scale{1, 1, 1};
   Color color = Color::White();
+  float texture_index = 0.0f; // Index into texture array (0-based)
+  float _padding[3] = {0, 0, 0}; // Padding for alignment
 };
 
 class InstancedMesh {
@@ -91,6 +93,14 @@ public:
   // Helper: Generate random instances within bounds
   static std::vector<InstanceData>
   create_random(int count, const Vec3 &min_bounds, const Vec3 &max_bounds);
+
+  // Helper: Assign texture indices to instances (cycling through available textures)
+  static void assign_texture_indices(std::vector<InstanceData> &instances,
+                                     int num_textures);
+
+  // Helper: Assign random texture indices
+  static void assign_random_texture_indices(std::vector<InstanceData> &instances,
+                                           int num_textures);
 };
 
 } // namespace pixel::renderer3d

@@ -56,6 +56,13 @@ typedef void(APIENTRYP PFNGLDELETEPROGRAMPROC)(GLuint);
 typedef void(APIENTRYP PFNGLDELETEVERTEXARRAYSPROC)(GLsizei, const GLuint *);
 typedef void(APIENTRYP PFNGLDELETEBUFFERSPROC)(GLsizei, const GLuint *);
 
+typedef void(APIENTRYP PFNGLTEXIMAGE3DPROC)(GLenum, GLint, GLint, GLsizei,
+                                            GLsizei, GLsizei, GLint, GLenum,
+                                            GLenum, const void *);
+typedef void(APIENTRYP PFNGLTEXSUBIMAGE3DPROC)(GLenum, GLint, GLint, GLint,
+                                               GLint, GLsizei, GLsizei, GLsizei,
+                                               GLenum, GLenum, const void *);
+
 // Global function pointers
 PFNGLGENBUFFERSPROC glGenBuffers = nullptr;
 PFNGLBINDBUFFERPROC glBindBuffer = nullptr;
@@ -87,6 +94,8 @@ PFNGLDELETESHADERPROC glDeleteShader = nullptr;
 PFNGLDELETEPROGRAMPROC glDeleteProgram = nullptr;
 PFNGLDELETEVERTEXARRAYSPROC glDeleteVertexArrays = nullptr;
 PFNGLDELETEBUFFERSPROC glDeleteBuffers = nullptr;
+PFNGLTEXIMAGE3DPROC glTexImage3D = nullptr;
+PFNGLTEXSUBIMAGE3DPROC glTexSubImage3D = nullptr;
 
 #define LOAD_GL_FUNC(name)                                                     \
   name = (decltype(name))glfwGetProcAddress(#name);                            \
@@ -338,6 +347,8 @@ void Renderer::load_gl_functions() {
   LOAD_GL_FUNC(glDeleteProgram);
   LOAD_GL_FUNC(glDeleteVertexArrays);
   LOAD_GL_FUNC(glDeleteBuffers);
+  LOAD_GL_FUNC(glTexImage3D);
+  LOAD_GL_FUNC(glTexSubImage3D);
 
   std::cout << "Windows: Loaded OpenGL 3.3 functions manually" << std::endl;
 #endif
@@ -430,6 +441,150 @@ void Renderer::update_input_state() {
 }
 
 // ============================================================================
+// Texture Array Implementation
+// ============================================================================
+
+TextureArrayID Renderer::create_texture_array(int width, int height,
+                                              int layers) {
+  if (layers <= 0 || width <= 0 || height <= 0) {
+    throw std::runtime_error("Invalid texture array dimensions");
+  }
+
+  uint32_t gl_id;
+  glGenTextures(1, &gl_id);
+  glBindTexture(GL_TEXTURE_2D_ARRAY, gl_id);
+
+  // Allocate storage for all layers
+  glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA8, width, height, layers, 0,
+               GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+  // Set texture parameters
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER,
+                  GL_LINEAR_MIPMAP_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+  glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+  TextureArrayID id = next_texture_array_id_++;
+  TextureArrayInfo info;
+  info.width = width;
+  info.height = height;
+  info.layers = layers;
+  info.gl_id = gl_id;
+  texture_arrays_[id] = info;
+
+  std::cout << "Created texture array: " << width << "x" << height << " with "
+            << layers << " layers" << std::endl;
+
+  return id;
+}
+
+TextureArrayID
+Renderer::load_texture_array(const std::vector<std::string> &paths) {
+  if (paths.empty()) {
+    throw std::runtime_error(
+        "Cannot create texture array from empty path list");
+  }
+
+  // Load first texture to get dimensions
+  int width, height, channels;
+  stbi_set_flip_vertically_on_load(true);
+  uint8_t *first_data =
+      stbi_load(paths[0].c_str(), &width, &height, &channels, 4);
+
+  if (!first_data) {
+    throw std::runtime_error("Failed to load texture: " + paths[0]);
+  }
+
+  // Create texture array
+  TextureArrayID array_id = create_texture_array(width, height, paths.size());
+
+  // Upload first texture
+  set_texture_array_layer(array_id, 0, first_data);
+  stbi_image_free(first_data);
+
+  // Load and upload remaining textures
+  for (size_t i = 1; i < paths.size(); ++i) {
+    int w, h, c;
+    uint8_t *data = stbi_load(paths[i].c_str(), &w, &h, &c, 4);
+
+    if (!data) {
+      std::cerr << "Warning: Failed to load texture " << paths[i]
+                << ", using placeholder" << std::endl;
+      // Create a simple colored placeholder
+      std::vector<uint8_t> placeholder(width * height * 4);
+      for (size_t j = 0; j < placeholder.size(); j += 4) {
+        placeholder[j] = (i * 50) % 256;      // R
+        placeholder[j + 1] = (i * 100) % 256; // G
+        placeholder[j + 2] = (i * 150) % 256; // B
+        placeholder[j + 3] = 255;             // A
+      }
+      set_texture_array_layer(array_id, i, placeholder.data());
+      continue;
+    }
+
+    if (w != width || h != height) {
+      std::cerr << "Warning: Texture " << paths[i]
+                << " has different dimensions (" << w << "x" << h
+                << ") than expected (" << width << "x" << height
+                << "), skipping" << std::endl;
+      stbi_image_free(data);
+      continue;
+    }
+
+    set_texture_array_layer(array_id, i, data);
+    stbi_image_free(data);
+  }
+
+  // Generate mipmaps
+  auto it = texture_arrays_.find(array_id);
+  if (it != texture_arrays_.end()) {
+    glBindTexture(GL_TEXTURE_2D_ARRAY, it->second.gl_id);
+    glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+  }
+
+  std::cout << "Loaded texture array with " << paths.size() << " textures"
+            << std::endl;
+
+  return array_id;
+}
+
+void Renderer::set_texture_array_layer(TextureArrayID array_id, int layer,
+                                       const uint8_t *data) {
+  auto it = texture_arrays_.find(array_id);
+  if (it == texture_arrays_.end()) {
+    throw std::runtime_error("Invalid texture array ID");
+  }
+
+  const auto &info = it->second;
+
+  if (layer < 0 || layer >= info.layers) {
+    throw std::runtime_error("Layer index out of range");
+  }
+
+  glBindTexture(GL_TEXTURE_2D_ARRAY, info.gl_id);
+  glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, layer, info.width, info.height,
+                  1, GL_RGBA, GL_UNSIGNED_BYTE, data);
+  glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+}
+
+void Renderer::bind_texture_array(TextureArrayID id, int slot) {
+  auto it = texture_arrays_.find(id);
+  if (it != texture_arrays_.end()) {
+    glActiveTexture(GL_TEXTURE0 + slot);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, it->second.gl_id);
+  }
+}
+
+TextureArrayInfo Renderer::get_texture_array_info(TextureArrayID id) const {
+  auto it = texture_arrays_.find(id);
+  return it != texture_arrays_.end() ? it->second : TextureArrayInfo{};
+}
+
+// ============================================================================
 // Shader Management & Drawing - Same as before
 // ============================================================================
 
@@ -501,11 +656,13 @@ void Renderer::setup_default_shaders() {
     layout (location = 5) in vec3 instanceRot;
     layout (location = 6) in vec3 instanceScale;
     layout (location = 7) in vec4 instanceColor;
+    layout (location = 8) in float instanceTexIndex;
     
     out vec3 FragPos;
     out vec3 Normal;
     out vec2 TexCoord;
     out vec4 Color;
+    flat out int TexIndex;
     
     uniform mat4 view;
     uniform mat4 projection;
@@ -541,6 +698,7 @@ void Renderer::setup_default_shaders() {
       Normal = mat3(transpose(inverse(model))) * aNormal;
       TexCoord = aTexCoord;
       Color = aColor * instanceColor;
+      TexIndex = int(instanceTexIndex);
       
       gl_Position = projection * view * vec4(FragPos, 1.0);
     }
@@ -554,9 +712,10 @@ void Renderer::setup_default_shaders() {
     in vec3 Normal;
     in vec2 TexCoord;
     in vec4 Color;
+    flat in int TexIndex;
     
-    uniform sampler2D uTexture;
-    uniform bool useTexture;
+    uniform sampler2DArray uTextureArray;
+    uniform bool useTextureArray;
     uniform vec3 lightPos;
     uniform vec3 viewPos;
     
@@ -564,11 +723,17 @@ void Renderer::setup_default_shaders() {
       vec3 lightColor = vec3(1.0, 1.0, 1.0);
       float ambientStrength = 0.3;
       vec3 ambient = ambientStrength * lightColor;
+      
       vec3 norm = normalize(Normal);
       vec3 lightDir = normalize(lightPos - FragPos);
       float diff = max(dot(norm, lightDir), 0.0);
       vec3 diffuse = diff * lightColor;
-      vec4 texColor = useTexture ? texture(uTexture, TexCoord) : vec4(1.0);
+      
+      vec4 texColor = vec4(1.0);
+      if (useTextureArray) {
+        texColor = texture(uTextureArray, vec3(TexCoord, float(TexIndex)));
+      }
+      
       vec3 result = (ambient + diffuse) * texColor.rgb * Color.rgb;
       FragColor = vec4(result, texColor.a * Color.a);
     }

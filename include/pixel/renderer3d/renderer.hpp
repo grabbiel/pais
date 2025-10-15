@@ -22,6 +22,7 @@
 #define GL_COMPILE_STATUS 0x8B81
 #define GL_LINK_STATUS 0x8B82
 #define GL_TEXTURE0 0x84C0
+#define GL_TEXTURE_2D_ARRAY 0x8C1A
 #endif
 #else
 // Linux
@@ -144,9 +145,19 @@ private:
 using TextureID = uint32_t;
 constexpr TextureID INVALID_TEXTURE = 0;
 
+using TextureArrayID = uint32_t;
+constexpr TextureArrayID INVALID_TEXTURE_ARRAY = 0;
+
 struct TextureInfo {
   int width = 0;
   int height = 0;
+  uint32_t gl_id = 0;
+};
+
+struct TextureArrayInfo {
+  int width = 0;
+  int height = 0;
+  int layers = 0;
   uint32_t gl_id = 0;
 };
 
@@ -228,6 +239,7 @@ struct Material {
   Color specular{1.0f, 1.0f, 1.0f, 1.0f};
   float shininess = 32.0f;
   TextureID texture = INVALID_TEXTURE;
+  TextureArrayID texture_array = INVALID_TEXTURE_ARRAY;
 };
 
 // ============================================================================
@@ -256,6 +268,14 @@ public:
   TextureID create_texture(int width, int height, const uint8_t *data);
   void bind_texture(TextureID id, int slot = 0);
   TextureInfo get_texture_info(TextureID id) const;
+
+  // Texture Array support
+  TextureArrayID create_texture_array(int width, int height, int layers);
+  TextureArrayID load_texture_array(const std::vector<std::string> &paths);
+  void set_texture_array_layer(TextureArrayID array_id, int layer,
+                               const uint8_t *data);
+  void bind_texture_array(TextureArrayID id, int slot = 0);
+  TextureArrayInfo get_texture_array_info(TextureArrayID id) const;
 
   std::unique_ptr<Mesh> create_quad(float size = 1.0f);
   std::unique_ptr<Mesh> create_cube(float size = 1.0f);
@@ -301,6 +321,9 @@ private:
   std::unordered_map<std::string, TextureID> texture_path_to_id_;
   std::unordered_map<TextureID, TextureInfo> textures_;
   TextureID next_texture_id_ = 1;
+
+  std::unordered_map<TextureArrayID, TextureArrayInfo> texture_arrays_;
+  TextureArrayID next_texture_array_id_ = 1;
 
   std::unique_ptr<Mesh> sprite_mesh_;
 

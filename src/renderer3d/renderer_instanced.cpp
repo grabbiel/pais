@@ -254,6 +254,11 @@ void InstancedMesh::setup_instance_buffer() {
                         (void *)offsetof(InstanceData, color));
   glVertexAttribDivisor(7, 1);
 
+  glEnableVertexAttribArray(8);
+  glVertexAttribPointer(8, 1, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                        (void *)offsetof(InstanceData, texture_index));
+  glVertexAttribDivisor(8, 1);
+
   glBindBuffer(GL_ARRAY_BUFFER, 0);
 
   persistent_mapped_ = false;
@@ -279,8 +284,6 @@ void InstancedMesh::setup_persistent_buffer() {
     success = true;
   }
 #elif defined(__APPLE__)
-  // macOS doesn't support glBufferStorage - this should never be called
-  // but add safety check anyway
   std::cerr << "ERROR: setup_persistent_buffer called on macOS - this is a bug!"
             << std::endl;
   setup_instance_buffer();
@@ -358,6 +361,11 @@ void InstancedMesh::setup_persistent_buffer() {
   glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
                         (void *)offsetof(InstanceData, color));
   glVertexAttribDivisor(7, 1);
+
+  glEnableVertexAttribArray(8);
+  glVertexAttribPointer(8, 1, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                        (void *)offsetof(InstanceData, texture_index));
+  glVertexAttribDivisor(8, 1);
 
   glBindBuffer(GL_ARRAY_BUFFER, 0);
 
@@ -518,12 +526,12 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
   shader->set_vec3("viewPos", renderer.camera().position);
 
   // Set material properties
-  if (base_material.texture != INVALID_TEXTURE) {
-    renderer.bind_texture(base_material.texture, 0);
-    shader->set_int("uTexture", 0);
-    shader->set_int("useTexture", 1);
+  if (base_material.texture_array != INVALID_TEXTURE_ARRAY) {
+    renderer.bind_texture_array(base_material.texture_array, 0);
+    shader->set_int("uTextureArray", 0);
+    shader->set_int("useTextureArray", 1);
   } else {
-    shader->set_int("useTexture", 0);
+    shader->set_int("useTextureArray", 0);
   }
 
   // Draw all instances
@@ -535,6 +543,30 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
 // ============================================================================
 // Helper Functions for Instance Generation
 // ============================================================================
+
+void RendererInstanced::assign_texture_indices(
+    std::vector<InstanceData> &instances, int num_textures) {
+  if (num_textures <= 0)
+    return;
+
+  for (size_t i = 0; i < instances.size(); ++i) {
+    instances[i].texture_index = static_cast<float>(i % num_textures);
+  }
+}
+
+void RendererInstanced::assign_random_texture_indices(
+    std::vector<InstanceData> &instances, int num_textures) {
+  if (num_textures <= 0)
+    return;
+
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<> dis(0, num_textures - 1);
+
+  for (auto &instance : instances) {
+    instance.texture_index = static_cast<float>(dis(gen));
+  }
+}
 
 std::vector<InstanceData> RendererInstanced::create_grid(int width, int depth,
                                                          float spacing,
@@ -557,6 +589,9 @@ std::vector<InstanceData> RendererInstanced::create_grid(int width, int depth,
       data.color = Color(0.5f + 0.5f * std::sin(hue * 6.28f),
                          0.5f + 0.5f * std::sin(hue * 6.28f + 2.0f),
                          0.5f + 0.5f * std::sin(hue * 6.28f + 4.0f), 1.0f);
+
+      // Texture index will be 0 by default, can be set later
+      data.texture_index = 0.0f;
 
       instances.push_back(data);
     }
@@ -583,6 +618,8 @@ RendererInstanced::create_circle(int count, float radius, float y_offset) {
     data.color = Color(0.5f + 0.5f * std::sin(hue * 6.28f),
                        0.5f + 0.5f * std::sin(hue * 6.28f + 2.0f),
                        0.5f + 0.5f * std::sin(hue * 6.28f + 4.0f), 1.0f);
+
+    data.texture_index = 0.0f;
 
     instances.push_back(data);
   }
@@ -614,6 +651,7 @@ RendererInstanced::create_random(int count, const Vec3 &min_bounds,
     data.scale = {s, s, s};
 
     data.color = Color(color_dist(gen), color_dist(gen), color_dist(gen), 1.0f);
+    data.texture_index = 0.0f;
 
     instances.push_back(data);
   }
