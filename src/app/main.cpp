@@ -4,7 +4,99 @@
 #include "pixel/renderer3d/renderer.hpp"
 #include "pixel/renderer3d/renderer_instanced.hpp"
 #include <cmath>
+#include <iomanip>
 #include <iostream>
+
+// Platform-specific OpenGL function loading
+#ifdef _WIN32
+#include <windows.h>
+
+// OpenGL 3.3 function pointers for Windows
+typedef void(APIENTRYP PFNGLGENBUFFERSPROC)(GLsizei, GLuint *);
+typedef void(APIENTRYP PFNGLBINDBUFFERPROC)(GLenum, GLuint);
+typedef void(APIENTRYP PFNGLBUFFERDATAPROC)(GLenum, GLsizeiptr, const void *,
+                                            GLenum);
+typedef void(APIENTRYP PFNGLGENVERTEXARRAYSPROC)(GLsizei, GLuint *);
+typedef void(APIENTRYP PFNGLBINDVERTEXARRAYPROC)(GLuint);
+typedef void(APIENTRYP PFNGLENABLEVERTEXATTRIBARRAYPROC)(GLuint);
+typedef void(APIENTRYP PFNGLVERTEXATTRIBPOINTERPROC)(GLuint, GLint, GLenum,
+                                                     GLboolean, GLsizei,
+                                                     const void *);
+typedef GLuint(APIENTRYP PFNGLCREATESHADERPROC)(GLenum);
+typedef void(APIENTRYP PFNGLSHADERSOURCEPROC)(GLuint, GLsizei, const GLchar **,
+                                              const GLint *);
+typedef void(APIENTRYP PFNGLCOMPILESHADERPROC)(GLuint);
+typedef GLuint(APIENTRYP PFNGLCREATEPROGRAMPROC)();
+typedef void(APIENTRYP PFNGLATTACHSHADERPROC)(GLuint, GLuint);
+typedef void(APIENTRYP PFNGLLINKPROGRAMPROC)(GLuint);
+typedef void(APIENTRYP PFNGLUSEPROGRAMPROC)(GLuint);
+typedef void(APIENTRYP PFNGLGETSHADERIVPROC)(GLuint, GLenum, GLint *);
+typedef void(APIENTRYP PFNGLGETSHADERINFOLOGPROC)(GLuint, GLsizei, GLsizei *,
+                                                  GLchar *);
+typedef void(APIENTRYP PFNGLGETPROGRAMIVPROC)(GLuint, GLenum, GLint *);
+typedef void(APIENTRYP PFNGLGETPROGRAMINFOLOGPROC)(GLuint, GLsizei, GLsizei *,
+                                                   GLchar *);
+typedef GLint(APIENTRYP PFNGLGETUNIFORMLOCATIONPROC)(GLuint, const GLchar *);
+typedef void(APIENTRYP PFNGLUNIFORM1IPROC)(GLint, GLint);
+typedef void(APIENTRYP PFNGLUNIFORM1FPROC)(GLint, GLfloat);
+typedef void(APIENTRYP PFNGLUNIFORM2FPROC)(GLint, GLfloat, GLfloat);
+typedef void(APIENTRYP PFNGLUNIFORM3FPROC)(GLint, GLfloat, GLfloat, GLfloat);
+typedef void(APIENTRYP PFNGLUNIFORM4FPROC)(GLint, GLfloat, GLfloat, GLfloat,
+                                           GLfloat);
+typedef void(APIENTRYP PFNGLUNIFORMMATRIX4FVPROC)(GLint, GLsizei, GLboolean,
+                                                  const GLfloat *);
+typedef void(APIENTRYP PFNGLACTIVETEXTUREPROC)(GLenum);
+typedef void(APIENTRYP PFNGLDELETESHADERPROC)(GLuint);
+typedef void(APIENTRYP PFNGLDELETEPROGRAMPROC)(GLuint);
+typedef void(APIENTRYP PFNGLDELETEVERTEXARRAYSPROC)(GLsizei, const GLuint *);
+typedef void(APIENTRYP PFNGLDELETEBUFFERSPROC)(GLsizei, const GLuint *);
+
+typedef void(APIENTRYP PFNGLTEXIMAGE3DPROC)(GLenum, GLint, GLint, GLsizei,
+                                            GLsizei, GLsizei, GLint, GLenum,
+                                            GLenum, const void *);
+typedef void(APIENTRYP PFNGLTEXSUBIMAGE3DPROC)(GLenum, GLint, GLint, GLint,
+                                               GLint, GLsizei, GLsizei, GLsizei,
+                                               GLenum, GLenum, const void *);
+
+// Global function pointers
+PFNGLGENBUFFERSPROC glGenBuffers = nullptr;
+PFNGLBINDBUFFERPROC glBindBuffer = nullptr;
+PFNGLBUFFERDATAPROC glBufferData = nullptr;
+PFNGLGENVERTEXARRAYSPROC glGenVertexArrays = nullptr;
+PFNGLBINDVERTEXARRAYPROC glBindVertexArray = nullptr;
+PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray = nullptr;
+PFNGLVERTEXATTRIBPOINTERPROC glVertexAttribPointer = nullptr;
+PFNGLCREATESHADERPROC glCreateShader = nullptr;
+PFNGLSHADERSOURCEPROC glShaderSource = nullptr;
+PFNGLCOMPILESHADERPROC glCompileShader = nullptr;
+PFNGLCREATEPROGRAMPROC glCreateProgram = nullptr;
+PFNGLATTACHSHADERPROC glAttachShader = nullptr;
+PFNGLLINKPROGRAMPROC glLinkProgram = nullptr;
+PFNGLUSEPROGRAMPROC glUseProgram = nullptr;
+PFNGLGETSHADERIVPROC glGetShaderiv = nullptr;
+PFNGLGETSHADERINFOLOGPROC glGetShaderInfoLog = nullptr;
+PFNGLGETPROGRAMIVPROC glGetProgramiv = nullptr;
+PFNGLGETPROGRAMINFOLOGPROC glGetProgramInfoLog = nullptr;
+PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation = nullptr;
+PFNGLUNIFORM1IPROC glUniform1i = nullptr;
+PFNGLUNIFORM1FPROC glUniform1f = nullptr;
+PFNGLUNIFORM2FPROC glUniform2f = nullptr;
+PFNGLUNIFORM3FPROC glUniform3f = nullptr;
+PFNGLUNIFORM4FPROC glUniform4f = nullptr;
+PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv = nullptr;
+PFNGLACTIVETEXTUREPROC glActiveTexture = nullptr;
+PFNGLDELETESHADERPROC glDeleteShader = nullptr;
+PFNGLDELETEPROGRAMPROC glDeleteProgram = nullptr;
+PFNGLDELETEVERTEXARRAYSPROC glDeleteVertexArrays = nullptr;
+PFNGLDELETEBUFFERSPROC glDeleteBuffers = nullptr;
+PFNGLTEXIMAGE3DPROC glTexImage3D = nullptr;
+PFNGLTEXSUBIMAGE3DPROC glTexSubImage3D = nullptr;
+
+#define LOAD_GL_FUNC(name)                                                     \
+  name = (decltype(name))glfwGetProcAddress(#name);                            \
+  if (!name)                                                                   \
+    throw std::runtime_error("Failed to load " #name);
+#endif
 
 using namespace pixel::renderer3d;
 
@@ -12,28 +104,24 @@ int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
 
-  // Setup window
   pixel::platform::WindowSpec ws;
-  ws.w = 1280;
-  ws.h = 720;
-  ws.title = "Pixel-Life - Texture Array Demo";
+  ws.w = 1920;
+  ws.h = 1080;
+  ws.title = "Pixel-Life - GPU Frustum Culling Demo";
 
   auto r = Renderer::create(ws);
 
-  // Create base mesh
   auto cube_mesh = r->create_cube(1.0f);
-  auto floor_mesh = r->create_plane(40.0f, 40.0f, 10);
+  auto floor_mesh = r->create_plane(100.0f, 100.0f, 20);
 
   // Setup camera
-  r->camera().position = {20, 15, 20};
+  r->camera().position = {50, 30, 50};
   r->camera().target = {0, 0, 0};
   r->camera().mode = Camera::ProjectionMode::Perspective;
+  r->camera().fov = 60.0f;
+  r->camera().far_clip = 200.0f;
 
-  // ============================================================================
-  // TEXTURE ARRAY SETUP
-  // ============================================================================
-
-  // Option 1: Load from files
+  // Load or create textures
   std::vector<std::string> texture_paths = {
       pixel::platform::get_resource_file("assets/textures/brick.png"),
       pixel::platform::get_resource_file("assets/textures/stone.png"),
@@ -45,31 +133,19 @@ int main(int argc, char **argv) {
   TextureArrayID tex_array = INVALID_TEXTURE_ARRAY;
 
   try {
-    std::cout << "\nAttempting to load textures from:" << std::endl;
-    for (const auto &path : texture_paths) {
-      std::cout << "  - " << path << std::endl;
-    }
-
     tex_array = r->load_texture_array(texture_paths);
     std::cout << "✓ Successfully loaded texture array!" << std::endl;
-
   } catch (const std::exception &e) {
-    std::cout << "✗ Could not load textures: " << e.what() << std::endl;
-    std::cout << "\nGenerating procedural textures instead..." << std::endl;
-
-    // Fallback: Create procedural texture array
+    std::cout << "✗ Falling back to procedural textures" << std::endl;
     const int TEX_SIZE = 128;
     const int NUM_TEXTURES = 6;
     tex_array = r->create_texture_array(TEX_SIZE, TEX_SIZE, NUM_TEXTURES);
 
     std::vector<uint8_t> tex_data(TEX_SIZE * TEX_SIZE * 4);
-
     for (int layer = 0; layer < NUM_TEXTURES; ++layer) {
-      // Generate procedural pattern
       for (int y = 0; y < TEX_SIZE; ++y) {
         for (int x = 0; x < TEX_SIZE; ++x) {
           int idx = (y * TEX_SIZE + x) * 4;
-
           bool checker = ((x / 8) + (y / 8)) % 2 == 0;
           float base = checker ? 0.8f : 0.3f;
           float hue = layer / (float)NUM_TEXTURES;
@@ -85,53 +161,51 @@ int main(int argc, char **argv) {
           tex_data[idx + 3] = 255;
         }
       }
-
       r->set_texture_array_layer(tex_array, layer, tex_data.data());
     }
-
-    std::cout << "✓ Created " << NUM_TEXTURES << " procedural textures"
-              << std::endl;
   }
 
   auto array_info = r->get_texture_array_info(tex_array);
-  std::cout << "\nTexture array info:" << std::endl;
-  std::cout << "  Size: " << array_info.width << "x" << array_info.height
-            << std::endl;
-  std::cout << "  Layers: " << array_info.layers << std::endl;
+  std::cout << "Texture array: " << array_info.width << "x" << array_info.height
+            << " with " << array_info.layers << " layers" << std::endl;
 
   // ============================================================================
-  // CREATE INSTANCED MESHES WITH TEXTURE INDICES
+  // CREATE LARGE INSTANCED MESH FOR CULLING DEMO
   // ============================================================================
 
-  // Create instanced mesh
+  const int GRID_SIZE = 100; // 100x100 = 10,000 instances
+  const int MAX_INSTANCES = GRID_SIZE * GRID_SIZE;
+
   auto instanced_cubes =
-      RendererInstanced::create_instanced_mesh(*cube_mesh, 500);
+      RendererInstanced::create_instanced_mesh(*cube_mesh, MAX_INSTANCES);
 
-  // Generate instance data
-  auto instances = RendererInstanced::create_grid(20, 20, 2.5f, 0.5f);
+  std::cout << "\n========================================" << std::endl;
+  std::cout << "GPU Culling Demo Configuration:" << std::endl;
+  std::cout << "========================================" << std::endl;
+  std::cout << "Total instances: " << MAX_INSTANCES << std::endl;
+  std::cout << "Persistent mapping: "
+            << (instanced_cubes->using_persistent_mapping() ? "YES" : "NO")
+            << std::endl;
+  std::cout << "GPU culling: "
+            << (instanced_cubes->using_gpu_culling() ? "YES" : "NO")
+            << std::endl;
+  std::cout << "========================================\n" << std::endl;
 
-  // Assign texture indices - each cube gets a different texture from the array
+  // Generate instances in a large grid
+  auto instances =
+      RendererInstanced::create_grid(GRID_SIZE, GRID_SIZE, 3.0f, 0.5f);
+
+  // Set culling radius for each instance (based on scale)
+  for (auto &inst : instances) {
+    inst.culling_radius = 0.866f; // sqrt(3)/2 for unit cube diagonal
+  }
+
   RendererInstanced::assign_texture_indices(instances, array_info.layers);
-  // Or use random assignment:
-  // RendererInstanced::assign_random_texture_indices(instances,
-  // array_info.layers);
-
   instanced_cubes->set_instances(instances);
-
-  std::cout << "Created " << instances.size()
-            << " instanced cubes with textures" << std::endl;
-
-  // Create another set with random textures
-  auto random_cubes = RendererInstanced::create_instanced_mesh(*cube_mesh, 200);
-  auto random_instances = RendererInstanced::create_random(
-      100, Vec3{-30, 10, -30}, Vec3{30, 30, 30});
-  RendererInstanced::assign_random_texture_indices(random_instances,
-                                                   array_info.layers);
-  random_cubes->set_instances(random_instances);
 
   // Floor material
   Material floor_mat;
-  floor_mat.diffuse = Color(0.3f, 0.3f, 0.35f, 1.0f);
+  floor_mat.diffuse = Color(0.2f, 0.25f, 0.2f, 1.0f);
 
   // Material with texture array
   Material textured_mat;
@@ -142,15 +216,25 @@ int main(int argc, char **argv) {
   float time_elapsed = 0.0f;
 
   bool mouse_was_pressed = false;
-  int render_mode = 0; // 0 = grid, 1 = random, 2 = both
+  bool show_stats = true;
+  bool animate_instances = true;
+
+  // Performance tracking
+  double last_fps_update = t0;
+  int frame_count = 0;
+  double fps = 0.0;
+  uint32_t last_visible_count = 0;
 
   std::cout << "\nControls:" << std::endl;
   std::cout << "  Mouse drag: Orbit camera" << std::endl;
   std::cout << "  W/S: Zoom in/out" << std::endl;
+  std::cout << "  A/D: Pan left/right" << std::endl;
+  std::cout << "  Q/E: Pan up/down" << std::endl;
   std::cout << "  1/2: Switch projection mode" << std::endl;
-  std::cout << "  Space: Cycle render modes" << std::endl;
-  std::cout << "  T: Cycle texture assignment" << std::endl;
+  std::cout << "  Space: Toggle animation" << std::endl;
+  std::cout << "  T: Toggle stats display" << std::endl;
   std::cout << "  R: Reset camera" << std::endl;
+  std::cout << "  +/-: Adjust FOV" << std::endl;
   std::cout << "  ESC: Exit" << std::endl;
 
   // Main loop
@@ -162,53 +246,79 @@ int main(int argc, char **argv) {
     // Handle input
     const auto &input = r->input();
 
+    // Camera controls
     if (input.key_pressed(KEY_W)) {
       r->camera().zoom(-0.5f);
     }
     if (input.key_pressed(KEY_S)) {
       r->camera().zoom(0.5f);
     }
+    if (input.key_pressed(KEY_A)) {
+      r->camera().pan(-0.5f, 0);
+    }
+    if (input.key_pressed(KEY_D)) {
+      r->camera().pan(0.5f, 0);
+    }
+
+    // Projection mode
     if (input.key_pressed(KEY_1)) {
       r->camera().mode = Camera::ProjectionMode::Perspective;
+      std::cout << "Perspective projection" << std::endl;
     }
     if (input.key_pressed(KEY_2)) {
       r->camera().mode = Camera::ProjectionMode::Orthographic;
-    }
-    if (input.key_pressed(KEY_R)) {
-      r->camera().position = {20, 15, 20};
-      r->camera().target = {0, 0, 0};
+      std::cout << "Orthographic projection" << std::endl;
     }
 
-    // Toggle render mode
+    // FOV adjustment
+    static bool plus_pressed = false;
+    if (input.key_pressed('=') || input.key_pressed('+')) {
+      if (!plus_pressed) {
+        r->camera().fov = std::min(120.0f, r->camera().fov + 5.0f);
+        std::cout << "FOV: " << r->camera().fov << "°" << std::endl;
+        plus_pressed = true;
+      }
+    } else {
+      plus_pressed = false;
+    }
+
+    static bool minus_pressed = false;
+    if (input.key_pressed('-') || input.key_pressed('_')) {
+      if (!minus_pressed) {
+        r->camera().fov = std::max(10.0f, r->camera().fov - 5.0f);
+        std::cout << "FOV: " << r->camera().fov << "°" << std::endl;
+        minus_pressed = true;
+      }
+    } else {
+      minus_pressed = false;
+    }
+
+    // Reset camera
+    if (input.key_pressed(KEY_R)) {
+      r->camera().position = {50, 30, 50};
+      r->camera().target = {0, 0, 0};
+      r->camera().fov = 60.0f;
+      std::cout << "Camera reset" << std::endl;
+    }
+
+    // Toggle animation
     static bool space_pressed = false;
     if (input.key_pressed(KEY_SPACE)) {
       if (!space_pressed) {
-        render_mode = (render_mode + 1) % 3;
-        const char *modes[] = {"Grid", "Random", "Both"};
-        std::cout << "Render mode: " << modes[render_mode] << std::endl;
+        animate_instances = !animate_instances;
+        std::cout << "Animation: " << (animate_instances ? "ON" : "OFF")
+                  << std::endl;
         space_pressed = true;
       }
     } else {
       space_pressed = false;
     }
 
-    // Reassign textures on T key
+    // Toggle stats
     static bool t_pressed = false;
     if (input.key_pressed('T')) {
       if (!t_pressed) {
-        static int assignment_mode = 0;
-        assignment_mode = (assignment_mode + 1) % 2;
-
-        if (assignment_mode == 0) {
-          std::cout << "Sequential texture assignment" << std::endl;
-          RendererInstanced::assign_texture_indices(instances,
-                                                    array_info.layers);
-        } else {
-          std::cout << "Random texture assignment" << std::endl;
-          RendererInstanced::assign_random_texture_indices(instances,
-                                                           array_info.layers);
-        }
-        instanced_cubes->set_instances(instances);
+        show_stats = !show_stats;
         t_pressed = true;
       }
     } else {
@@ -226,7 +336,7 @@ int main(int argc, char **argv) {
       } else {
         float dx = static_cast<float>(input.mouse_delta_x);
         float dy = static_cast<float>(input.mouse_delta_y);
-        r->camera().orbit(dx * 0.5f, dy * 0.5f);
+        r->camera().orbit(dx * 0.3f, dy * 0.3f);
       }
     } else {
       mouse_was_pressed = false;
@@ -234,45 +344,74 @@ int main(int argc, char **argv) {
 
     // Fixed timestep update
     while (acc >= dt) {
-      time_elapsed += static_cast<float>(dt);
+      if (animate_instances) {
+        time_elapsed += static_cast<float>(dt);
 
-      // Animate instances
-      for (size_t i = 0; i < instances.size(); ++i) {
-        float phase = (i % 20) * 0.3f + (i / 20) * 0.3f;
-        instances[i].position.y =
-            0.5f + 0.5f * std::sin(time_elapsed * 2.0f + phase);
-        instances[i].rotation.y = time_elapsed * 30.0f;
-      }
-      instanced_cubes->set_instances(instances);
+        // Animate instances with wave motion
+        for (size_t i = 0; i < instances.size(); ++i) {
+          int x = i % GRID_SIZE;
+          int z = i / GRID_SIZE;
 
-      // Animate random instances
-      for (size_t i = 0; i < random_instances.size(); ++i) {
-        random_instances[i].rotation.y += 20.0f * dt;
-        random_instances[i].rotation.x += 15.0f * dt;
+          float phase = (x + z) * 0.1f;
+          instances[i].position.y =
+              0.5f + 0.3f * std::sin(time_elapsed * 2.0f + phase);
+          instances[i].rotation.y = time_elapsed * 30.0f + phase * 20.0f;
+
+          // Vary scale slightly
+          float scale = 1.0f + 0.2f * std::sin(time_elapsed * 1.5f + phase);
+          instances[i].scale = {scale, scale, scale};
+
+          // Update culling radius based on scale
+          instances[i].culling_radius = 0.866f * scale;
+        }
+
+        instanced_cubes->set_instances(instances);
       }
-      random_cubes->set_instances(random_instances);
 
       acc -= dt;
     }
 
+    // FPS calculation
+    frame_count++;
+    if (t1 - last_fps_update >= 1.0) {
+      fps = frame_count / (t1 - last_fps_update);
+      frame_count = 0;
+      last_fps_update = t1;
+
+      // Get visible instance count after culling
+      last_visible_count = instanced_cubes->get_visible_count();
+
+      if (show_stats) {
+        std::cout << std::fixed << std::setprecision(1);
+        std::cout << "\rFPS: " << fps << " | Instances: " << last_visible_count
+                  << "/" << MAX_INSTANCES << " ("
+                  << (100.0f * last_visible_count / MAX_INSTANCES)
+                  << "% visible)"
+                  << " | Cam: (" << r->camera().position.x << ", "
+                  << r->camera().position.y << ", " << r->camera().position.z
+                  << ")" << std::flush;
+      }
+    }
+
     // Rendering
-    r->begin_frame(Color(0.1f, 0.1f, 0.15f, 1.0f));
+    r->begin_frame(Color(0.05f, 0.05f, 0.08f, 1.0f));
 
     // Draw floor
     r->draw_mesh(*floor_mesh, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, floor_mat);
 
-    // Draw instanced meshes with texture array
-    if (render_mode == 0 || render_mode == 2) {
-      RendererInstanced::draw_instanced(*r, *instanced_cubes, textured_mat);
-    }
-
-    if (render_mode == 1 || render_mode == 2) {
-      RendererInstanced::draw_instanced(*r, *random_cubes, textured_mat);
-    }
+    // Draw instanced cubes with GPU culling
+    RendererInstanced::draw_instanced(*r, *instanced_cubes, textured_mat);
 
     r->end_frame();
   }
 
-  std::cout << "\nShutting down..." << std::endl;
+  std::cout << "\n\nShutting down..." << std::endl;
+  std::cout << "Final stats:" << std::endl;
+  std::cout << "  Total instances: " << MAX_INSTANCES << std::endl;
+  std::cout << "  Average visible: " << last_visible_count << std::endl;
+  std::cout << "  Culling efficiency: "
+            << (100.0f * (MAX_INSTANCES - last_visible_count) / MAX_INSTANCES)
+            << "% culled" << std::endl;
+
   return 0;
 }
