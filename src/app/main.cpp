@@ -1,5 +1,6 @@
 #include "pixel/core/clock.hpp"
 #include "pixel/platform/platform.hpp"
+#include "pixel/platform/resources.hpp"
 #include "pixel/renderer3d/renderer.hpp"
 #include "pixel/renderer3d/renderer_instanced.hpp"
 #include <cmath>
@@ -34,40 +35,45 @@ int main(int argc, char **argv) {
 
   // Option 1: Load from files
   std::vector<std::string> texture_paths = {
-      "assets/textures/brick.png", "assets/textures/stone.png",
-      "assets/textures/wood.png",  "assets/textures/metal.png",
-      "assets/textures/grass.png", "assets/textures/dirt.png"};
+      pixel::platform::get_resource_file("assets/textures/brick.png"),
+      pixel::platform::get_resource_file("assets/textures/stone.png"),
+      pixel::platform::get_resource_file("assets/textures/wood.png"),
+      pixel::platform::get_resource_file("assets/textures/metal.png"),
+      pixel::platform::get_resource_file("assets/textures/grass.png"),
+      pixel::platform::get_resource_file("assets/textures/dirt.png")};
 
   TextureArrayID tex_array = INVALID_TEXTURE_ARRAY;
 
   try {
-    // Try to load textures from files
-    tex_array = r->load_texture_array(texture_paths);
-  } catch (const std::exception &e) {
-    std::cout << "Could not load textures from files: " << e.what()
-              << std::endl;
-    std::cout << "Creating procedural texture array instead..." << std::endl;
+    std::cout << "\nAttempting to load textures from:" << std::endl;
+    for (const auto &path : texture_paths) {
+      std::cout << "  - " << path << std::endl;
+    }
 
-    // Option 2: Create procedural texture array
-    const int TEX_SIZE = 64;
+    tex_array = r->load_texture_array(texture_paths);
+    std::cout << "✓ Successfully loaded texture array!" << std::endl;
+
+  } catch (const std::exception &e) {
+    std::cout << "✗ Could not load textures: " << e.what() << std::endl;
+    std::cout << "\nGenerating procedural textures instead..." << std::endl;
+
+    // Fallback: Create procedural texture array
+    const int TEX_SIZE = 128;
     const int NUM_TEXTURES = 6;
     tex_array = r->create_texture_array(TEX_SIZE, TEX_SIZE, NUM_TEXTURES);
 
-    // Generate procedural textures for each layer
     std::vector<uint8_t> tex_data(TEX_SIZE * TEX_SIZE * 4);
 
     for (int layer = 0; layer < NUM_TEXTURES; ++layer) {
-      // Generate different pattern for each layer
+      // Generate procedural pattern
       for (int y = 0; y < TEX_SIZE; ++y) {
         for (int x = 0; x < TEX_SIZE; ++x) {
           int idx = (y * TEX_SIZE + x) * 4;
 
-          // Create checkerboard pattern with layer-specific colors
           bool checker = ((x / 8) + (y / 8)) % 2 == 0;
           float base = checker ? 0.8f : 0.3f;
-
-          // Different color for each layer
           float hue = layer / (float)NUM_TEXTURES;
+
           tex_data[idx + 0] =
               (uint8_t)(base * 255 * (0.5f + 0.5f * std::sin(hue * 6.28f)));
           tex_data[idx + 1] =
@@ -83,13 +89,15 @@ int main(int argc, char **argv) {
       r->set_texture_array_layer(tex_array, layer, tex_data.data());
     }
 
-    std::cout << "Created procedural texture array with " << NUM_TEXTURES
-              << " layers" << std::endl;
+    std::cout << "✓ Created " << NUM_TEXTURES << " procedural textures"
+              << std::endl;
   }
 
   auto array_info = r->get_texture_array_info(tex_array);
-  std::cout << "Texture array: " << array_info.width << "x" << array_info.height
-            << " with " << array_info.layers << " layers" << std::endl;
+  std::cout << "\nTexture array info:" << std::endl;
+  std::cout << "  Size: " << array_info.width << "x" << array_info.height
+            << std::endl;
+  std::cout << "  Layers: " << array_info.layers << std::endl;
 
   // ============================================================================
   // CREATE INSTANCED MESHES WITH TEXTURE INDICES
