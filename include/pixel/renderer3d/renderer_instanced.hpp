@@ -14,6 +14,8 @@ struct InstanceData {
   Vec3 scale{1, 1, 1};
   Color color = Color::White();
   float texture_index = 0.0f; // Index into texture array (0-based)
+  float _culling_radius = 1.0f;
+  bool _is_visible = true;
   float _padding[3] = {0, 0, 0}; // Padding for alignment
 };
 
@@ -40,6 +42,14 @@ public:
 
   // Check if using persistent mapped buffers
   bool using_persistent_mapping() const { return persistent_mapped_; }
+
+  void compute_culling(const Vec3 &camera_pos, const Vec3 &camera_dir,
+                       float fov_radians, float aspect_ratio, float near_plane,
+                       float far_plane);
+
+  const std::vector<InstanceData> &get_visible_instances() const {
+    return instance_data_;
+  }
 
 private:
   InstancedMesh() = default;
@@ -94,13 +104,21 @@ public:
   static std::vector<InstanceData>
   create_random(int count, const Vec3 &min_bounds, const Vec3 &max_bounds);
 
-  // Helper: Assign texture indices to instances (cycling through available textures)
+  // Helper: Assign texture indices to instances (cycling through available
+  // textures)
   static void assign_texture_indices(std::vector<InstanceData> &instances,
                                      int num_textures);
 
   // Helper: Assign random texture indices
-  static void assign_random_texture_indices(std::vector<InstanceData> &instances,
-                                           int num_textures);
+  static void
+  assign_random_texture_indices(std::vector<InstanceData> &instances,
+                                int num_textures);
+
+  static void
+  compute_culling_for_instances(std::vector<InstanceData> &instances,
+                                const Vec3 &camera_pos, const Vec3 &camera_dir,
+                                float fov_radians, float aspect_ratio,
+                                float near_plane, float far_plane);
 };
 
 } // namespace pixel::renderer3d

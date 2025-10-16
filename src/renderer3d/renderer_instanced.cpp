@@ -459,6 +459,15 @@ void InstancedMesh::update_instance(size_t index, const InstanceData &data) {
   }
 }
 
+void InstancedMesh::compute_culling(const Vec3 &camera_pos,
+                                    const Vec3 &camera_dir, float fov_radians,
+                                    float aspect_ratio, float near_plane,
+                                    float far_plane) {
+  RendererInstanced::compute_culling_for_instances(
+      instance_data_, camera_pos, camera_dir, fov_radians, aspect_ratio,
+      near_plane, far_plane);
+}
+
 void InstancedMesh::draw() const {
   if (instance_count_ == 0)
     return;
@@ -508,6 +517,16 @@ RendererInstanced::create_instanced_mesh(const Mesh &mesh,
 void RendererInstanced::draw_instanced(Renderer &renderer,
                                        const InstancedMesh &mesh,
                                        const Material &base_material) {
+
+  std::vector<InstanceData> instances = mesh.get_visible_instances();
+  compute_culling_for_instances(
+      instances, renderer.camera().position,
+      (renderer.camera().target - renderer.camera().position).normalized(),
+      glm::radians(renderer.camera().fov),
+      renderer.window_width() / static_cast<float>(renderer.window_height()),
+      renderer.camera().near_clip, // Added near_clip
+      renderer.camera().far_clip);
+
   Shader *shader = renderer.get_shader(renderer.instanced_shader());
   if (!shader)
     return;
@@ -538,6 +557,56 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
   mesh.draw();
 
   shader->unbind();
+}
+
+void RendererInstanced::compute_culling_for_instances(
+    std::vector<InstanceData> &instances, const Vec3 &camera_pos,
+    const Vec3 &camera_dir, float fov_radians, float aspect_ratio,
+    float near_plane, // Added near_plane parameter
+    float far_plane) {
+  // Compute view frustum planes
+  std::vector<Vec4> frustum_planes(6);
+
+  float half_vfov = fov_radians * 0.5f;
+  float half_hfov = std::atan(std::tan(half_vfov) * aspect_ratio);
+
+  Vec3 near_center = camera_pos + camera_dir * near_plane;
+  Vec3 far_center = camera_pos + camera_dir * far_plane;
+
+  float near_height = 2.0f * std::tan(half_vfov) * near_plane;
+  float near_width = near_height * aspect_ratio;
+  float far_height = 2.0f * std::tan(half_vfov) * far_plane;
+  float far_width = far_height * aspect_ratio;
+
+  const Vec3 up = {0, 1, 0}; // Assume world up
+  Vec3 right = glm::cross(camera_dir.to_glm(), up.to_glm());
+
+  // Compute frustum planes
+  // (near, far, left, right, top, bottom)
+  for (auto &instance : instances) {
+    // Distance from camera
+    Vec3 to_instance = instance.position - camera_pos;
+    float dist_to_instance = to_instance.length();
+
+    // Skip culling for very close instances or with infinite radius
+    if (dist_to_instance <= near_plane || instance._culling_radius <= 0) {
+      instance._is_visible = true;
+      continue;
+    }
+
+    // Simple frustum culling: check if instance's bounding sphere intersects
+    // view frustum
+    bool in_frustum = true;
+
+    // Rough distance checks
+    if (dist_to_instance > far_plane + instance._culling_radius) {
+      in_frustum = false;
+    }
+
+    // You can add more precise plane checks here if needed
+
+    instance._is_visible = in_frustum;
+  }
 }
 
 // ============================================================================
