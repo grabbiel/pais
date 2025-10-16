@@ -282,11 +282,10 @@ namespace pixel::renderer3d {
 // LODMesh Implementation
 // ============================================================================
 
-std::unique_ptr<LODMesh> LODMesh::create(const Mesh &high_detail,
-                                         const Mesh &medium_detail,
-                                         const Mesh &low_detail,
-                                         size_t max_instances_per_lod,
-                                         const LODConfig &config) {
+std::unique_ptr<LODMesh>
+LODMesh::create(const Mesh &high_detail, const Mesh &medium_detail,
+                const Mesh &low_detail, size_t max_instances_per_lod,
+                const LODConfig &config, const HLODTree *hlod_tree) {
   auto lod_mesh = std::unique_ptr<LODMesh>(new LODMesh());
 
   lod_mesh->max_instances_per_lod_ = max_instances_per_lod;
@@ -298,6 +297,10 @@ std::unique_ptr<LODMesh> LODMesh::create(const Mesh &high_detail,
       InstancedMesh::create(medium_detail, max_instances_per_lod);
   lod_mesh->lod_meshes_[2] =
       InstancedMesh::create(low_detail, max_instances_per_lod);
+
+  if (hlod_tree) {
+    lod_mesh->set_hlod_tree(*hlod_tree);
+  }
 
   std::cout << "Created LOD mesh system:" << std::endl;
   std::cout << "  Mode: ";
@@ -336,6 +339,65 @@ LODMesh::~LODMesh() {
     glDeleteBuffers(1, &lod_counters_ssbo_);
   if (lod_instance_indices_ssbo_)
     glDeleteBuffers(1, &lod_instance_indices_ssbo_);
+}
+
+void LODMesh::set_hlod_tree(const HLODTree &tree) {
+  hlod_tree_ = tree;
+  cluster_children_.clear();
+  cluster_proxies_.clear();
+
+  for (const auto &cluster : tree.clusters) {
+    cluster_children_[cluster.cluster_id] = cluster.children;
+    if (cluster.proxy_mesh) {
+      cluster_proxies_[cluster.cluster_id] = cluster.proxy_mesh;
+    }
+  }
+}
+
+const std::vector<uint32_t> *
+LODMesh::get_cluster_children(uint32_t cluster_id) const {
+  auto it = cluster_children_.find(cluster_id);
+  if (it == cluster_children_.end())
+    return nullptr;
+  return &it->second;
+}
+
+void LODMesh::set_cluster_proxy(uint32_t cluster_id,
+                                const std::shared_ptr<Mesh> &proxy_mesh) {
+  if (proxy_mesh) {
+    cluster_proxies_[cluster_id] = proxy_mesh;
+  } else {
+    cluster_proxies_.erase(cluster_id);
+  }
+
+  if (hlod_tree_) {
+    if (auto *cluster = hlod_tree_->find_cluster(cluster_id)) {
+      cluster->proxy_mesh = proxy_mesh;
+    }
+  }
+}
+
+std::shared_ptr<Mesh> LODMesh::get_cluster_proxy(uint32_t cluster_id) const {
+  auto it = cluster_proxies_.find(cluster_id);
+  if (it == cluster_proxies_.end())
+    return nullptr;
+  return it->second;
+}
+
+void LODMesh::set_cluster_children(uint32_t cluster_id,
+                                   const std::vector<uint32_t> &children) {
+  cluster_children_[cluster_id] = children;
+  if (hlod_tree_) {
+    if (auto *cluster = hlod_tree_->find_cluster(cluster_id)) {
+      cluster->children = children;
+    }
+  }
+}
+
+void LODMesh::clear_hlod_tree() {
+  hlod_tree_.reset();
+  cluster_children_.clear();
+  cluster_proxies_.clear();
 }
 
 void LODMesh::setup_lod_compute_shader() {
@@ -687,9 +749,10 @@ LODMesh::LODStats LODMesh::get_stats() const {
 
 std::unique_ptr<LODMesh> RendererLOD::create_lod_mesh(
     const Mesh &high_detail, const Mesh &medium_detail, const Mesh &low_detail,
-    size_t max_instances_per_lod, const LODConfig &config) {
+    size_t max_instances_per_lod, const LODConfig &config,
+    const HLODTree *hlod_tree) {
   return LODMesh::create(high_detail, medium_detail, low_detail,
-                         max_instances_per_lod, config);
+                         max_instances_per_lod, config, hlod_tree);
 }
 
 void RendererLOD::draw_lod(Renderer &renderer, LODMesh &mesh,

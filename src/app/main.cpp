@@ -1,3 +1,7 @@
+// Screen-Space LOD Demo
+// Demonstrates the difference between distance-based, screen-space, and hybrid
+// LOD
+
 #include "pixel/core/clock.hpp"
 #include "pixel/platform/platform.hpp"
 #include "pixel/platform/resources.hpp"
@@ -7,107 +11,13 @@
 #include <iomanip>
 #include <iostream>
 
-// Platform-specific OpenGL function loading
-#ifdef _WIN32
-#include <windows.h>
-
-// OpenGL 3.3 function pointers for Windows
-typedef void(APIENTRYP PFNGLGENBUFFERSPROC)(GLsizei, GLuint *);
-typedef void(APIENTRYP PFNGLBINDBUFFERPROC)(GLenum, GLuint);
-typedef void(APIENTRYP PFNGLBUFFERDATAPROC)(GLenum, GLsizeiptr, const void *,
-                                            GLenum);
-typedef void(APIENTRYP PFNGLGENVERTEXARRAYSPROC)(GLsizei, GLuint *);
-typedef void(APIENTRYP PFNGLBINDVERTEXARRAYPROC)(GLuint);
-typedef void(APIENTRYP PFNGLENABLEVERTEXATTRIBARRAYPROC)(GLuint);
-typedef void(APIENTRYP PFNGLVERTEXATTRIBPOINTERPROC)(GLuint, GLint, GLenum,
-                                                     GLboolean, GLsizei,
-                                                     const void *);
-typedef GLuint(APIENTRYP PFNGLCREATESHADERPROC)(GLenum);
-typedef void(APIENTRYP PFNGLSHADERSOURCEPROC)(GLuint, GLsizei, const GLchar **,
-                                              const GLint *);
-typedef void(APIENTRYP PFNGLCOMPILESHADERPROC)(GLuint);
-typedef GLuint(APIENTRYP PFNGLCREATEPROGRAMPROC)();
-typedef void(APIENTRYP PFNGLATTACHSHADERPROC)(GLuint, GLuint);
-typedef void(APIENTRYP PFNGLLINKPROGRAMPROC)(GLuint);
-typedef void(APIENTRYP PFNGLUSEPROGRAMPROC)(GLuint);
-typedef void(APIENTRYP PFNGLGETSHADERIVPROC)(GLuint, GLenum, GLint *);
-typedef void(APIENTRYP PFNGLGETSHADERINFOLOGPROC)(GLuint, GLsizei, GLsizei *,
-                                                  GLchar *);
-typedef void(APIENTRYP PFNGLGETPROGRAMIVPROC)(GLuint, GLenum, GLint *);
-typedef void(APIENTRYP PFNGLGETPROGRAMINFOLOGPROC)(GLuint, GLsizei, GLsizei *,
-                                                   GLchar *);
-typedef GLint(APIENTRYP PFNGLGETUNIFORMLOCATIONPROC)(GLuint, const GLchar *);
-typedef void(APIENTRYP PFNGLUNIFORM1IPROC)(GLint, GLint);
-typedef void(APIENTRYP PFNGLUNIFORM1FPROC)(GLint, GLfloat);
-typedef void(APIENTRYP PFNGLUNIFORM2FPROC)(GLint, GLfloat, GLfloat);
-typedef void(APIENTRYP PFNGLUNIFORM3FPROC)(GLint, GLfloat, GLfloat, GLfloat);
-typedef void(APIENTRYP PFNGLUNIFORM4FPROC)(GLint, GLfloat, GLfloat, GLfloat,
-                                           GLfloat);
-typedef void(APIENTRYP PFNGLUNIFORMMATRIX4FVPROC)(GLint, GLsizei, GLboolean,
-                                                  const GLfloat *);
-typedef void(APIENTRYP PFNGLACTIVETEXTUREPROC)(GLenum);
-typedef void(APIENTRYP PFNGLDELETESHADERPROC)(GLuint);
-typedef void(APIENTRYP PFNGLDELETEPROGRAMPROC)(GLuint);
-typedef void(APIENTRYP PFNGLDELETEVERTEXARRAYSPROC)(GLsizei, const GLuint *);
-typedef void(APIENTRYP PFNGLDELETEBUFFERSPROC)(GLsizei, const GLuint *);
-
-typedef void(APIENTRYP PFNGLTEXIMAGE3DPROC)(GLenum, GLint, GLint, GLsizei,
-                                            GLsizei, GLsizei, GLint, GLenum,
-                                            GLenum, const void *);
-typedef void(APIENTRYP PFNGLTEXSUBIMAGE3DPROC)(GLenum, GLint, GLint, GLint,
-                                               GLint, GLsizei, GLsizei, GLsizei,
-                                               GLenum, GLenum, const void *);
-
-// Global function pointers
-PFNGLGENBUFFERSPROC glGenBuffers = nullptr;
-PFNGLBINDBUFFERPROC glBindBuffer = nullptr;
-PFNGLBUFFERDATAPROC glBufferData = nullptr;
-PFNGLGENVERTEXARRAYSPROC glGenVertexArrays = nullptr;
-PFNGLBINDVERTEXARRAYPROC glBindVertexArray = nullptr;
-PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray = nullptr;
-PFNGLVERTEXATTRIBPOINTERPROC glVertexAttribPointer = nullptr;
-PFNGLCREATESHADERPROC glCreateShader = nullptr;
-PFNGLSHADERSOURCEPROC glShaderSource = nullptr;
-PFNGLCOMPILESHADERPROC glCompileShader = nullptr;
-PFNGLCREATEPROGRAMPROC glCreateProgram = nullptr;
-PFNGLATTACHSHADERPROC glAttachShader = nullptr;
-PFNGLLINKPROGRAMPROC glLinkProgram = nullptr;
-PFNGLUSEPROGRAMPROC glUseProgram = nullptr;
-PFNGLGETSHADERIVPROC glGetShaderiv = nullptr;
-PFNGLGETSHADERINFOLOGPROC glGetShaderInfoLog = nullptr;
-PFNGLGETPROGRAMIVPROC glGetProgramiv = nullptr;
-PFNGLGETPROGRAMINFOLOGPROC glGetProgramInfoLog = nullptr;
-PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation = nullptr;
-PFNGLUNIFORM1IPROC glUniform1i = nullptr;
-PFNGLUNIFORM1FPROC glUniform1f = nullptr;
-PFNGLUNIFORM2FPROC glUniform2f = nullptr;
-PFNGLUNIFORM3FPROC glUniform3f = nullptr;
-PFNGLUNIFORM4FPROC glUniform4f = nullptr;
-PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv = nullptr;
-PFNGLACTIVETEXTUREPROC glActiveTexture = nullptr;
-PFNGLDELETESHADERPROC glDeleteShader = nullptr;
-PFNGLDELETEPROGRAMPROC glDeleteProgram = nullptr;
-PFNGLDELETEVERTEXARRAYSPROC glDeleteVertexArrays = nullptr;
-PFNGLDELETEBUFFERSPROC glDeleteBuffers = nullptr;
-PFNGLTEXIMAGE3DPROC glTexImage3D = nullptr;
-PFNGLTEXSUBIMAGE3DPROC glTexSubImage3D = nullptr;
-
-#define LOAD_GL_FUNC(name)                                                     \
-  name = (decltype(name))glfwGetProcAddress(#name);                            \
-  if (!name)                                                                   \
-    throw std::runtime_error("Failed to load " #name);
-#endif
-
 using namespace pixel::renderer3d;
 
 int main(int argc, char **argv) {
-  (void)argc;
-  (void)argv;
-
   pixel::platform::WindowSpec ws;
   ws.w = 1920;
   ws.h = 1080;
-  ws.title = "Pixel-Life - Multi-LOD System Demo";
+  ws.title = "Pixel-Life - Screen-Space LOD Demo";
 
   auto r = Renderer::create(ws);
 
@@ -115,51 +25,37 @@ int main(int argc, char **argv) {
   // Create LOD Meshes
   // ============================================================================
 
-  std::cout << "\n========================================" << std::endl;
-  std::cout << "Creating LOD Meshes..." << std::endl;
-  std::cout << "========================================\n" << std::endl;
-
-  // Cube LODs
   auto cube_high = RendererLOD::create_cube_high_detail(*r, 1.0f);
   auto cube_medium = RendererLOD::create_cube_medium_detail(*r, 1.0f);
   auto cube_low = RendererLOD::create_cube_low_detail(*r, 1.0f);
 
-  std::cout << "Cube mesh vertices:" << std::endl;
+  std::cout << "\n========================================" << std::endl;
+  std::cout << "Screen-Space LOD Demo" << std::endl;
+  std::cout << "========================================\n" << std::endl;
+
+  std::cout << "Mesh detail levels:" << std::endl;
   std::cout << "  High:   " << cube_high->vertex_count() << " vertices"
             << std::endl;
   std::cout << "  Medium: " << cube_medium->vertex_count() << " vertices"
             << std::endl;
-  std::cout << "  Low:    " << cube_low->vertex_count() << " vertices"
-            << std::endl;
-
-  // Sphere LODs
-  auto sphere_high = RendererLOD::create_sphere_high_detail(*r, 0.5f);
-  auto sphere_medium = RendererLOD::create_sphere_medium_detail(*r, 0.5f);
-  auto sphere_low = RendererLOD::create_sphere_low_detail(*r, 0.5f);
-
-  std::cout << "\nSphere mesh vertices:" << std::endl;
-  std::cout << "  High:   " << sphere_high->vertex_count() << " vertices"
-            << std::endl;
-  std::cout << "  Medium: " << sphere_medium->vertex_count() << " vertices"
-            << std::endl;
-  std::cout << "  Low:    " << sphere_low->vertex_count() << " vertices"
+  std::cout << "  Low:    " << cube_low->vertex_count() << " vertices\n"
             << std::endl;
 
   // Floor
-  auto floor_mesh = r->create_plane(200.0f, 200.0f, 40);
+  auto floor_mesh = r->create_plane(300.0f, 300.0f, 50);
 
   // ============================================================================
-  // Setup Camera
+  // Camera Setup
   // ============================================================================
 
-  r->camera().position = {80, 50, 80};
+  r->camera().position = {60, 40, 60};
   r->camera().target = {0, 0, 0};
   r->camera().mode = Camera::ProjectionMode::Perspective;
   r->camera().fov = 60.0f;
-  r->camera().far_clip = 300.0f;
+  r->camera().far_clip = 500.0f;
 
   // ============================================================================
-  // Load Textures
+  // Texture Array
   // ============================================================================
 
   std::vector<std::string> texture_paths = {
@@ -174,9 +70,8 @@ int main(int argc, char **argv) {
 
   try {
     tex_array = r->load_texture_array(texture_paths);
-    std::cout << "\n✓ Successfully loaded texture array!" << std::endl;
   } catch (const std::exception &e) {
-    std::cout << "\n✗ Falling back to procedural textures" << std::endl;
+    // Fallback to procedural textures
     const int TEX_SIZE = 128;
     const int NUM_TEXTURES = 6;
     tex_array = r->create_texture_array(TEX_SIZE, TEX_SIZE, NUM_TEXTURES);
@@ -206,69 +101,95 @@ int main(int argc, char **argv) {
   }
 
   auto array_info = r->get_texture_array_info(tex_array);
-  std::cout << "Texture array: " << array_info.width << "x" << array_info.height
-            << " with " << array_info.layers << " layers\n"
-            << std::endl;
 
   // ============================================================================
-  // Create LOD Instance System
+  // Create Three LOD Systems for Comparison
   // ============================================================================
 
-  const int GRID_SIZE = 80; // 80x80 = 6,400 instances
+  const int GRID_SIZE = 50;
   const int MAX_INSTANCES = GRID_SIZE * GRID_SIZE;
 
-  // Configure LOD distances
-  LODConfig lod_config;
-  lod_config.distance_high = 30.0f;   // Switch to medium after 30 units
-  lod_config.distance_medium = 80.0f; // Switch to low after 80 units
-  lod_config.distance_cull = 200.0f;  // Cull after 200 units
-  lod_config.hysteresis = 2.0f;
+  // 1. Distance-based LOD
+  LODConfig distance_config;
+  distance_config.mode = LODMode::Distance;
+  distance_config.distance_high = 30.0f;
+  distance_config.distance_medium = 80.0f;
+  distance_config.distance_cull = 200.0f;
 
-  // Create LOD mesh for cubes
-  auto lod_cubes =
+  auto lod_distance = RendererLOD::create_lod_mesh(
+      *cube_high, *cube_medium, *cube_low, MAX_INSTANCES / 3, distance_config);
+
+  // 2. Screen-space LOD
+  LODConfig screenspace_config;
+  screenspace_config.mode = LODMode::ScreenSpace;
+  screenspace_config.screenspace_high = 0.15f;   // 15% of screen height
+  screenspace_config.screenspace_medium = 0.05f; // 5% of screen height
+  screenspace_config.screenspace_low = 0.01f;    // 1% of screen height
+
+  auto lod_screenspace =
       RendererLOD::create_lod_mesh(*cube_high, *cube_medium, *cube_low,
-                                   MAX_INSTANCES / 3, // Max per LOD level
-                                   lod_config);
+                                   MAX_INSTANCES / 3, screenspace_config);
 
-  // Create LOD mesh for spheres (separate demo)
-  auto lod_spheres = RendererLOD::create_lod_mesh(
-      *sphere_high, *sphere_medium, *sphere_low, MAX_INSTANCES / 3, lod_config);
+  // 3. Hybrid LOD
+  LODConfig hybrid_config;
+  hybrid_config.mode = LODMode::Hybrid;
+  hybrid_config.distance_high = 30.0f;
+  hybrid_config.distance_medium = 80.0f;
+  hybrid_config.distance_cull = 200.0f;
+  hybrid_config.screenspace_high = 0.15f;
+  hybrid_config.screenspace_medium = 0.05f;
+  hybrid_config.screenspace_low = 0.01f;
+  hybrid_config.hybrid_screenspace_weight = 0.5f; // 50/50 blend
 
-  std::cout << "\n========================================" << std::endl;
-  std::cout << "LOD System Configuration:" << std::endl;
-  std::cout << "========================================" << std::endl;
-  std::cout << "Total instances: " << MAX_INSTANCES << std::endl;
-  std::cout << "High LOD distance: < " << lod_config.distance_high << " units"
-            << std::endl;
-  std::cout << "Medium LOD distance: " << lod_config.distance_high << " - "
-            << lod_config.distance_medium << " units" << std::endl;
-  std::cout << "Low LOD distance: " << lod_config.distance_medium << " - "
-            << lod_config.distance_cull << " units" << std::endl;
-  std::cout << "Culled beyond: " << lod_config.distance_cull << " units"
-            << std::endl;
-  std::cout << "GPU LOD: "
-            << (lod_cubes->using_gpu_lod() ? "YES" : "NO (CPU fallback)")
-            << std::endl;
-  std::cout << "========================================\n" << std::endl;
+  auto lod_hybrid = RendererLOD::create_lod_mesh(
+      *cube_high, *cube_medium, *cube_low, MAX_INSTANCES / 3, hybrid_config);
 
-  // Generate instance data
+  std::cout << "Created 3 LOD systems:" << std::endl;
+  std::cout << "  1. Distance-based (traditional)" << std::endl;
+  std::cout << "  2. Screen-space (pixel coverage)" << std::endl;
+  std::cout << "  3. Hybrid (50% distance + 50% screen-space)\n" << std::endl;
+
+  // ============================================================================
+  // Generate Instance Data with Varying Sizes
+  // ============================================================================
+
+  // Create grid with varying sizes to demonstrate screen-space LOD
   auto instances =
-      RendererInstanced::create_grid(GRID_SIZE, GRID_SIZE, 4.0f, 0.5f);
+      RendererInstanced::create_grid(GRID_SIZE, GRID_SIZE, 3.0f, 0.5f);
 
-  // Set culling radii
-  for (auto &inst : instances) {
-    inst.culling_radius = 0.866f; // Bounding sphere for unit cube/sphere
+  // Add size variation - objects further from center are larger
+  for (size_t i = 0; i < instances.size(); ++i) {
+    int x = i % GRID_SIZE;
+    int z = i / GRID_SIZE;
+
+    float center_x = GRID_SIZE / 2.0f;
+    float center_z = GRID_SIZE / 2.0f;
+    float dist_from_center = std::sqrt((x - center_x) * (x - center_x) +
+                                       (z - center_z) * (z - center_z));
+
+    // Objects near edges are 3x larger than center objects
+    float scale = 0.8f + 2.2f * (dist_from_center / (GRID_SIZE * 0.7f));
+    scale = std::min(scale, 3.0f);
+
+    instances[i].scale = {scale, scale, scale};
+    instances[i].culling_radius = 0.866f * scale;
   }
 
   RendererInstanced::assign_texture_indices(instances, array_info.layers);
-  lod_cubes->set_instances(instances);
 
-  // Create a second set of instances for spheres (offset)
-  auto sphere_instances = instances;
-  for (auto &inst : sphere_instances) {
-    inst.position.x += GRID_SIZE * 2.0f; // Offset to the side
-  }
-  lod_spheres->set_instances(sphere_instances);
+  lod_distance->set_instances(instances);
+  lod_screenspace->set_instances(instances);
+  lod_hybrid->set_instances(instances);
+
+  std::cout << "Instance configuration:" << std::endl;
+  std::cout << "  Total instances: " << MAX_INSTANCES << std::endl;
+  std::cout << "  Grid: " << GRID_SIZE << "x" << GRID_SIZE << std::endl;
+  std::cout << "  Size variation: 0.8x - 3.0x (larger at edges)\n" << std::endl;
+  std::cout << "This demonstrates how screen-space LOD adapts to object size!"
+            << std::endl;
+  std::cout
+      << "Large distant objects = same screen size as small nearby objects\n"
+      << std::endl;
 
   // Floor material
   Material floor_mat;
@@ -289,7 +210,10 @@ int main(int argc, char **argv) {
   bool mouse_was_pressed = false;
   bool show_stats = true;
   bool animate_instances = true;
-  bool show_spheres = false; // Toggle between cubes and spheres
+
+  // Current LOD mode: 0=distance, 1=screen-space, 2=hybrid
+  int current_mode = 2; // Start with hybrid
+  LODMesh *current_lod_mesh = lod_hybrid.get();
 
   // Performance tracking
   double last_fps_update = t0;
@@ -297,19 +221,34 @@ int main(int argc, char **argv) {
   double fps = 0.0;
   LODMesh::LODStats last_stats;
 
-  std::cout << "\nControls:" << std::endl;
+  std::cout << "\n========================================" << std::endl;
+  std::cout << "Controls:" << std::endl;
+  std::cout << "========================================" << std::endl;
+  std::cout << "Camera:" << std::endl;
   std::cout << "  Mouse drag: Orbit camera" << std::endl;
   std::cout << "  W/S: Zoom in/out" << std::endl;
   std::cout << "  A/D: Pan left/right" << std::endl;
   std::cout << "  Q/E: Pan up/down" << std::endl;
-  std::cout << "  1/2: Switch projection mode" << std::endl;
+  std::cout << "  [ / ]: Adjust FOV" << std::endl;
+  std::cout << "  R: Reset camera" << std::endl;
+  std::cout << "\nLOD Controls:" << std::endl;
+  std::cout << "  Tab: Cycle LOD modes (Distance/Screen-Space/Hybrid)"
+            << std::endl;
+  std::cout << "  +/-: Adjust distance thresholds" << std::endl;
+  std::cout << "  9/0: Adjust screen-space thresholds" << std::endl;
+  std::cout << "  7/8: Adjust hybrid blend (more distance/more screen-space)"
+            << std::endl;
+  std::cout << "\nOther:" << std::endl;
   std::cout << "  Space: Toggle animation" << std::endl;
   std::cout << "  T: Toggle stats display" << std::endl;
-  std::cout << "  M: Toggle mesh type (cubes/spheres)" << std::endl;
-  std::cout << "  R: Reset camera" << std::endl;
-  std::cout << "  +/-: Adjust LOD distances" << std::endl;
-  std::cout << "  [ / ]: Adjust FOV" << std::endl;
-  std::cout << "  ESC: Exit\n" << std::endl;
+  std::cout << "  1/2: Projection mode" << std::endl;
+  std::cout << "  ESC: Exit" << std::endl;
+  std::cout << "========================================\n" << std::endl;
+
+  // Print current mode
+  const char *mode_names[] = {"DISTANCE-BASED", "SCREEN-SPACE", "HYBRID"};
+  std::cout << "Starting with: " << mode_names[current_mode] << " LOD\n"
+            << std::endl;
 
   // Main loop
   while (r->process_events()) {
@@ -324,17 +263,55 @@ int main(int argc, char **argv) {
     const auto &input = r->input();
 
     // Camera controls
-    if (input.key_pressed(KEY_W)) {
+    if (input.key_pressed(KEY_W))
       r->camera().zoom(-1.0f);
-    }
-    if (input.key_pressed(KEY_S)) {
+    if (input.key_pressed(KEY_S))
       r->camera().zoom(1.0f);
-    }
-    if (input.key_pressed(KEY_A)) {
+    if (input.key_pressed(KEY_A))
       r->camera().pan(-1.0f, 0);
-    }
-    if (input.key_pressed(KEY_D)) {
+    if (input.key_pressed(KEY_D))
       r->camera().pan(1.0f, 0);
+
+    // Tab: Cycle LOD modes
+    static bool tab_pressed = false;
+    if (input.key_pressed(KEY_TAB)) {
+      if (!tab_pressed) {
+        current_mode = (current_mode + 1) % 3;
+
+        if (current_mode == 0)
+          current_lod_mesh = lod_distance.get();
+        else if (current_mode == 1)
+          current_lod_mesh = lod_screenspace.get();
+        else
+          current_lod_mesh = lod_hybrid.get();
+
+        std::cout << "\n>>> Switched to: " << mode_names[current_mode]
+                  << " LOD <<<" << std::endl;
+
+        // Print relevant parameters
+        if (current_mode == 0) {
+          std::cout << "  Distance thresholds: "
+                    << lod_distance->config().distance_high << " / "
+                    << lod_distance->config().distance_medium << " / "
+                    << lod_distance->config().distance_cull << std::endl;
+        } else if (current_mode == 1) {
+          std::cout << "  Screen-space thresholds: "
+                    << (lod_screenspace->config().screenspace_high * 100)
+                    << "% / "
+                    << (lod_screenspace->config().screenspace_medium * 100)
+                    << "% / "
+                    << (lod_screenspace->config().screenspace_low * 100) << "%"
+                    << std::endl;
+        } else {
+          std::cout << "  Hybrid weight: "
+                    << (lod_hybrid->config().hybrid_screenspace_weight * 100)
+                    << "% screen-space" << std::endl;
+        }
+
+        tab_pressed = true;
+      }
+    } else {
+      tab_pressed = false;
     }
 
     // Projection mode
@@ -352,7 +329,8 @@ int main(int argc, char **argv) {
     if (input.key_pressed('[')) {
       if (!bracket_left_pressed) {
         r->camera().fov = std::max(10.0f, r->camera().fov - 5.0f);
-        std::cout << "FOV: " << r->camera().fov << "°" << std::endl;
+        std::cout << "FOV: " << r->camera().fov
+                  << "° (narrower FOV = larger screen objects)" << std::endl;
         bracket_left_pressed = true;
       }
     } else {
@@ -363,25 +341,26 @@ int main(int argc, char **argv) {
     if (input.key_pressed(']')) {
       if (!bracket_right_pressed) {
         r->camera().fov = std::min(120.0f, r->camera().fov + 5.0f);
-        std::cout << "FOV: " << r->camera().fov << "°" << std::endl;
+        std::cout << "FOV: " << r->camera().fov
+                  << "° (wider FOV = smaller screen objects)" << std::endl;
         bracket_right_pressed = true;
       }
     } else {
       bracket_right_pressed = false;
     }
 
-    // LOD distance adjustment
+    // Distance threshold adjustment
     static bool plus_pressed = false;
     if (input.key_pressed('=') || input.key_pressed('+')) {
       if (!plus_pressed) {
-        lod_cubes->config().distance_high += 5.0f;
-        lod_cubes->config().distance_medium += 5.0f;
-        lod_spheres->config().distance_high += 5.0f;
-        lod_spheres->config().distance_medium += 5.0f;
-        std::cout << "LOD distances increased: High="
-                  << lod_cubes->config().distance_high
-                  << ", Medium=" << lod_cubes->config().distance_medium
-                  << std::endl;
+        lod_distance->config().distance_high += 5.0f;
+        lod_distance->config().distance_medium += 5.0f;
+        lod_hybrid->config().distance_high += 5.0f;
+        lod_hybrid->config().distance_medium += 5.0f;
+
+        std::cout << "Distance thresholds increased: "
+                  << lod_distance->config().distance_high << " / "
+                  << lod_distance->config().distance_medium << std::endl;
         plus_pressed = true;
       }
     } else {
@@ -391,26 +370,110 @@ int main(int argc, char **argv) {
     static bool minus_pressed = false;
     if (input.key_pressed('-') || input.key_pressed('_')) {
       if (!minus_pressed) {
-        lod_cubes->config().distance_high =
-            std::max(10.0f, lod_cubes->config().distance_high - 5.0f);
-        lod_cubes->config().distance_medium =
-            std::max(20.0f, lod_cubes->config().distance_medium - 5.0f);
-        lod_spheres->config().distance_high = lod_cubes->config().distance_high;
-        lod_spheres->config().distance_medium =
-            lod_cubes->config().distance_medium;
-        std::cout << "LOD distances decreased: High="
-                  << lod_cubes->config().distance_high
-                  << ", Medium=" << lod_cubes->config().distance_medium
-                  << std::endl;
+        lod_distance->config().distance_high =
+            std::max(10.0f, lod_distance->config().distance_high - 5.0f);
+        lod_distance->config().distance_medium =
+            std::max(20.0f, lod_distance->config().distance_medium - 5.0f);
+        lod_hybrid->config().distance_high =
+            lod_distance->config().distance_high;
+        lod_hybrid->config().distance_medium =
+            lod_distance->config().distance_medium;
+
+        std::cout << "Distance thresholds decreased: "
+                  << lod_distance->config().distance_high << " / "
+                  << lod_distance->config().distance_medium << std::endl;
         minus_pressed = true;
       }
     } else {
       minus_pressed = false;
     }
 
+    // Screen-space threshold adjustment
+    static bool nine_pressed = false;
+    if (input.key_pressed('9')) {
+      if (!nine_pressed) {
+        lod_screenspace->config().screenspace_high -= 0.02f;
+        lod_screenspace->config().screenspace_medium -= 0.02f;
+        lod_screenspace->config().screenspace_low = std::max(
+            0.005f, lod_screenspace->config().screenspace_low - 0.005f);
+        lod_hybrid->config().screenspace_high =
+            lod_screenspace->config().screenspace_high;
+        lod_hybrid->config().screenspace_medium =
+            lod_screenspace->config().screenspace_medium;
+        lod_hybrid->config().screenspace_low =
+            lod_screenspace->config().screenspace_low;
+
+        std::cout << "Screen-space thresholds decreased: "
+                  << (lod_screenspace->config().screenspace_high * 100)
+                  << "% / "
+                  << (lod_screenspace->config().screenspace_medium * 100)
+                  << "% / " << (lod_screenspace->config().screenspace_low * 100)
+                  << "%" << std::endl;
+        nine_pressed = true;
+      }
+    } else {
+      nine_pressed = false;
+    }
+
+    static bool zero_pressed = false;
+    if (input.key_pressed(KEY_0) || input.key_pressed('0')) {
+      if (!zero_pressed) {
+        lod_screenspace->config().screenspace_high =
+            std::min(0.5f, lod_screenspace->config().screenspace_high + 0.02f);
+        lod_screenspace->config().screenspace_medium = std::min(
+            0.3f, lod_screenspace->config().screenspace_medium + 0.02f);
+        lod_screenspace->config().screenspace_low += 0.005f;
+        lod_hybrid->config().screenspace_high =
+            lod_screenspace->config().screenspace_high;
+        lod_hybrid->config().screenspace_medium =
+            lod_screenspace->config().screenspace_medium;
+        lod_hybrid->config().screenspace_low =
+            lod_screenspace->config().screenspace_low;
+
+        std::cout << "Screen-space thresholds increased: "
+                  << (lod_screenspace->config().screenspace_high * 100)
+                  << "% / "
+                  << (lod_screenspace->config().screenspace_medium * 100)
+                  << "% / " << (lod_screenspace->config().screenspace_low * 100)
+                  << "%" << std::endl;
+        zero_pressed = true;
+      }
+    } else {
+      zero_pressed = false;
+    }
+
+    // Hybrid weight adjustment
+    static bool seven_pressed = false;
+    if (input.key_pressed('7')) {
+      if (!seven_pressed) {
+        lod_hybrid->config().hybrid_screenspace_weight = std::max(
+            0.0f, lod_hybrid->config().hybrid_screenspace_weight - 0.1f);
+        std::cout << "Hybrid weight: "
+                  << (lod_hybrid->config().hybrid_screenspace_weight * 100)
+                  << "% screen-space (more distance-based)" << std::endl;
+        seven_pressed = true;
+      }
+    } else {
+      seven_pressed = false;
+    }
+
+    static bool eight_pressed = false;
+    if (input.key_pressed('8')) {
+      if (!eight_pressed) {
+        lod_hybrid->config().hybrid_screenspace_weight = std::min(
+            1.0f, lod_hybrid->config().hybrid_screenspace_weight + 0.1f);
+        std::cout << "Hybrid weight: "
+                  << (lod_hybrid->config().hybrid_screenspace_weight * 100)
+                  << "% screen-space (more screen-space-based)" << std::endl;
+        eight_pressed = true;
+      }
+    } else {
+      eight_pressed = false;
+    }
+
     // Reset camera
     if (input.key_pressed(KEY_R)) {
-      r->camera().position = {80, 50, 80};
+      r->camera().position = {60, 40, 60};
       r->camera().target = {0, 0, 0};
       r->camera().fov = 60.0f;
       std::cout << "Camera reset" << std::endl;
@@ -429,19 +492,6 @@ int main(int argc, char **argv) {
       space_pressed = false;
     }
 
-    // Toggle mesh type
-    static bool m_pressed = false;
-    if (input.key_pressed('M')) {
-      if (!m_pressed) {
-        show_spheres = !show_spheres;
-        std::cout << "Showing: " << (show_spheres ? "SPHERES" : "CUBES")
-                  << std::endl;
-        m_pressed = true;
-      }
-    } else {
-      m_pressed = false;
-    }
-
     // Toggle stats
     static bool t_pressed = false;
     if (input.key_pressed('T')) {
@@ -453,9 +503,8 @@ int main(int argc, char **argv) {
       t_pressed = false;
     }
 
-    if (input.key_pressed(KEY_ESCAPE)) {
+    if (input.key_pressed(KEY_ESCAPE))
       break;
-    }
 
     // Mouse orbit
     if (input.mouse_pressed(0)) {
@@ -478,30 +527,22 @@ int main(int argc, char **argv) {
       if (animate_instances) {
         time_elapsed += static_cast<float>(dt);
 
-        // Animate instances with wave motion
+        // Gentle wave animation
         for (size_t i = 0; i < instances.size(); ++i) {
           int x = i % GRID_SIZE;
           int z = i / GRID_SIZE;
 
-          float phase = (x + z) * 0.08f;
-          instances[i].position.y =
-              0.5f + 0.4f * std::sin(time_elapsed * 1.5f + phase);
-          instances[i].rotation.y = time_elapsed * 25.0f + phase * 15.0f;
+          float phase = (x + z) * 0.1f;
+          float base_y = 0.5f + 0.3f * std::sin(time_elapsed * 1.2f + phase);
 
-          // Vary scale
-          float scale = 1.0f + 0.15f * std::sin(time_elapsed * 1.2f + phase);
-          instances[i].scale = {scale, scale, scale};
-          instances[i].culling_radius = 0.866f * scale;
+          instances[i].position.y = base_y;
+          instances[i].rotation.y = time_elapsed * 20.0f + phase * 10.0f;
         }
 
-        lod_cubes->set_instances(instances);
-
-        // Update spheres too
-        for (size_t i = 0; i < sphere_instances.size(); ++i) {
-          sphere_instances[i] = instances[i];
-          sphere_instances[i].position.x += GRID_SIZE * 2.0f;
-        }
-        lod_spheres->set_instances(sphere_instances);
+        // Update all LOD systems
+        lod_distance->set_instances(instances);
+        lod_screenspace->set_instances(instances);
+        lod_hybrid->set_instances(instances);
       }
 
       acc -= dt;
@@ -517,13 +558,12 @@ int main(int argc, char **argv) {
       frame_count = 0;
       last_fps_update = t1;
 
-      // Get LOD statistics
-      last_stats =
-          show_spheres ? lod_spheres->get_stats() : lod_cubes->get_stats();
+      last_stats = current_lod_mesh->get_stats();
 
       if (show_stats) {
         std::cout << std::fixed << std::setprecision(1);
-        std::cout << "\rFPS: " << fps
+        std::cout << "\r[" << mode_names[current_mode] << "] "
+                  << "FPS: " << fps
                   << " | Total: " << last_stats.total_instances
                   << " | High: " << last_stats.instances_per_lod[0] << " ("
                   << last_stats.visible_per_lod[0] << " vis)"
@@ -531,7 +571,7 @@ int main(int argc, char **argv) {
                   << last_stats.visible_per_lod[1] << " vis)"
                   << " | Low: " << last_stats.instances_per_lod[2] << " ("
                   << last_stats.visible_per_lod[2] << " vis)"
-                  << " | Culled: " << last_stats.culled << "        "
+                  << " | Culled: " << last_stats.culled << "      "
                   << std::flush;
       }
     }
@@ -545,12 +585,8 @@ int main(int argc, char **argv) {
     // Draw floor
     r->draw_mesh(*floor_mesh, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, floor_mat);
 
-    // Draw LOD instances
-    if (show_spheres) {
-      RendererLOD::draw_lod(*r, *lod_spheres, textured_mat);
-    } else {
-      RendererLOD::draw_lod(*r, *lod_cubes, textured_mat);
-    }
+    // Draw current LOD system
+    RendererLOD::draw_lod(*r, *current_lod_mesh, textured_mat);
 
     r->end_frame();
   }
@@ -560,7 +596,8 @@ int main(int argc, char **argv) {
   // ============================================================================
 
   std::cout << "\n\nShutting down..." << std::endl;
-  std::cout << "\nFinal LOD Statistics:" << std::endl;
+  std::cout << "\nFinal Statistics (" << mode_names[current_mode]
+            << " LOD):" << std::endl;
   std::cout << "========================================" << std::endl;
   std::cout << "Total instances: " << last_stats.total_instances << std::endl;
   std::cout << "High LOD: " << last_stats.instances_per_lod[0] << " ("
@@ -583,15 +620,10 @@ int main(int argc, char **argv) {
                            last_stats.visible_per_lod[1] +
                            last_stats.visible_per_lod[2];
   std::cout << "\nRendering efficiency:" << std::endl;
-  std::cout << "  Visible instances: " << total_visible << "/"
+  std::cout << "  Visible: " << total_visible << "/"
             << last_stats.total_instances << " ("
             << (100.0f * total_visible / last_stats.total_instances) << "%)"
             << std::endl;
-  std::cout << "  Culled by frustum+distance: "
-            << (last_stats.total_instances - total_visible) << " ("
-            << (100.0f * (last_stats.total_instances - total_visible) /
-                last_stats.total_instances)
-            << "%)" << std::endl;
   std::cout << "========================================" << std::endl;
 
   return 0;

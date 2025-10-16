@@ -22,6 +22,40 @@ enum class LODMode {
   Hybrid       // Combined distance + screen-space
 };
 
+struct HLODCluster {
+  uint32_t cluster_id = 0;
+  std::vector<uint32_t> children;
+  std::vector<uint32_t> instance_indices;
+  std::shared_ptr<Mesh> proxy_mesh;
+
+  bool is_leaf() const { return children.empty(); }
+};
+
+struct HLODTree {
+  uint32_t root_cluster_id = 0;
+  std::vector<HLODCluster> clusters;
+
+  const HLODCluster *find_cluster(uint32_t id) const {
+    auto it = std::find_if(
+        clusters.begin(), clusters.end(),
+        [id](const HLODCluster &cluster) { return cluster.cluster_id == id; });
+    if (it == clusters.end())
+      return nullptr;
+    return &(*it);
+  }
+
+  HLODCluster *find_cluster(uint32_t id) {
+    auto it = std::find_if(
+        clusters.begin(), clusters.end(),
+        [id](const HLODCluster &cluster) { return cluster.cluster_id == id; });
+    if (it == clusters.end())
+      return nullptr;
+    return &(*it);
+  }
+
+  bool empty() const { return clusters.empty(); }
+};
+
 struct LODConfig {
   LODMode mode = LODMode::Hybrid;
 
@@ -42,6 +76,8 @@ struct LODConfig {
 
   // Hysteresis to prevent popping
   float hysteresis = 2.0f; // Distance/size buffer for LOD transitions
+  std::vector<float> cluster_switch_distances;
+  float cluster_switch_hysteresis = 10.0f;
 
   // Object reference size for screen-space calculations
   // This represents the "typical" object size in your scene
@@ -59,7 +95,8 @@ public:
                                          const Mesh &medium_detail,
                                          const Mesh &low_detail,
                                          size_t max_instances_per_lod = 10000,
-                                         const LODConfig &config = LODConfig());
+                                         const LODConfig &config = LODConfig(),
+                                         const HLODTree *hlod_tree = nullptr);
 
   ~LODMesh();
 
@@ -72,6 +109,19 @@ public:
   // Compute LOD levels and distribute instances to LOD buffers
   // Pass viewport dimensions for screen-space calculations
   void compute_lod_distribution(const Renderer &renderer);
+
+  void set_hlod_tree(const HLODTree &tree);
+  void clear_hlod_tree();
+  bool has_hlod_tree() const { return hlod_tree_.has_value(); }
+  const HLODTree *hlod_tree() const {
+    return hlod_tree_ ? &*hlod_tree_ : nullptr;
+  }
+  void set_cluster_children(uint32_t cluster_id,
+                            const std::vector<uint32_t> &children);
+  const std::vector<uint32_t> *get_cluster_children(uint32_t cluster_id) const;
+  void set_cluster_proxy(uint32_t cluster_id,
+                         const std::shared_ptr<Mesh> &proxy_mesh);
+  std::shared_ptr<Mesh> get_cluster_proxy(uint32_t cluster_id) const;
 
   // Draw all LOD levels
   void draw_all_lods() const;
@@ -121,6 +171,9 @@ private:
   uint32_t lod_instance_indices_ssbo_ = 0; // Output: instance indices per LOD
 
   LODConfig config_;
+  std::optional<HLODTree> hlod_tree_;
+  std::unordered_map<uint32_t, std::vector<uint32_t>> cluster_children_;
+  std::unordered_map<uint32_t, std::shared_ptr<Mesh>> cluster_proxies_;
   mutable LODStats last_stats_;
 };
 
@@ -240,7 +293,8 @@ public:
   static std::unique_ptr<LODMesh>
   create_lod_mesh(const Mesh &high_detail, const Mesh &medium_detail,
                   const Mesh &low_detail, size_t max_instances_per_lod = 10000,
-                  const LODConfig &config = LODConfig());
+                  const LODConfig &config = LODConfig(),
+                  const HLODTree *hlod_tree = nullptr);
 
   // Generate meshes at different LOD levels
   static std::unique_ptr<Mesh> create_cube_high_detail(Renderer &r,
