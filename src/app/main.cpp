@@ -2,7 +2,7 @@
 #include "pixel/platform/platform.hpp"
 #include "pixel/platform/resources.hpp"
 #include "pixel/renderer3d/renderer.hpp"
-#include "pixel/renderer3d/renderer_instanced.hpp"
+#include "pixel/renderer3d/lod.hpp"
 #include <cmath>
 #include <iomanip>
 #include <iostream>
@@ -107,21 +107,61 @@ int main(int argc, char **argv) {
   pixel::platform::WindowSpec ws;
   ws.w = 1920;
   ws.h = 1080;
-  ws.title = "Pixel-Life - GPU Frustum Culling Demo";
+  ws.title = "Pixel-Life - Multi-LOD System Demo";
 
   auto r = Renderer::create(ws);
 
-  auto cube_mesh = r->create_cube(1.0f);
-  auto floor_mesh = r->create_plane(100.0f, 100.0f, 20);
+  // ============================================================================
+  // Create LOD Meshes
+  // ============================================================================
 
-  // Setup camera
-  r->camera().position = {50, 30, 50};
+  std::cout << "\n========================================" << std::endl;
+  std::cout << "Creating LOD Meshes..." << std::endl;
+  std::cout << "========================================\n" << std::endl;
+
+  // Cube LODs
+  auto cube_high = RendererLOD::create_cube_high_detail(*r, 1.0f);
+  auto cube_medium = RendererLOD::create_cube_medium_detail(*r, 1.0f);
+  auto cube_low = RendererLOD::create_cube_low_detail(*r, 1.0f);
+
+  std::cout << "Cube mesh vertices:" << std::endl;
+  std::cout << "  High:   " << cube_high->vertex_count() << " vertices"
+            << std::endl;
+  std::cout << "  Medium: " << cube_medium->vertex_count() << " vertices"
+            << std::endl;
+  std::cout << "  Low:    " << cube_low->vertex_count() << " vertices"
+            << std::endl;
+
+  // Sphere LODs
+  auto sphere_high = RendererLOD::create_sphere_high_detail(*r, 0.5f);
+  auto sphere_medium = RendererLOD::create_sphere_medium_detail(*r, 0.5f);
+  auto sphere_low = RendererLOD::create_sphere_low_detail(*r, 0.5f);
+
+  std::cout << "\nSphere mesh vertices:" << std::endl;
+  std::cout << "  High:   " << sphere_high->vertex_count() << " vertices"
+            << std::endl;
+  std::cout << "  Medium: " << sphere_medium->vertex_count() << " vertices"
+            << std::endl;
+  std::cout << "  Low:    " << sphere_low->vertex_count() << " vertices"
+            << std::endl;
+
+  // Floor
+  auto floor_mesh = r->create_plane(200.0f, 200.0f, 40);
+
+  // ============================================================================
+  // Setup Camera
+  // ============================================================================
+
+  r->camera().position = {80, 50, 80};
   r->camera().target = {0, 0, 0};
   r->camera().mode = Camera::ProjectionMode::Perspective;
   r->camera().fov = 60.0f;
-  r->camera().far_clip = 200.0f;
+  r->camera().far_clip = 300.0f;
 
-  // Load or create textures
+  // ============================================================================
+  // Load Textures
+  // ============================================================================
+
   std::vector<std::string> texture_paths = {
       pixel::platform::get_resource_file("assets/textures/brick.png"),
       pixel::platform::get_resource_file("assets/textures/stone.png"),
@@ -134,9 +174,9 @@ int main(int argc, char **argv) {
 
   try {
     tex_array = r->load_texture_array(texture_paths);
-    std::cout << "✓ Successfully loaded texture array!" << std::endl;
+    std::cout << "\n✓ Successfully loaded texture array!" << std::endl;
   } catch (const std::exception &e) {
-    std::cout << "✗ Falling back to procedural textures" << std::endl;
+    std::cout << "\n✗ Falling back to procedural textures" << std::endl;
     const int TEX_SIZE = 128;
     const int NUM_TEXTURES = 6;
     tex_array = r->create_texture_array(TEX_SIZE, TEX_SIZE, NUM_TEXTURES);
@@ -167,49 +207,80 @@ int main(int argc, char **argv) {
 
   auto array_info = r->get_texture_array_info(tex_array);
   std::cout << "Texture array: " << array_info.width << "x" << array_info.height
-            << " with " << array_info.layers << " layers" << std::endl;
+            << " with " << array_info.layers << " layers\n"
+            << std::endl;
 
   // ============================================================================
-  // CREATE LARGE INSTANCED MESH FOR CULLING DEMO
+  // Create LOD Instance System
   // ============================================================================
 
-  const int GRID_SIZE = 100; // 100x100 = 10,000 instances
+  const int GRID_SIZE = 80; // 80x80 = 6,400 instances
   const int MAX_INSTANCES = GRID_SIZE * GRID_SIZE;
 
-  auto instanced_cubes =
-      RendererInstanced::create_instanced_mesh(*cube_mesh, MAX_INSTANCES);
+  // Configure LOD distances
+  LODConfig lod_config;
+  lod_config.distance_high = 30.0f;   // Switch to medium after 30 units
+  lod_config.distance_medium = 80.0f; // Switch to low after 80 units
+  lod_config.distance_cull = 200.0f;  // Cull after 200 units
+  lod_config.hysteresis = 2.0f;
+
+  // Create LOD mesh for cubes
+  auto lod_cubes =
+      RendererLOD::create_lod_mesh(*cube_high, *cube_medium, *cube_low,
+                                   MAX_INSTANCES / 3, // Max per LOD level
+                                   lod_config);
+
+  // Create LOD mesh for spheres (separate demo)
+  auto lod_spheres = RendererLOD::create_lod_mesh(
+      *sphere_high, *sphere_medium, *sphere_low, MAX_INSTANCES / 3, lod_config);
 
   std::cout << "\n========================================" << std::endl;
-  std::cout << "GPU Culling Demo Configuration:" << std::endl;
+  std::cout << "LOD System Configuration:" << std::endl;
   std::cout << "========================================" << std::endl;
   std::cout << "Total instances: " << MAX_INSTANCES << std::endl;
-  std::cout << "Persistent mapping: "
-            << (instanced_cubes->using_persistent_mapping() ? "YES" : "NO")
+  std::cout << "High LOD distance: < " << lod_config.distance_high << " units"
             << std::endl;
-  std::cout << "GPU culling: "
-            << (instanced_cubes->using_gpu_culling() ? "YES" : "NO")
+  std::cout << "Medium LOD distance: " << lod_config.distance_high << " - "
+            << lod_config.distance_medium << " units" << std::endl;
+  std::cout << "Low LOD distance: " << lod_config.distance_medium << " - "
+            << lod_config.distance_cull << " units" << std::endl;
+  std::cout << "Culled beyond: " << lod_config.distance_cull << " units"
+            << std::endl;
+  std::cout << "GPU LOD: "
+            << (lod_cubes->using_gpu_lod() ? "YES" : "NO (CPU fallback)")
             << std::endl;
   std::cout << "========================================\n" << std::endl;
 
-  // Generate instances in a large grid
+  // Generate instance data
   auto instances =
-      RendererInstanced::create_grid(GRID_SIZE, GRID_SIZE, 3.0f, 0.5f);
+      RendererInstanced::create_grid(GRID_SIZE, GRID_SIZE, 4.0f, 0.5f);
 
-  // Set culling radius for each instance (based on scale)
+  // Set culling radii
   for (auto &inst : instances) {
-    inst.culling_radius = 0.866f; // sqrt(3)/2 for unit cube diagonal
+    inst.culling_radius = 0.866f; // Bounding sphere for unit cube/sphere
   }
 
   RendererInstanced::assign_texture_indices(instances, array_info.layers);
-  instanced_cubes->set_instances(instances);
+  lod_cubes->set_instances(instances);
+
+  // Create a second set of instances for spheres (offset)
+  auto sphere_instances = instances;
+  for (auto &inst : sphere_instances) {
+    inst.position.x += GRID_SIZE * 2.0f; // Offset to the side
+  }
+  lod_spheres->set_instances(sphere_instances);
 
   // Floor material
   Material floor_mat;
-  floor_mat.diffuse = Color(0.2f, 0.25f, 0.2f, 1.0f);
+  floor_mat.diffuse = Color(0.15f, 0.18f, 0.15f, 1.0f);
 
   // Material with texture array
   Material textured_mat;
   textured_mat.texture_array = tex_array;
+
+  // ============================================================================
+  // Main Loop Setup
+  // ============================================================================
 
   const double dt = 1.0 / 60.0;
   double acc = 0.0, t0 = pixel::core::now_sec();
@@ -218,12 +289,13 @@ int main(int argc, char **argv) {
   bool mouse_was_pressed = false;
   bool show_stats = true;
   bool animate_instances = true;
+  bool show_spheres = false; // Toggle between cubes and spheres
 
   // Performance tracking
   double last_fps_update = t0;
   int frame_count = 0;
   double fps = 0.0;
-  uint32_t last_visible_count = 0;
+  LODMesh::LODStats last_stats;
 
   std::cout << "\nControls:" << std::endl;
   std::cout << "  Mouse drag: Orbit camera" << std::endl;
@@ -233,9 +305,11 @@ int main(int argc, char **argv) {
   std::cout << "  1/2: Switch projection mode" << std::endl;
   std::cout << "  Space: Toggle animation" << std::endl;
   std::cout << "  T: Toggle stats display" << std::endl;
+  std::cout << "  M: Toggle mesh type (cubes/spheres)" << std::endl;
   std::cout << "  R: Reset camera" << std::endl;
-  std::cout << "  +/-: Adjust FOV" << std::endl;
-  std::cout << "  ESC: Exit" << std::endl;
+  std::cout << "  +/-: Adjust LOD distances" << std::endl;
+  std::cout << "  [ / ]: Adjust FOV" << std::endl;
+  std::cout << "  ESC: Exit\n" << std::endl;
 
   // Main loop
   while (r->process_events()) {
@@ -243,21 +317,24 @@ int main(int argc, char **argv) {
     acc += (t1 - t0);
     t0 = t1;
 
-    // Handle input
+    // ========================================================================
+    // Input Handling
+    // ========================================================================
+
     const auto &input = r->input();
 
     // Camera controls
     if (input.key_pressed(KEY_W)) {
-      r->camera().zoom(-0.5f);
+      r->camera().zoom(-1.0f);
     }
     if (input.key_pressed(KEY_S)) {
-      r->camera().zoom(0.5f);
+      r->camera().zoom(1.0f);
     }
     if (input.key_pressed(KEY_A)) {
-      r->camera().pan(-0.5f, 0);
+      r->camera().pan(-1.0f, 0);
     }
     if (input.key_pressed(KEY_D)) {
-      r->camera().pan(0.5f, 0);
+      r->camera().pan(1.0f, 0);
     }
 
     // Projection mode
@@ -271,11 +348,40 @@ int main(int argc, char **argv) {
     }
 
     // FOV adjustment
+    static bool bracket_left_pressed = false;
+    if (input.key_pressed('[')) {
+      if (!bracket_left_pressed) {
+        r->camera().fov = std::max(10.0f, r->camera().fov - 5.0f);
+        std::cout << "FOV: " << r->camera().fov << "°" << std::endl;
+        bracket_left_pressed = true;
+      }
+    } else {
+      bracket_left_pressed = false;
+    }
+
+    static bool bracket_right_pressed = false;
+    if (input.key_pressed(']')) {
+      if (!bracket_right_pressed) {
+        r->camera().fov = std::min(120.0f, r->camera().fov + 5.0f);
+        std::cout << "FOV: " << r->camera().fov << "°" << std::endl;
+        bracket_right_pressed = true;
+      }
+    } else {
+      bracket_right_pressed = false;
+    }
+
+    // LOD distance adjustment
     static bool plus_pressed = false;
     if (input.key_pressed('=') || input.key_pressed('+')) {
       if (!plus_pressed) {
-        r->camera().fov = std::min(120.0f, r->camera().fov + 5.0f);
-        std::cout << "FOV: " << r->camera().fov << "°" << std::endl;
+        lod_cubes->config().distance_high += 5.0f;
+        lod_cubes->config().distance_medium += 5.0f;
+        lod_spheres->config().distance_high += 5.0f;
+        lod_spheres->config().distance_medium += 5.0f;
+        std::cout << "LOD distances increased: High="
+                  << lod_cubes->config().distance_high
+                  << ", Medium=" << lod_cubes->config().distance_medium
+                  << std::endl;
         plus_pressed = true;
       }
     } else {
@@ -285,8 +391,17 @@ int main(int argc, char **argv) {
     static bool minus_pressed = false;
     if (input.key_pressed('-') || input.key_pressed('_')) {
       if (!minus_pressed) {
-        r->camera().fov = std::max(10.0f, r->camera().fov - 5.0f);
-        std::cout << "FOV: " << r->camera().fov << "°" << std::endl;
+        lod_cubes->config().distance_high =
+            std::max(10.0f, lod_cubes->config().distance_high - 5.0f);
+        lod_cubes->config().distance_medium =
+            std::max(20.0f, lod_cubes->config().distance_medium - 5.0f);
+        lod_spheres->config().distance_high = lod_cubes->config().distance_high;
+        lod_spheres->config().distance_medium =
+            lod_cubes->config().distance_medium;
+        std::cout << "LOD distances decreased: High="
+                  << lod_cubes->config().distance_high
+                  << ", Medium=" << lod_cubes->config().distance_medium
+                  << std::endl;
         minus_pressed = true;
       }
     } else {
@@ -295,7 +410,7 @@ int main(int argc, char **argv) {
 
     // Reset camera
     if (input.key_pressed(KEY_R)) {
-      r->camera().position = {50, 30, 50};
+      r->camera().position = {80, 50, 80};
       r->camera().target = {0, 0, 0};
       r->camera().fov = 60.0f;
       std::cout << "Camera reset" << std::endl;
@@ -312,6 +427,19 @@ int main(int argc, char **argv) {
       }
     } else {
       space_pressed = false;
+    }
+
+    // Toggle mesh type
+    static bool m_pressed = false;
+    if (input.key_pressed('M')) {
+      if (!m_pressed) {
+        show_spheres = !show_spheres;
+        std::cout << "Showing: " << (show_spheres ? "SPHERES" : "CUBES")
+                  << std::endl;
+        m_pressed = true;
+      }
+    } else {
+      m_pressed = false;
     }
 
     // Toggle stats
@@ -342,7 +470,10 @@ int main(int argc, char **argv) {
       mouse_was_pressed = false;
     }
 
-    // Fixed timestep update
+    // ========================================================================
+    // Fixed Timestep Update
+    // ========================================================================
+
     while (acc >= dt) {
       if (animate_instances) {
         time_elapsed += static_cast<float>(dt);
@@ -352,66 +483,116 @@ int main(int argc, char **argv) {
           int x = i % GRID_SIZE;
           int z = i / GRID_SIZE;
 
-          float phase = (x + z) * 0.1f;
+          float phase = (x + z) * 0.08f;
           instances[i].position.y =
-              0.5f + 0.3f * std::sin(time_elapsed * 2.0f + phase);
-          instances[i].rotation.y = time_elapsed * 30.0f + phase * 20.0f;
+              0.5f + 0.4f * std::sin(time_elapsed * 1.5f + phase);
+          instances[i].rotation.y = time_elapsed * 25.0f + phase * 15.0f;
 
-          // Vary scale slightly
-          float scale = 1.0f + 0.2f * std::sin(time_elapsed * 1.5f + phase);
+          // Vary scale
+          float scale = 1.0f + 0.15f * std::sin(time_elapsed * 1.2f + phase);
           instances[i].scale = {scale, scale, scale};
-
-          // Update culling radius based on scale
           instances[i].culling_radius = 0.866f * scale;
         }
 
-        instanced_cubes->set_instances(instances);
+        lod_cubes->set_instances(instances);
+
+        // Update spheres too
+        for (size_t i = 0; i < sphere_instances.size(); ++i) {
+          sphere_instances[i] = instances[i];
+          sphere_instances[i].position.x += GRID_SIZE * 2.0f;
+        }
+        lod_spheres->set_instances(sphere_instances);
       }
 
       acc -= dt;
     }
 
-    // FPS calculation
+    // ========================================================================
+    // Performance Stats
+    // ========================================================================
+
     frame_count++;
     if (t1 - last_fps_update >= 1.0) {
       fps = frame_count / (t1 - last_fps_update);
       frame_count = 0;
       last_fps_update = t1;
 
-      // Get visible instance count after culling
-      last_visible_count = instanced_cubes->get_visible_count();
+      // Get LOD statistics
+      last_stats =
+          show_spheres ? lod_spheres->get_stats() : lod_cubes->get_stats();
 
       if (show_stats) {
         std::cout << std::fixed << std::setprecision(1);
-        std::cout << "\rFPS: " << fps << " | Instances: " << last_visible_count
-                  << "/" << MAX_INSTANCES << " ("
-                  << (100.0f * last_visible_count / MAX_INSTANCES)
-                  << "% visible)"
-                  << " | Cam: (" << r->camera().position.x << ", "
-                  << r->camera().position.y << ", " << r->camera().position.z
-                  << ")" << std::flush;
+        std::cout << "\rFPS: " << fps
+                  << " | Total: " << last_stats.total_instances
+                  << " | High: " << last_stats.instances_per_lod[0] << " ("
+                  << last_stats.visible_per_lod[0] << " vis)"
+                  << " | Med: " << last_stats.instances_per_lod[1] << " ("
+                  << last_stats.visible_per_lod[1] << " vis)"
+                  << " | Low: " << last_stats.instances_per_lod[2] << " ("
+                  << last_stats.visible_per_lod[2] << " vis)"
+                  << " | Culled: " << last_stats.culled << "        "
+                  << std::flush;
       }
     }
 
+    // ========================================================================
     // Rendering
+    // ========================================================================
+
     r->begin_frame(Color(0.05f, 0.05f, 0.08f, 1.0f));
 
     // Draw floor
     r->draw_mesh(*floor_mesh, {0, 0, 0}, {0, 0, 0}, {1, 1, 1}, floor_mat);
 
-    // Draw instanced cubes with GPU culling
-    RendererInstanced::draw_instanced(*r, *instanced_cubes, textured_mat);
+    // Draw LOD instances
+    if (show_spheres) {
+      RendererLOD::draw_lod(*r, *lod_spheres, textured_mat);
+    } else {
+      RendererLOD::draw_lod(*r, *lod_cubes, textured_mat);
+    }
 
     r->end_frame();
   }
 
+  // ============================================================================
+  // Cleanup & Final Stats
+  // ============================================================================
+
   std::cout << "\n\nShutting down..." << std::endl;
-  std::cout << "Final stats:" << std::endl;
-  std::cout << "  Total instances: " << MAX_INSTANCES << std::endl;
-  std::cout << "  Average visible: " << last_visible_count << std::endl;
-  std::cout << "  Culling efficiency: "
-            << (100.0f * (MAX_INSTANCES - last_visible_count) / MAX_INSTANCES)
-            << "% culled" << std::endl;
+  std::cout << "\nFinal LOD Statistics:" << std::endl;
+  std::cout << "========================================" << std::endl;
+  std::cout << "Total instances: " << last_stats.total_instances << std::endl;
+  std::cout << "High LOD: " << last_stats.instances_per_lod[0] << " ("
+            << (100.0f * last_stats.instances_per_lod[0] /
+                last_stats.total_instances)
+            << "%)" << std::endl;
+  std::cout << "Medium LOD: " << last_stats.instances_per_lod[1] << " ("
+            << (100.0f * last_stats.instances_per_lod[1] /
+                last_stats.total_instances)
+            << "%)" << std::endl;
+  std::cout << "Low LOD: " << last_stats.instances_per_lod[2] << " ("
+            << (100.0f * last_stats.instances_per_lod[2] /
+                last_stats.total_instances)
+            << "%)" << std::endl;
+  std::cout << "Culled: " << last_stats.culled << " ("
+            << (100.0f * last_stats.culled / last_stats.total_instances) << "%)"
+            << std::endl;
+
+  uint32_t total_visible = last_stats.visible_per_lod[0] +
+                           last_stats.visible_per_lod[1] +
+                           last_stats.visible_per_lod[2];
+  std::cout << "\nRendering efficiency:" << std::endl;
+  std::cout << "  Visible instances: " << total_visible << "/"
+            << last_stats.total_instances << " ("
+            << (100.0f * total_visible / last_stats.total_instances) << "%)"
+            << std::endl;
+  std::cout << "  Culled by frustum+distance: "
+            << (last_stats.total_instances - total_visible) << " ("
+            << (100.0f * (last_stats.total_instances - total_visible) /
+                last_stats.total_instances)
+            << "%)" << std::endl;
+  std::cout << "========================================" << std::endl;
 
   return 0;
 }
