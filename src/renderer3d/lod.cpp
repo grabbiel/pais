@@ -14,7 +14,7 @@
 #endif
 
 // ============================================================================
-// Compute Shader Support Detection (local to this file)
+// Compute Shader Support Detection
 // ============================================================================
 
 typedef void(APIENTRYP PFNGLDISPATCHCOMPUTEPROC)(GLuint, GLuint, GLuint);
@@ -46,36 +46,23 @@ static void load_compute_functions() {
   loaded = true;
 
   const char *version_str = (const char *)glGetString(GL_VERSION);
-  std::cout << "OpenGL Version: " << version_str << std::endl;
 
-  // Check if OpenGL 4.3+ (required for compute shaders)
   if (!check_opengl_version(4, 3)) {
-    std::cout << "OpenGL 4.3+ required for compute shaders (have "
-              << version_str << ")" << std::endl;
     g_compute_shaders_supported = false;
     return;
   }
 
-  // Try to load function pointers
   glDispatchCompute =
       (PFNGLDISPATCHCOMPUTEPROC)glfwGetProcAddress("glDispatchCompute");
   glMemoryBarrier =
       (PFNGLMEMORYBARRIERPROC)glfwGetProcAddress("glMemoryBarrier");
 
-  // Verify all required functions loaded
   g_compute_shaders_supported =
       (glDispatchCompute != nullptr && glMemoryBarrier != nullptr);
-
-  if (g_compute_shaders_supported) {
-    std::cout << "Compute shaders: SUPPORTED" << std::endl;
-  } else {
-    std::cout << "Compute shaders: NOT SUPPORTED (missing functions)"
-              << std::endl;
-  }
 }
 
 // ============================================================================
-// LOD Compute Shader
+// Screen-Space LOD Compute Shader
 // ============================================================================
 
 static const char *lod_compute_shader_src = R"(
@@ -109,17 +96,34 @@ layout(std430, binding = 2) buffer LODCountersBuffer {
 };
 
 // Output: Instance indices organized by LOD level
-// Layout: [high_instances...][medium_instances...][low_instances...]
 layout(std430, binding = 3) writeonly buffer LODInstanceIndicesBuffer {
   uint lod_instance_indices[];
 };
 
 // Uniforms
 uniform vec3 camera_position;
+uniform mat4 view_matrix;
+uniform mat4 projection_matrix;
 uniform uint total_instances;
+uniform int viewport_height;
+
+// LOD mode: 0=distance, 1=screenspace, 2=hybrid
+uniform int lod_mode;
+
+// Distance-based thresholds
 uniform float distance_high;
 uniform float distance_medium;
 uniform float distance_cull;
+
+// Screen-space thresholds (as fraction of screen height)
+uniform float screenspace_high;
+uniform float screenspace_medium;
+uniform float screenspace_low;
+
+// Hybrid mode weight (0.0-1.0, how much to weight screen-space)
+uniform float hybrid_weight;
+
+// Frustum culling
 uniform vec4 frustum_planes[6];
 
 // Check if sphere intersects frustum
@@ -134,6 +138,89 @@ bool is_visible(vec3 center, float radius) {
   return true;
 }
 
+// Calculate screen-space size of a sphere
+// Returns size as fraction of screen height
+float calculate_screen_size(vec3 world_pos, float world_radius) {
+  // Transform to view space
+  vec4 view_pos = view_matrix * vec4(world_pos, 1.0);
+  float distance = abs(view_pos.z);
+  
+  if (distance < 0.001) return 1.0; // Very close = max size
+  
+  // Get FOV from projection matrix
+  float fov_y_rad = 2.0 * atan(1.0 / projection_matrix[1][1]);
+  
+  // Calculate screen-space size
+  // size_fraction = (world_radius / distance) / tan(fov/2)
+  float size_fraction = (world_radius / distance) / tan(fov_y_rad * 0.5);
+  
+  return size_fraction;
+}
+
+// Determine LOD based on distance
+uint get_lod_distance(float distance) {
+  if (distance < distance_high) {
+    return 0; // High
+  } else if (distance < distance_medium) {
+    return 1; // Medium
+  } else if (distance < distance_cull) {
+    return 2; // Low
+  } else {
+    return 3; // Culled
+  }
+}
+
+// Determine LOD based on screen-space size
+uint get_lod_screenspace(float screen_size) {
+  if (screen_size >= screenspace_high) {
+    return 0; // High
+  } else if (screen_size >= screenspace_medium) {
+    return 1; // Medium
+  } else if (screen_size >= screenspace_low) {
+    return 2; // Low
+  } else {
+    return 3; // Culled
+  }
+}
+
+// Hybrid LOD determination
+uint get_lod_hybrid(float distance, float screen_size) {
+  // Calculate distance-based score (0-3 continuous)
+  float distance_score;
+  if (distance < distance_high) {
+    distance_score = 0.0;
+  } else if (distance < distance_medium) {
+    distance_score = 1.0 + (distance - distance_high) / (distance_medium - distance_high);
+  } else if (distance < distance_cull) {
+    distance_score = 2.0 + (distance - distance_medium) / (distance_cull - distance_medium);
+  } else {
+    distance_score = 3.0;
+  }
+  
+  // Calculate screen-space score (0-3 continuous)
+  float screenspace_score;
+  if (screen_size >= screenspace_high) {
+    screenspace_score = 0.0;
+  } else if (screen_size >= screenspace_medium) {
+    screenspace_score = 1.0 + (screenspace_high - screen_size) / 
+                        (screenspace_high - screenspace_medium);
+  } else if (screen_size >= screenspace_low) {
+    screenspace_score = 2.0 + (screenspace_medium - screen_size) / 
+                        (screenspace_medium - screenspace_low);
+  } else {
+    screenspace_score = 3.0;
+  }
+  
+  // Blend scores
+  float final_score = distance_score * (1.0 - hybrid_weight) + screenspace_score * hybrid_weight;
+  
+  // Map to discrete LOD level
+  if (final_score < 0.5) return 0;
+  else if (final_score < 1.5) return 1;
+  else if (final_score < 2.5) return 2;
+  else return 3;
+}
+
 void main() {
   uint index = gl_GlobalInvocationID.x;
   
@@ -144,7 +231,7 @@ void main() {
   InstanceData inst = source_instances[index];
   vec3 world_pos = inst.position;
   
-  // Calculate effective radius
+  // Calculate effective radius considering scale
   float max_scale = max(max(inst.scale.x, inst.scale.y), inst.scale.z);
   float effective_radius = inst.culling_radius * max_scale;
   
@@ -158,16 +245,20 @@ void main() {
   // Calculate distance to camera
   float distance = length(world_pos - camera_position);
   
-  // Determine LOD level based on distance
+  // Calculate screen-space size
+  float screen_size = calculate_screen_size(world_pos, effective_radius);
+  
+  // Determine LOD level based on mode
   uint lod_level;
-  if (distance < distance_high) {
-    lod_level = 0; // High detail
-  } else if (distance < distance_medium) {
-    lod_level = 1; // Medium detail
-  } else if (distance < distance_cull) {
-    lod_level = 2; // Low detail
+  if (lod_mode == 0) {
+    // Distance-based
+    lod_level = get_lod_distance(distance);
+  } else if (lod_mode == 1) {
+    // Screen-space based
+    lod_level = get_lod_screenspace(screen_size);
   } else {
-    lod_level = 3; // Too far, cull
+    // Hybrid
+    lod_level = get_lod_hybrid(distance, screen_size);
   }
   
   lod_assignments[index] = lod_level;
@@ -177,7 +268,6 @@ void main() {
     uint lod_local_index = atomicAdd(lod_counters[lod_level], 1);
     
     // Calculate base offset for this LOD level
-    // Assume max_instances_per_lod spacing between LOD buffers
     uint base_offset = lod_level * total_instances;
     lod_instance_indices[base_offset + lod_local_index] = index;
   } else {
@@ -202,7 +292,6 @@ std::unique_ptr<LODMesh> LODMesh::create(const Mesh &high_detail,
   lod_mesh->max_instances_per_lod_ = max_instances_per_lod;
   lod_mesh->config_ = config;
 
-  // Create instanced meshes for each LOD level
   lod_mesh->lod_meshes_[0] =
       InstancedMesh::create(high_detail, max_instances_per_lod);
   lod_mesh->lod_meshes_[1] =
@@ -211,6 +300,19 @@ std::unique_ptr<LODMesh> LODMesh::create(const Mesh &high_detail,
       InstancedMesh::create(low_detail, max_instances_per_lod);
 
   std::cout << "Created LOD mesh system:" << std::endl;
+  std::cout << "  Mode: ";
+  switch (config.mode) {
+  case LODMode::Distance:
+    std::cout << "Distance-based";
+    break;
+  case LODMode::ScreenSpace:
+    std::cout << "Screen-space";
+    break;
+  case LODMode::Hybrid:
+    std::cout << "Hybrid (weight=" << config.hybrid_screenspace_weight << ")";
+    break;
+  }
+  std::cout << std::endl;
   std::cout << "  High detail: " << high_detail.vertex_count() << " verts"
             << std::endl;
   std::cout << "  Medium detail: " << medium_detail.vertex_count() << " verts"
@@ -226,7 +328,6 @@ std::unique_ptr<LODMesh> LODMesh::create(const Mesh &high_detail,
 LODMesh::~LODMesh() {
   if (lod_compute_shader_)
     glDeleteProgram(lod_compute_shader_);
-
   if (source_instances_ssbo_)
     glDeleteBuffers(1, &source_instances_ssbo_);
   if (lod_assignments_ssbo_)
@@ -239,7 +340,7 @@ LODMesh::~LODMesh() {
 
 void LODMesh::setup_lod_compute_shader() {
   load_compute_functions();
-  // Check if compute shaders are supported
+
   if (!g_compute_shaders_supported) {
     std::cout << "GPU LOD: DISABLED (compute shaders not available)"
               << std::endl;
@@ -286,7 +387,7 @@ void LODMesh::setup_lod_compute_shader() {
   glDeleteShader(compute_shader);
 
   // Create SSBOs
-  size_t max_total = max_instances_per_lod_ * 3; // Conservative estimate
+  size_t max_total = max_instances_per_lod_ * 3;
 
   glGenBuffers(1, &source_instances_ssbo_);
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, source_instances_ssbo_);
@@ -311,7 +412,7 @@ void LODMesh::setup_lod_compute_shader() {
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
   gpu_lod_enabled_ = true;
-  std::cout << "GPU LOD: ENABLED" << std::endl;
+  std::cout << "GPU LOD: ENABLED (screen-space support)" << std::endl;
 }
 
 void LODMesh::set_instances(const std::vector<InstanceData> &instances) {
@@ -327,10 +428,16 @@ void LODMesh::update_instance(size_t index, const InstanceData &data) {
 
 void LODMesh::compute_lod_distribution(const Renderer &renderer) {
   if (!gpu_lod_enabled_ || total_instance_count_ == 0) {
-    // Fallback: simple distance-based LOD on CPU
+    // CPU fallback with screen-space support
     std::vector<InstanceData> high_lod, medium_lod, low_lod;
 
     Vec3 cam_pos = renderer.camera().position;
+
+    float view[16], proj[16];
+    renderer.camera().get_view_matrix(view);
+    renderer.camera().get_projection_matrix(proj, renderer.window_width(),
+                                            renderer.window_height());
+    int viewport_height = renderer.window_height();
 
     for (const auto &inst : source_instances_) {
       float dx = inst.position.x - cam_pos.x;
@@ -338,11 +445,37 @@ void LODMesh::compute_lod_distribution(const Renderer &renderer) {
       float dz = inst.position.z - cam_pos.z;
       float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-      if (dist < config_.distance_high) {
+      float max_scale = std::max({inst.scale.x, inst.scale.y, inst.scale.z});
+      float effective_radius = inst.culling_radius * max_scale;
+
+      LODLevel lod;
+
+      if (config_.mode == LODMode::ScreenSpace) {
+        float screen_size = screen_space::calculate_sphere_screen_size(
+            inst.position, effective_radius, view, proj, viewport_height);
+        lod = screen_space::determine_lod_screenspace(screen_size, config_);
+      } else if (config_.mode == LODMode::Hybrid) {
+        float screen_size = screen_space::calculate_sphere_screen_size(
+            inst.position, effective_radius, view, proj, viewport_height);
+        lod = screen_space::determine_lod_hybrid(dist, screen_size, config_);
+      } else {
+        // Distance-based
+        if (dist < config_.distance_high) {
+          lod = LODLevel::High;
+        } else if (dist < config_.distance_medium) {
+          lod = LODLevel::Medium;
+        } else if (dist < config_.distance_cull) {
+          lod = LODLevel::Low;
+        } else {
+          lod = LODLevel::COUNT; // Cull
+        }
+      }
+
+      if (lod == LODLevel::High) {
         high_lod.push_back(inst);
-      } else if (dist < config_.distance_medium) {
+      } else if (lod == LODLevel::Medium) {
         medium_lod.push_back(inst);
-      } else if (dist < config_.distance_cull) {
+      } else if (lod == LODLevel::Low) {
         low_lod.push_back(inst);
       }
     }
@@ -373,7 +506,7 @@ void LODMesh::compute_lod_distribution(const Renderer &renderer) {
   glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, 4 * sizeof(uint32_t),
                   zero_counters);
 
-  // Get camera position and frustum
+  // Get camera position and matrices
   Vec3 cam_pos = renderer.camera().position;
 
   float view[16], proj[16];
@@ -386,8 +519,8 @@ void LODMesh::compute_lod_distribution(const Renderer &renderer) {
   memcpy(&proj_mat[0][0], proj, 16 * sizeof(float));
   glm::mat4 vp = proj_mat * view_mat;
 
+  // Extract frustum planes
   Vec4 frustum_planes[6];
-  // Extract frustum planes (same method as culling)
   const float *m = glm::value_ptr(vp);
   frustum_planes[0] = {m[3] + m[0], m[7] + m[4], m[11] + m[8], m[15] + m[12]};
   frustum_planes[1] = {m[3] - m[0], m[7] - m[4], m[11] - m[8], m[15] - m[12]};
@@ -416,10 +549,26 @@ void LODMesh::compute_lod_distribution(const Renderer &renderer) {
       glGetUniformLocation(lod_compute_shader_, "camera_position");
   glUniform3f(cam_pos_loc, cam_pos.x, cam_pos.y, cam_pos.z);
 
+  GLint view_loc = glGetUniformLocation(lod_compute_shader_, "view_matrix");
+  glUniformMatrix4fv(view_loc, 1, GL_FALSE, view);
+
+  GLint proj_loc =
+      glGetUniformLocation(lod_compute_shader_, "projection_matrix");
+  glUniformMatrix4fv(proj_loc, 1, GL_FALSE, proj);
+
   GLint total_loc =
       glGetUniformLocation(lod_compute_shader_, "total_instances");
   glUniform1ui(total_loc, total_instance_count_);
 
+  GLint viewport_loc =
+      glGetUniformLocation(lod_compute_shader_, "viewport_height");
+  glUniform1i(viewport_loc, renderer.window_height());
+
+  // LOD mode
+  GLint mode_loc = glGetUniformLocation(lod_compute_shader_, "lod_mode");
+  glUniform1i(mode_loc, static_cast<int>(config_.mode));
+
+  // Distance thresholds
   GLint dist_high_loc =
       glGetUniformLocation(lod_compute_shader_, "distance_high");
   glUniform1f(dist_high_loc, config_.distance_high);
@@ -432,6 +581,24 @@ void LODMesh::compute_lod_distribution(const Renderer &renderer) {
       glGetUniformLocation(lod_compute_shader_, "distance_cull");
   glUniform1f(dist_cull_loc, config_.distance_cull);
 
+  // Screen-space thresholds
+  GLint ss_high_loc =
+      glGetUniformLocation(lod_compute_shader_, "screenspace_high");
+  glUniform1f(ss_high_loc, config_.screenspace_high);
+
+  GLint ss_med_loc =
+      glGetUniformLocation(lod_compute_shader_, "screenspace_medium");
+  glUniform1f(ss_med_loc, config_.screenspace_medium);
+
+  GLint ss_low_loc =
+      glGetUniformLocation(lod_compute_shader_, "screenspace_low");
+  glUniform1f(ss_low_loc, config_.screenspace_low);
+
+  // Hybrid weight
+  GLint hybrid_loc = glGetUniformLocation(lod_compute_shader_, "hybrid_weight");
+  glUniform1f(hybrid_loc, config_.hybrid_screenspace_weight);
+
+  // Frustum planes
   GLint planes_loc =
       glGetUniformLocation(lod_compute_shader_, "frustum_planes");
   glUniform4fv(planes_loc, 6, (float *)frustum_planes);
@@ -565,17 +732,16 @@ void RendererLOD::draw_lod(Renderer &renderer, LODMesh &mesh,
 // Mesh generators with different detail levels
 std::unique_ptr<Mesh> RendererLOD::create_cube_high_detail(Renderer &r,
                                                            float size) {
-  return r.create_cube(size); // 36 vertices (6 faces * 6 verts)
+  return r.create_cube(size);
 }
 
 std::unique_ptr<Mesh> RendererLOD::create_cube_medium_detail(Renderer &r,
                                                              float size) {
-  return r.create_cube(size); // Same for now, could use fewer subdivisions
+  return r.create_cube(size);
 }
 
 std::unique_ptr<Mesh> RendererLOD::create_cube_low_detail(Renderer &r,
                                                           float size) {
-  // Ultra-simple cube with shared vertices (8 vertices, 12 triangles)
   float h = size / 2.0f;
 
   std::vector<Vertex> vertices = {
@@ -590,54 +756,13 @@ std::unique_ptr<Mesh> RendererLOD::create_cube_low_detail(Renderer &r,
   };
 
   std::vector<uint32_t> indices = {
-      // Front
-      4,
-      5,
-      6,
-      6,
-      7,
-      4,
-      // Back
-      1,
-      0,
-      3,
-      3,
-      2,
-      1,
-      // Top
-      7,
-      6,
-      2,
-      2,
-      3,
-      7,
-      // Bottom
-      0,
-      1,
-      5,
-      5,
-      4,
-      0,
-      // Right
-      5,
-      1,
-      2,
-      2,
-      6,
-      5,
-      // Left
-      0,
-      4,
-      7,
-      7,
-      3,
-      0,
+      4, 5, 6, 6, 7, 4, 1, 0, 3, 3, 2, 1, 7, 6, 2, 2, 3, 7,
+      0, 1, 5, 5, 4, 0, 5, 1, 2, 2, 6, 5, 0, 4, 7, 7, 3, 0,
   };
 
   return Mesh::create(vertices, indices);
 }
 
-// Sphere generators
 std::unique_ptr<Mesh> RendererLOD::create_sphere_high_detail(Renderer &r,
                                                              float radius) {
   const int segments = 32;
@@ -646,7 +771,6 @@ std::unique_ptr<Mesh> RendererLOD::create_sphere_high_detail(Renderer &r,
   std::vector<Vertex> vertices;
   std::vector<uint32_t> indices;
 
-  // Generate sphere vertices
   for (int ring = 0; ring <= rings; ring++) {
     float theta = ring * M_PI / rings;
     float sin_theta = std::sin(theta);
@@ -659,7 +783,6 @@ std::unique_ptr<Mesh> RendererLOD::create_sphere_high_detail(Renderer &r,
 
       Vec3 pos = {radius * sin_theta * cos_phi, radius * cos_theta,
                   radius * sin_theta * sin_phi};
-
       Vec3 normal = pos.normalized();
       Vec2 texcoord = {(float)seg / segments, (float)ring / rings};
 
@@ -667,7 +790,6 @@ std::unique_ptr<Mesh> RendererLOD::create_sphere_high_detail(Renderer &r,
     }
   }
 
-  // Generate indices
   for (int ring = 0; ring < rings; ring++) {
     for (int seg = 0; seg < segments; seg++) {
       uint32_t current = ring * (segments + 1) + seg;
@@ -706,7 +828,6 @@ std::unique_ptr<Mesh> RendererLOD::create_sphere_medium_detail(Renderer &r,
 
       Vec3 pos = {radius * sin_theta * cos_phi, radius * cos_theta,
                   radius * sin_theta * sin_phi};
-
       Vec3 normal = pos.normalized();
       Vec2 texcoord = {(float)seg / segments, (float)ring / rings};
 
@@ -734,7 +855,6 @@ std::unique_ptr<Mesh> RendererLOD::create_sphere_medium_detail(Renderer &r,
 
 std::unique_ptr<Mesh> RendererLOD::create_sphere_low_detail(Renderer &r,
                                                             float radius) {
-  // Icosahedron approximation (12 vertices, 20 faces)
   const float t = (1.0f + std::sqrt(5.0f)) / 2.0f;
   const float scale = radius / std::sqrt(1.0f + t * t);
 
@@ -743,19 +863,16 @@ std::unique_ptr<Mesh> RendererLOD::create_sphere_low_detail(Renderer &r,
       {{1 * scale, t * scale, 0}, {1, t, 0}, {1, 0}, Color::White()},
       {{-1 * scale, -t * scale, 0}, {-1, -t, 0}, {0, 1}, Color::White()},
       {{1 * scale, -t * scale, 0}, {1, -t, 0}, {1, 1}, Color::White()},
-
       {{0, -1 * scale, t * scale}, {0, -1, t}, {0, 0}, Color::White()},
       {{0, 1 * scale, t * scale}, {0, 1, t}, {1, 0}, Color::White()},
       {{0, -1 * scale, -t * scale}, {0, -1, -t}, {0, 1}, Color::White()},
       {{0, 1 * scale, -t * scale}, {0, 1, -t}, {1, 1}, Color::White()},
-
       {{t * scale, 0, -1 * scale}, {t, 0, -1}, {0, 0}, Color::White()},
       {{t * scale, 0, 1 * scale}, {t, 0, 1}, {1, 0}, Color::White()},
       {{-t * scale, 0, -1 * scale}, {-t, 0, -1}, {0, 1}, Color::White()},
       {{-t * scale, 0, 1 * scale}, {-t, 0, 1}, {1, 1}, Color::White()},
   };
 
-  // Normalize normals
   for (auto &v : vertices) {
     v.normal = v.normal.normalized();
   }
