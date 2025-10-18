@@ -83,6 +83,7 @@ struct LODConfig {
   // This represents the "typical" object size in your scene
   // Used to normalize screen-space calculations
   float reference_object_size = 1.0f;
+  TemporalCoherenceConfig temporal;
 };
 
 // ============================================================================
@@ -175,6 +176,20 @@ private:
   std::unordered_map<uint32_t, std::vector<uint32_t>> cluster_children_;
   std::unordered_map<uint32_t, std::shared_ptr<Mesh>> cluster_proxies_;
   mutable LODStats last_stats_;
+
+  std::vector<InstanceLODState> instance_lod_states_;
+  double last_update_time_ = 0.0;
+
+  // Helper methods for temporal coherence
+  uint32_t compute_lod_with_hysteresis(const InstanceData &inst,
+                                       const InstanceLODState &state,
+                                       float distance, float screen_size,
+                                       const Renderer &renderer) const;
+
+  bool should_transition_lod(const InstanceLODState &state, uint32_t new_lod,
+                             float delta_time) const;
+
+  void update_temporal_states(float delta_time);
 };
 
 // ============================================================================
@@ -279,6 +294,112 @@ inline LODLevel determine_lod_hybrid(float distance, float screen_size_fraction,
     return LODLevel::Low;
   else
     return LODLevel::COUNT; // Cull
+}
+
+// Compute LOD with hysteresis (prevents rapid switching)
+inline LODLevel determine_lod_with_hysteresis(float distance,
+                                              float screen_size_fraction,
+                                              LODLevel current_lod,
+                                              const LODConfig &config) {
+
+  // Apply hysteresis based on current LOD
+  // When at higher detail, make it harder to downgrade
+  // When at lower detail, make it easier to upgrade
+
+  float dist_high = config.distance_high;
+  float dist_medium = config.distance_medium;
+  float dist_cull = config.distance_cull;
+
+  float ss_high = config.screenspace_high;
+  float ss_medium = config.screenspace_medium;
+  float ss_low = config.screenspace_low;
+
+  // Add hysteresis to thresholds based on current LOD
+  if (current_lod == LODLevel::High) {
+    // At high detail - add buffer before downgrading
+    dist_high += config.temporal.distance_hysteresis;
+    ss_high -= config.temporal.screenspace_hysteresis;
+  } else if (current_lod == LODLevel::Medium) {
+    // At medium - add buffer in both directions
+    dist_high -= config.temporal.distance_hysteresis * 0.5f;
+    dist_medium += config.temporal.distance_hysteresis * 0.5f;
+    ss_high += config.temporal.screenspace_hysteresis * 0.5f;
+    ss_medium -= config.temporal.screenspace_hysteresis * 0.5f;
+  } else if (current_lod == LODLevel::Low) {
+    // At low detail - add buffer before downgrading to culled
+    dist_medium -= config.temporal.distance_hysteresis;
+    ss_medium += config.temporal.screenspace_hysteresis;
+  }
+
+  // Now compute LOD with adjusted thresholds
+  if (config.mode == LODMode::Distance) {
+    if (distance < dist_high)
+      return LODLevel::High;
+    else if (distance < dist_medium)
+      return LODLevel::Medium;
+    else if (distance < dist_cull)
+      return LODLevel::Low;
+    else
+      return LODLevel::COUNT;
+  } else if (config.mode == LODMode::ScreenSpace) {
+    if (screen_size_fraction >= ss_high)
+      return LODLevel::High;
+    else if (screen_size_fraction >= ss_medium)
+      return LODLevel::Medium;
+    else if (screen_size_fraction >= ss_low)
+      return LODLevel::Low;
+    else
+      return LODLevel::COUNT;
+  } else {
+    // Hybrid with adjusted thresholds
+    float distance_score;
+    if (distance < dist_high) {
+      distance_score = 0.0f;
+    } else if (distance < dist_medium) {
+      distance_score =
+          1.0f + (distance - dist_high) / (dist_medium - dist_high);
+    } else if (distance < dist_cull) {
+      distance_score =
+          2.0f + (distance - dist_medium) / (dist_cull - dist_medium);
+    } else {
+      distance_score = 3.0f;
+    }
+
+    float screenspace_score;
+    if (screen_size_fraction >= ss_high) {
+      screenspace_score = 0.0f;
+    } else if (screen_size_fraction >= ss_medium) {
+      screenspace_score =
+          1.0f + (ss_high - screen_size_fraction) / (ss_high - ss_medium);
+    } else if (screen_size_fraction >= ss_low) {
+      screenspace_score =
+          2.0f + (ss_medium - screen_size_fraction) / (ss_medium - ss_low);
+    } else {
+      screenspace_score = 3.0f;
+    }
+
+    // Apply current LOD bias - prefer staying at current level
+    float bias = config.temporal.current_lod_bias;
+    float current_score = static_cast<float>(current_lod);
+
+    float weight = config.hybrid_screenspace_weight;
+    float final_score =
+        distance_score * (1.0f - weight) + screenspace_score * weight;
+
+    // Bias toward current LOD
+    if (std::abs(final_score - current_score) < bias) {
+      final_score = current_score;
+    }
+
+    if (final_score < 0.5f)
+      return LODLevel::High;
+    else if (final_score < 1.5f)
+      return LODLevel::Medium;
+    else if (final_score < 2.5f)
+      return LODLevel::Low;
+    else
+      return LODLevel::COUNT;
+  }
 }
 
 } // namespace screen_space

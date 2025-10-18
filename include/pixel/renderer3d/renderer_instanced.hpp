@@ -18,6 +18,38 @@ struct InstanceData {
   float _padding[2] = {0, 0};  // Alignment padding
 };
 
+struct InstanceLODState {
+  uint32_t current_lod = 0;       // Current LOD level (0-3)
+  uint32_t target_lod = 0;        // Target LOD level we're transitioning to
+  float transition_time = 0.0f;   // Time spent in transition (seconds)
+  float last_metric_value = 0.0f; // Last distance/screen-size used for LOD
+  uint32_t stable_frames = 0;     // Frames since last LOD change
+
+  bool is_stable() const { return current_lod == target_lod; }
+  bool is_transitioning() const { return current_lod != target_lod; }
+};
+
+struct TemporalCoherenceConfig {
+  bool enabled = true;
+
+  // Hysteresis: Add this much to thresholds when transitioning to lower detail
+  // This creates "dead zones" that prevent rapid switching
+  float distance_hysteresis = 5.0f;     // Extra distance before downgrading
+  float screenspace_hysteresis = 0.02f; // Extra screen % before downgrading
+
+  // Temporal smoothing: Wait this long before allowing LOD changes
+  float transition_delay = 0.15f; // Seconds to wait before switching
+  float upgrade_delay = 0.05f;    // Faster upgrades (better quality)
+  float downgrade_delay = 0.25f;  // Slower downgrades (reduce popping)
+
+  // Stability requirements
+  uint32_t stable_frames_required =
+      3; // Frames needed at new LOD before committing
+
+  // Bias toward maintaining current LOD
+  float current_lod_bias = 0.1f; // 10% bias to keep current LOD
+};
+
 // GPU-side draw command structure (matches glDrawElementsIndirect)
 struct DrawCommand {
   uint32_t index_count;

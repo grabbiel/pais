@@ -480,6 +480,18 @@ void LODMesh::setup_lod_compute_shader() {
 void LODMesh::set_instances(const std::vector<InstanceData> &instances) {
   source_instances_ = instances;
   total_instance_count_ = instances.size();
+  if (config_.temporal.enabled &&
+      instance_lod_states_.size() != instances.size()) {
+    instance_lod_states_.resize(instances.size());
+
+    // Initialize all instances to high LOD by default
+    for (auto &state : instance_lod_states_) {
+      state.current_lod = 0; // Start at high detail
+      state.target_lod = 0;
+      state.transition_time = 0.0f;
+      state.stable_frames = 0;
+    }
+  }
 }
 
 void LODMesh::update_instance(size_t index, const InstanceData &data) {
@@ -489,8 +501,15 @@ void LODMesh::update_instance(size_t index, const InstanceData &data) {
 }
 
 void LODMesh::compute_lod_distribution(const Renderer &renderer) {
+  // Calculate delta time
+  double current_time = renderer.time();
+  float delta_time = static_cast<float>(current_time - last_update_time_);
+  last_update_time_ = current_time;
+
+  // Update temporal states first
+  update_temporal_states(delta_time);
   if (!gpu_lod_enabled_ || total_instance_count_ == 0) {
-    // CPU fallback with screen-space support
+    // CPU fallback with temporal coherence
     std::vector<InstanceData> high_lod, medium_lod, low_lod;
 
     Vec3 cam_pos = renderer.camera().position;
@@ -501,7 +520,10 @@ void LODMesh::compute_lod_distribution(const Renderer &renderer) {
                                             renderer.window_height());
     int viewport_height = renderer.window_height();
 
-    for (const auto &inst : source_instances_) {
+    for (size_t i = 0; i < source_instances_.size(); ++i) {
+      const auto &inst = source_instances_[i];
+      auto &state = instance_lod_states_[i];
+
       float dx = inst.position.x - cam_pos.x;
       float dy = inst.position.y - cam_pos.y;
       float dz = inst.position.z - cam_pos.z;
@@ -510,34 +532,62 @@ void LODMesh::compute_lod_distribution(const Renderer &renderer) {
       float max_scale = std::max({inst.scale.x, inst.scale.y, inst.scale.z});
       float effective_radius = inst.culling_radius * max_scale;
 
-      LODLevel lod;
+      float screen_size = screen_space::calculate_sphere_screen_size(
+          inst.position, effective_radius, view, proj, viewport_height);
 
-      if (config_.mode == LODMode::ScreenSpace) {
-        float screen_size = screen_space::calculate_sphere_screen_size(
-            inst.position, effective_radius, view, proj, viewport_height);
-        lod = screen_space::determine_lod_screenspace(screen_size, config_);
-      } else if (config_.mode == LODMode::Hybrid) {
-        float screen_size = screen_space::calculate_sphere_screen_size(
-            inst.position, effective_radius, view, proj, viewport_height);
-        lod = screen_space::determine_lod_hybrid(dist, screen_size, config_);
-      } else {
-        // Distance-based
-        if (dist < config_.distance_high) {
-          lod = LODLevel::High;
-        } else if (dist < config_.distance_medium) {
-          lod = LODLevel::Medium;
-        } else if (dist < config_.distance_cull) {
-          lod = LODLevel::Low;
+      uint32_t desired_lod;
+
+      if (config_.temporal.enabled) {
+        // Use temporal coherence
+        desired_lod = compute_lod_with_hysteresis(inst, state, dist,
+                                                  screen_size, renderer);
+
+        // Update target LOD if different from current
+        if (desired_lod != state.current_lod) {
+          if (desired_lod != state.target_lod) {
+            // New target - reset transition timer
+            state.target_lod = desired_lod;
+            state.transition_time = 0.0f;
+          }
         } else {
-          lod = LODLevel::COUNT; // Cull
+          // Desired matches current - we're stable
+          state.target_lod = state.current_lod;
+          state.transition_time = 0.0f;
         }
+
+        // Store metric for debugging
+        state.last_metric_value =
+            (config_.mode == LODMode::ScreenSpace) ? screen_size : dist;
+
+        // Use current LOD for rendering (not target)
+        desired_lod = state.current_lod;
+      } else {
+        // No temporal coherence - use direct calculation
+        LODLevel lod;
+        if (config_.mode == LODMode::ScreenSpace) {
+          lod = screen_space::determine_lod_screenspace(screen_size, config_);
+        } else if (config_.mode == LODMode::Hybrid) {
+          lod = screen_space::determine_lod_hybrid(dist, screen_size, config_);
+        } else {
+          // Distance-based
+          if (dist < config_.distance_high) {
+            lod = LODLevel::High;
+          } else if (dist < config_.distance_medium) {
+            lod = LODLevel::Medium;
+          } else if (dist < config_.distance_cull) {
+            lod = LODLevel::Low;
+          } else {
+            lod = LODLevel::COUNT;
+          }
+        }
+        desired_lod = static_cast<uint32_t>(lod);
       }
 
-      if (lod == LODLevel::High) {
+      if (desired_lod == 0) {
         high_lod.push_back(inst);
-      } else if (lod == LODLevel::Medium) {
+      } else if (desired_lod == 1) {
         medium_lod.push_back(inst);
-      } else if (lod == LODLevel::Low) {
+      } else if (desired_lod == 2) {
         low_lod.push_back(inst);
       }
     }
@@ -741,6 +791,68 @@ LODMesh::LODStats LODMesh::get_stats() const {
     }
   }
   return last_stats_;
+}
+
+uint32_t LODMesh::compute_lod_with_hysteresis(const InstanceData &inst,
+                                              const InstanceLODState &state,
+                                              float distance, float screen_size,
+                                              const Renderer &renderer) const {
+
+  LODLevel current = static_cast<LODLevel>(state.current_lod);
+
+  LODLevel new_lod = screen_space::determine_lod_with_hysteresis(
+      distance, screen_size, current, config_);
+
+  return static_cast<uint32_t>(new_lod);
+}
+
+bool LODMesh::should_transition_lod(const InstanceLODState &state,
+                                    uint32_t new_lod, float delta_time) const {
+
+  if (!config_.temporal.enabled) {
+    return true; // Always transition immediately if temporal coherence disabled
+  }
+
+  if (state.current_lod == new_lod) {
+    return false; // Already at target LOD
+  }
+
+  // Determine required delay based on upgrade vs downgrade
+  float required_delay;
+  if (new_lod < state.current_lod) {
+    // Upgrading to higher detail - use faster delay
+    required_delay = config_.temporal.upgrade_delay;
+  } else {
+    // Downgrading to lower detail - use slower delay
+    required_delay = config_.temporal.downgrade_delay;
+  }
+
+  // Check if we've waited long enough
+  return state.transition_time >= required_delay;
+}
+
+void LODMesh::update_temporal_states(float delta_time) {
+  if (!config_.temporal.enabled) {
+    return;
+  }
+
+  for (auto &state : instance_lod_states_) {
+    if (state.is_transitioning()) {
+      state.transition_time += delta_time;
+
+      // Check if we should commit the transition
+      if (should_transition_lod(state, state.target_lod, delta_time)) {
+        state.current_lod = state.target_lod;
+        state.transition_time = 0.0f;
+        state.stable_frames = 0;
+      }
+    } else {
+      // Stable - increment stability counter
+      state.stable_frames =
+          std::min(state.stable_frames + 1,
+                   config_.temporal.stable_frames_required + 10);
+    }
+  }
 }
 
 // ============================================================================

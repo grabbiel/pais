@@ -238,6 +238,10 @@ int main(int argc, char **argv) {
   std::cout << "  9/0: Adjust screen-space thresholds" << std::endl;
   std::cout << "  7/8: Adjust hybrid blend (more distance/more screen-space)"
             << std::endl;
+  std::cout << "\nTemporal Coherence:" << std::endl;
+  std::cout << "  C: Toggle temporal coherence on/off" << std::endl;
+  std::cout << "  H/G: Increase/decrease hysteresis (dead zones)" << std::endl;
+  std::cout << "  J/K: Increase/decrease transition delays" << std::endl;
   std::cout << "\nOther:" << std::endl;
   std::cout << "  Space: Toggle animation" << std::endl;
   std::cout << "  T: Toggle stats display" << std::endl;
@@ -501,6 +505,103 @@ int main(int argc, char **argv) {
       }
     } else {
       t_pressed = false;
+    }
+
+    static bool c_pressed = false;
+    if (input.key_pressed('C')) {
+      if (!c_pressed) {
+        current_lod_mesh->config().temporal.enabled =
+            !current_lod_mesh->config().temporal.enabled;
+
+        std::cout << "\nTemporal coherence: "
+                  << (current_lod_mesh->config().temporal.enabled ? "ENABLED"
+                                                                  : "DISABLED")
+                  << std::endl;
+
+        if (current_lod_mesh->config().temporal.enabled) {
+          std::cout
+              << "  Hysteresis: "
+              << current_lod_mesh->config().temporal.distance_hysteresis
+              << " units / "
+              << (current_lod_mesh->config().temporal.screenspace_hysteresis *
+                  100)
+              << "%" << std::endl;
+          std::cout << "  Transition delays: upgrade="
+                    << current_lod_mesh->config().temporal.upgrade_delay
+                    << "s, downgrade="
+                    << current_lod_mesh->config().temporal.downgrade_delay
+                    << "s" << std::endl;
+        }
+
+        c_pressed = true;
+      }
+    } else {
+      c_pressed = false;
+    }
+
+    static bool h_pressed = false;
+    if (input.key_pressed('H')) {
+      if (!h_pressed) {
+        auto &tc = current_lod_mesh->config().temporal;
+        tc.distance_hysteresis = std::min(20.0f, tc.distance_hysteresis + 2.0f);
+        tc.screenspace_hysteresis =
+            std::min(0.1f, tc.screenspace_hysteresis + 0.01f);
+
+        std::cout << "Hysteresis increased: " << tc.distance_hysteresis
+                  << " units / " << (tc.screenspace_hysteresis * 100) << "%"
+                  << std::endl;
+        h_pressed = true;
+      }
+    } else {
+      h_pressed = false;
+    }
+
+    static bool g_pressed = false;
+    if (input.key_pressed('G')) {
+      if (!g_pressed) {
+        auto &tc = current_lod_mesh->config().temporal;
+        tc.distance_hysteresis = std::max(0.0f, tc.distance_hysteresis - 2.0f);
+        tc.screenspace_hysteresis =
+            std::max(0.0f, tc.screenspace_hysteresis - 0.01f);
+
+        std::cout << "Hysteresis decreased: " << tc.distance_hysteresis
+                  << " units / " << (tc.screenspace_hysteresis * 100) << "%"
+                  << std::endl;
+        g_pressed = true;
+      }
+    } else {
+      g_pressed = false;
+    }
+
+    // Adjust transition delays
+    static bool j_pressed = false;
+    if (input.key_pressed('J')) {
+      if (!j_pressed) {
+        auto &tc = current_lod_mesh->config().temporal;
+        tc.upgrade_delay = std::min(1.0f, tc.upgrade_delay + 0.05f);
+        tc.downgrade_delay = std::min(2.0f, tc.downgrade_delay + 0.05f);
+
+        std::cout << "Transition delays increased: upgrade=" << tc.upgrade_delay
+                  << "s, downgrade=" << tc.downgrade_delay << "s" << std::endl;
+        j_pressed = true;
+      }
+    } else {
+      j_pressed = false;
+    }
+
+    static bool k_pressed = false;
+    if (input.key_pressed('K')) {
+      if (!k_pressed) {
+        auto &tc = current_lod_mesh->config().temporal;
+        tc.upgrade_delay = std::max(0.0f, tc.upgrade_delay - 0.05f);
+        tc.downgrade_delay = std::max(0.0f, tc.downgrade_delay - 0.05f);
+
+        std::cout << "Transition delays decreased: upgrade=" << tc.upgrade_delay
+                  << "s, downgrade=" << tc.downgrade_delay << "s" << std::endl;
+        k_pressed = true;
+      }
+    } else {
+      k_pressed = false;
     }
 
     if (input.key_pressed(KEY_ESCAPE))
