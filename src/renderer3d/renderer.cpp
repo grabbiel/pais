@@ -121,15 +121,26 @@ bool Renderer::process_events() {
 }
 
 void Renderer::update_input_state() {
+  // Copy current state to previous state
+  std::memcpy(input_state_.prev_keys, input_state_.keys,
+              sizeof(input_state_.keys));
+  std::memcpy(input_state_.prev_mouse_buttons, input_state_.mouse_buttons,
+              sizeof(input_state_.mouse_buttons));
+  input_state_.prev_mouse_x = input_state_.mouse_x;
+  input_state_.prev_mouse_y = input_state_.mouse_y;
+
+  // Update current key states
   for (int key = 0; key < 512; ++key) {
     input_state_.keys[key] = (glfwGetKey(window_, key) == GLFW_PRESS);
   }
 
+  // Update current mouse button states
   for (int btn = 0; btn < 8; ++btn) {
     input_state_.mouse_buttons[btn] =
         (glfwGetMouseButton(window_, btn) == GLFW_PRESS);
   }
 
+  // Update mouse position and delta
   double x, y;
   glfwGetCursorPos(window_, &x, &y);
   input_state_.mouse_delta_x = x - last_mouse_x_;
@@ -228,46 +239,46 @@ void Renderer::setup_default_shaders() {
     uniform mat4 view;
     uniform mat4 projection;
     
-    mat4 rotationMatrix(vec3 euler) {
-      float cx = cos(radians(euler.x));
-      float sx = sin(radians(euler.x));
-      float cy = cos(radians(euler.y));
-      float sy = sin(radians(euler.y));
-      float cz = cos(radians(euler.z));
-      float sz = sin(radians(euler.z));
+    mat4 rotationMatrix(vec3 axis, float angle) {
+      axis = normalize(axis);
+      float s = sin(angle);
+      float c = cos(angle);
+      float oc = 1.0 - c;
       
-      mat4 rotX = mat4(1, 0, 0, 0, 0, cx, -sx, 0, 0, sx, cx, 0, 0, 0, 0, 1);
-      mat4 rotY = mat4(cy, 0, sy, 0, 0, 1, 0, 0, -sy, 0, cy, 0, 0, 0, 0, 1);
-      mat4 rotZ = mat4(cz, -sz, 0, 0, sz, cz, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
-      
-      return rotZ * rotY * rotX;
+      return mat4(
+        oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
+        oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,  0.0,
+        oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c,           0.0,
+        0.0,                                0.0,                                0.0,                                1.0
+      );
     }
     
     void main() {
-      mat4 model = mat4(1.0);
-      model[3] = vec4(instancePos, 1.0);
+      // Apply rotation
+      mat4 rotX = rotationMatrix(vec3(1,0,0), instanceRot.x);
+      mat4 rotY = rotationMatrix(vec3(0,1,0), instanceRot.y);
+      mat4 rotZ = rotationMatrix(vec3(0,0,1), instanceRot.z);
+      mat4 rotation = rotZ * rotY * rotX;
       
-      mat4 scale = mat4(instanceScale.x, 0, 0, 0,
-                        0, instanceScale.y, 0, 0,
-                        0, 0, instanceScale.z, 0,
-                        0, 0, 0, 1);
+      // Apply scale and rotation
+      vec4 scaledPos = vec4(aPos * instanceScale, 1.0);
+      vec4 rotatedPos = rotation * scaledPos;
+      vec4 worldPos = rotatedPos + vec4(instancePos, 0.0);
       
-      mat4 rotation = rotationMatrix(instanceRot);
-      model = model * rotation * scale;
-      
-      FragPos = vec3(model * vec4(aPos, 1.0));
-      Normal = mat3(transpose(inverse(model))) * aNormal;
+      FragPos = worldPos.xyz;
+      Normal = mat3(rotation) * aNormal;
       TexCoord = aTexCoord;
       Color = aColor * instanceColor;
-      TexIndex = int(instanceTexIndex);
+      TexIndex = instanceTexIndex;
       LODTransitionAlpha = instanceLODAlpha;
       
-      gl_Position = projection * view * vec4(FragPos, 1.0);
+      gl_Position = projection * view * worldPos;
     }
   )";
 
   std::string frag_instanced = R"(
     #version 330 core
+    
     out vec4 FragColor;
     
     in vec3 FragPos;
@@ -278,39 +289,44 @@ void Renderer::setup_default_shaders() {
     in float LODTransitionAlpha;
     
     uniform sampler2DArray uTextureArray;
-    uniform bool useTextureArray;
+    uniform int useTextureArray;
     uniform vec3 lightPos;
     uniform vec3 viewPos;
     uniform float uTime;
-    uniform int uDitheredEnabled;
-
-    const mat4 bayerMatrix4 = mat4(
-      0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
-      12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
-      3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
-      15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
-    );
-
+    uniform int uDitherEnabled;
+    
+    // Bayer matrix 4x4 for dithering
+    float getBayerValue(vec2 pos) {
+      int x = int(mod(pos.x, 4.0));
+      int y = int(mod(pos.y, 4.0));
+      
+      const float bayer[16] = float[16](
+        0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+        12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+        3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+        15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+      );
+      
+      return bayer[y * 4 + x];
+    }
+    
     float getDitherThreshold(vec2 fragCoord) {
-      // Use 4x4 Bayer matrix tiled
       float bayer4 = getBayerValue(fragCoord);
       
-      // Optional: Add temporal jitter to animate pattern
-      if (uDitherEnabled > 1) {  // Mode 2 = temporal jitter
+      // Optional temporal jitter
+      if (uDitherEnabled > 1) {
         float jitter = fract(uTime * 0.5);
         bayer4 = fract(bayer4 + jitter);
       }
       
       return bayer4;
     }
-        
+    
     void main() {
       // Dithered LOD transition discard test
       if (uDitherEnabled > 0 && LODTransitionAlpha < 1.0) {
         float threshold = getDitherThreshold(gl_FragCoord.xy);
         
-        // Discard fragments based on transition alpha
-        // When alpha is 0.0, discard all; when 1.0, keep all
         if (LODTransitionAlpha < threshold) {
           discard;
         }

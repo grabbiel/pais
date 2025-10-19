@@ -85,16 +85,42 @@ struct Color {
 
 struct InputState {
   bool keys[512] = {false};
+  bool prev_keys[512] = {false}; // NEW: Previous frame key state
+
   bool mouse_buttons[8] = {false};
+  bool prev_mouse_buttons[8] = {false}; // NEW: Previous frame mouse state
+
   double mouse_x = 0.0;
   double mouse_y = 0.0;
+  double prev_mouse_x = 0.0; // NEW: Previous frame mouse position
+  double prev_mouse_y = 0.0; // NEW: Previous frame mouse position
+
   double mouse_delta_x = 0.0;
   double mouse_delta_y = 0.0;
   double scroll_delta = 0.0;
 
   bool key_pressed(int key) const { return key >= 0 && key < 512 && keys[key]; }
+
+  bool key_just_pressed(int key) const {
+    return key >= 0 && key < 512 && keys[key] && !prev_keys[key];
+  }
+
+  bool key_just_released(int key) const {
+    return key >= 0 && key < 512 && !keys[key] && prev_keys[key];
+  }
+
   bool mouse_pressed(int button) const {
     return button >= 0 && button < 8 && mouse_buttons[button];
+  }
+
+  bool mouse_just_pressed(int button) const {
+    return button >= 0 && button < 8 && mouse_buttons[button] &&
+           !prev_mouse_buttons[button];
+  }
+
+  bool mouse_just_released(int button) const {
+    return button >= 0 && button < 8 && !mouse_buttons[button] &&
+           prev_mouse_buttons[button];
   }
 };
 
