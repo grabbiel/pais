@@ -78,7 +78,8 @@ struct InstanceData {
   vec4 color;
   float texture_index;
   float culling_radius;
-  vec2 _padding;
+  float lod_transition_alpha;
+  float _padding;
 };
 
 layout(std430, binding = 0) readonly buffer SourceInstancesBuffer {

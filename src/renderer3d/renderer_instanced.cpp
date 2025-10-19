@@ -216,7 +216,8 @@ struct InstanceData {
   vec4 color;
   float texture_index;
   float culling_radius;
-  vec2 _padding;
+  float lod_transition_alpha;
+  float _padding;
 };
 
 layout(std430, binding = 0) readonly buffer InstanceBuffer {
@@ -504,6 +505,16 @@ void InstancedMesh::setup_instance_buffer() {
                         (void *)offsetof(InstanceData, texture_index));
   glVertexAttribDivisor(8, 1);
 
+  glEnableVertexAttribArray(9);
+  glVertexAttribPointer(9, 1, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                        (void *)offsetof(InstanceData, culling_radius));
+  glVertexAttribDivisor(9, 1);
+
+  glEnableVertexAttribArray(10);
+  glVertexAttribPointer(10, 1, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                        (void *)offsetof(InstanceData, lod_transition_alpha));
+  glVertexAttribDivisor(10, 1);
+
   glBindBuffer(GL_ARRAY_BUFFER, 0);
 
   persistent_mapped_ = false;
@@ -610,6 +621,16 @@ void InstancedMesh::setup_persistent_buffer() {
   glVertexAttribPointer(8, 1, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
                         (void *)offsetof(InstanceData, texture_index));
   glVertexAttribDivisor(8, 1);
+
+  glEnableVertexAttribArray(9);
+  glVertexAttribPointer(9, 1, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                        (void *)offsetof(InstanceData, culling_radius));
+  glVertexAttribDivisor(9, 1);
+
+  glEnableVertexAttribArray(10);
+  glVertexAttribPointer(10, 1, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                        (void *)offsetof(InstanceData, lod_transition_alpha));
+  glVertexAttribDivisor(10, 1);
 
   glBindBuffer(GL_ARRAY_BUFFER, 0);
 
@@ -745,6 +766,16 @@ void InstancedMesh::setup_gpu_culling_buffers() {
   glVertexAttribPointer(8, 1, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
                         (void *)offsetof(InstanceData, texture_index));
   glVertexAttribDivisor(8, 1);
+
+  glEnableVertexAttribArray(9);
+  glVertexAttribPointer(9, 1, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                        (void *)offsetof(InstanceData, culling_radius));
+  glVertexAttribDivisor(9, 1);
+
+  glEnableVertexAttribArray(10);
+  glVertexAttribPointer(10, 1, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                        (void *)offsetof(InstanceData, lod_transition_alpha));
+  glVertexAttribDivisor(10, 1);
 
   glBindVertexArray(0);
   glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);

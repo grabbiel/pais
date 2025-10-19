@@ -16,7 +16,7 @@ struct InstanceData {
   float texture_index = 0.0f;
   float culling_radius = 1.0f; // Bounding sphere radius for culling
   float lod_transition_alpha = 1.0f;
-  float _padding[2] = {0, 0}; // Alignment padding
+  float _padding = 0.0f; // Alignment padding
 };
 
 struct InstanceLODState {
