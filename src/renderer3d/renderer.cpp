@@ -1,9 +1,9 @@
 #include "pixel/renderer3d/renderer.hpp"
 #include <GLFW/glfw3.h>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
 #include <cmath>
 #include <cstring>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <iostream>
 #include <stdexcept>
 
@@ -215,12 +215,15 @@ void Renderer::setup_default_shaders() {
     layout (location = 6) in vec3 instanceScale;
     layout (location = 7) in vec4 instanceColor;
     layout (location = 8) in float instanceTexIndex;
+    layout (location = 9) in float instanceCullingRadius;
+    layout (location = 10) in float instanceLODAlpha;
     
     out vec3 FragPos;
     out vec3 Normal;
     out vec2 TexCoord;
     out vec4 Color;
-    flat out int TexIndex;
+    out float TexIndex;
+    out float LODTransitionAlpha;
     
     uniform mat4 view;
     uniform mat4 projection;
@@ -257,6 +260,7 @@ void Renderer::setup_default_shaders() {
       TexCoord = aTexCoord;
       Color = aColor * instanceColor;
       TexIndex = int(instanceTexIndex);
+      LODTransitionAlpha = instanceLODAlpha;
       
       gl_Position = projection * view * vec4(FragPos, 1.0);
     }
@@ -270,30 +274,69 @@ void Renderer::setup_default_shaders() {
     in vec3 Normal;
     in vec2 TexCoord;
     in vec4 Color;
-    flat in int TexIndex;
+    in float TexIndex;
+    in float LODTransitionAlpha;
     
     uniform sampler2DArray uTextureArray;
     uniform bool useTextureArray;
     uniform vec3 lightPos;
     uniform vec3 viewPos;
-    
-    void main() {
-      vec3 lightColor = vec3(1.0, 1.0, 1.0);
-      float ambientStrength = 0.3;
-      vec3 ambient = ambientStrength * lightColor;
+    uniform float uTime;
+    uniform int uDitheredEnabled;
+
+    const mat4 bayerMatrix4 = mat4(
+      0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+      12.0/16.0,  4.0/16.0, 14.0/16.0,  6.0/16.0,
+      3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+      15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
+    );
+
+    float getDitherThreshold(vec2 fragCoord) {
+      // Use 4x4 Bayer matrix tiled
+      float bayer4 = getBayerValue(fragCoord);
       
-      vec3 norm = normalize(Normal);
-      vec3 lightDir = normalize(lightPos - FragPos);
-      float diff = max(dot(norm, lightDir), 0.0);
-      vec3 diffuse = diff * lightColor;
-      
-      vec4 texColor = vec4(1.0);
-      if (useTextureArray) {
-        texColor = texture(uTextureArray, vec3(TexCoord, float(TexIndex)));
+      // Optional: Add temporal jitter to animate pattern
+      if (uDitherEnabled > 1) {  // Mode 2 = temporal jitter
+        float jitter = fract(uTime * 0.5);
+        bayer4 = fract(bayer4 + jitter);
       }
       
-      vec3 result = (ambient + diffuse) * texColor.rgb * Color.rgb;
-      FragColor = vec4(result, texColor.a * Color.a);
+      return bayer4;
+    }
+        
+    void main() {
+      // Dithered LOD transition discard test
+      if (uDitherEnabled > 0 && LODTransitionAlpha < 1.0) {
+        float threshold = getDitherThreshold(gl_FragCoord.xy);
+        
+        // Discard fragments based on transition alpha
+        // When alpha is 0.0, discard all; when 1.0, keep all
+        if (LODTransitionAlpha < threshold) {
+          discard;
+        }
+      }
+      
+      // Standard lighting calculation
+      vec3 norm = normalize(Normal);
+      vec3 lightDir = normalize(lightPos - FragPos);
+      vec3 viewDir = normalize(viewPos - FragPos);
+      vec3 reflectDir = reflect(-lightDir, norm);
+      
+      float diff = max(dot(norm, lightDir), 0.0);
+      float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
+      
+      vec3 ambient = 0.3 * Color.rgb;
+      vec3 diffuse = diff * Color.rgb;
+      vec3 specular = spec * 0.5 * vec3(1.0);
+      
+      if (useTextureArray == 1) {
+        vec4 texColor = texture(uTextureArray, vec3(TexCoord, TexIndex));
+        vec3 result = (ambient + diffuse + specular) * texColor.rgb * Color.rgb;
+        FragColor = vec4(result, texColor.a * Color.a);
+      } else {
+        vec3 result = ambient + diffuse + specular;
+        FragColor = vec4(result, Color.a);
+      }
     }
   )";
 

@@ -84,6 +84,8 @@ struct LODConfig {
   // Used to normalize screen-space calculations
   float reference_object_size = 1.0f;
   TemporalCoherenceConfig temporal;
+
+  DitherConfig dither;
 };
 
 // ============================================================================
@@ -106,6 +108,11 @@ public:
 
   // Update instance data
   void update_instance(size_t index, const InstanceData &data);
+
+  // Compute LOD level directly without temporal smoothing
+  uint32_t compute_lod_direct(const InstanceData &inst, float distance,
+                              float screen_size,
+                              const Renderer &renderer) const;
 
   // Compute LOD levels and distribute instances to LOD buffers
   // Pass viewport dimensions for screen-space calculations

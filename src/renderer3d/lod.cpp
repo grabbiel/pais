@@ -1,10 +1,10 @@
 #include "pixel/renderer3d/lod.hpp"
 #include <GLFW/glfw3.h>
+#include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
-#include <cmath>
 
 // OpenGL 4.3+ constants
 #ifndef GL_COMPUTE_SHADER
@@ -500,20 +500,105 @@ void LODMesh::update_instance(size_t index, const InstanceData &data) {
   }
 }
 
+uint32_t LODMesh::compute_lod_direct(const InstanceData &inst, float distance,
+                                     float screen_size,
+                                     const Renderer &renderer) const {
+
+  // Compute LOD without hysteresis or temporal smoothing
+  // This is used when temporal coherence is disabled
+
+  if (config_.mode == LODMode::Distance) {
+    // Distance-based LOD selection
+    if (distance < config_.distance_high) {
+      return 0; // High detail
+    } else if (distance < config_.distance_medium) {
+      return 1; // Medium detail
+    } else if (distance < config_.distance_cull) {
+      return 2; // Low detail
+    } else {
+      return 3; // Culled
+    }
+  } else if (config_.mode == LODMode::ScreenSpace) {
+    // Screen-space based LOD selection
+    if (screen_size >= config_.screenspace_high) {
+      return 0; // High detail
+    } else if (screen_size >= config_.screenspace_medium) {
+      return 1; // Medium detail
+    } else if (screen_size >= config_.screenspace_low) {
+      return 2; // Low detail
+    } else {
+      return 3; // Culled
+    }
+  } else {
+    // Hybrid mode - blend distance and screen-space metrics
+
+    // Calculate distance score (0-3: 0=high, 1=medium, 2=low, 3=cull)
+    float distance_score;
+    if (distance < config_.distance_high) {
+      distance_score = 0.0f;
+    } else if (distance < config_.distance_medium) {
+      distance_score =
+          1.0f + (distance - config_.distance_high) /
+                     (config_.distance_medium - config_.distance_high);
+    } else if (distance < config_.distance_cull) {
+      distance_score =
+          2.0f + (distance - config_.distance_medium) /
+                     (config_.distance_cull - config_.distance_medium);
+    } else {
+      distance_score = 3.0f;
+    }
+
+    // Calculate screen-space score
+    float screenspace_score;
+    if (screen_size >= config_.screenspace_high) {
+      screenspace_score = 0.0f;
+    } else if (screen_size >= config_.screenspace_medium) {
+      screenspace_score =
+          1.0f + (config_.screenspace_high - screen_size) /
+                     (config_.screenspace_high - config_.screenspace_medium);
+    } else if (screen_size >= config_.screenspace_low) {
+      screenspace_score =
+          2.0f + (config_.screenspace_medium - screen_size) /
+                     (config_.screenspace_medium - config_.screenspace_low);
+    } else {
+      screenspace_score = 3.0f;
+    }
+
+    // Blend the two scores
+    float weight = config_.hybrid_screenspace_weight;
+    float final_score =
+        distance_score * (1.0f - weight) + screenspace_score * weight;
+
+    // Map continuous score to discrete LOD level
+    if (final_score < 0.5f) {
+      return 0; // High detail
+    } else if (final_score < 1.5f) {
+      return 1; // Medium detail
+    } else if (final_score < 2.5f) {
+      return 2; // Low detail
+    } else {
+      return 3; // Culled
+    }
+  }
+}
+
 void LODMesh::compute_lod_distribution(const Renderer &renderer) {
   // Calculate delta time
   double current_time = renderer.time();
   float delta_time = static_cast<float>(current_time - last_update_time_);
   last_update_time_ = current_time;
 
-  // Update temporal states first
+  // Update temporal states (handles crossfading)
   update_temporal_states(delta_time);
+
   if (!gpu_lod_enabled_ || total_instance_count_ == 0) {
-    // CPU fallback with temporal coherence
-    std::vector<InstanceData> high_lod, medium_lod, low_lod;
+    // CPU-based LOD distribution with crossfade support
+    std::vector<InstanceData> lod_instances[3];
+
+    // Also track crossfading instances (appear in both LODs)
+    std::vector<std::pair<InstanceData, float>> crossfade_instances[3];
 
     Vec3 cam_pos = renderer.camera().position;
-
     float view[16], proj[16];
     renderer.camera().get_view_matrix(view);
     renderer.camera().get_projection_matrix(proj, renderer.window_width(),
@@ -521,9 +606,10 @@ void LODMesh::compute_lod_distribution(const Renderer &renderer) {
     int viewport_height = renderer.window_height();
 
     for (size_t i = 0; i < source_instances_.size(); ++i) {
-      const auto &inst = source_instances_[i];
+      auto inst = source_instances_[i]; // Copy so we can modify
       auto &state = instance_lod_states_[i];
 
+      // Calculate LOD metrics
       float dx = inst.position.x - cam_pos.x;
       float dy = inst.position.y - cam_pos.y;
       float dz = inst.position.z - cam_pos.z;
@@ -538,241 +624,62 @@ void LODMesh::compute_lod_distribution(const Renderer &renderer) {
       uint32_t desired_lod;
 
       if (config_.temporal.enabled) {
-        // Use temporal coherence
         desired_lod = compute_lod_with_hysteresis(inst, state, dist,
                                                   screen_size, renderer);
 
-        // Update target LOD if different from current
         if (desired_lod != state.current_lod) {
           if (desired_lod != state.target_lod) {
-            // New target - reset transition timer
             state.target_lod = desired_lod;
             state.transition_time = 0.0f;
           }
         } else {
-          // Desired matches current - we're stable
           state.target_lod = state.current_lod;
           state.transition_time = 0.0f;
         }
-
-        // Store metric for debugging
-        state.last_metric_value =
-            (config_.mode == LODMode::ScreenSpace) ? screen_size : dist;
-
-        // Use current LOD for rendering (not target)
-        desired_lod = state.current_lod;
       } else {
-        // No temporal coherence - use direct calculation
-        LODLevel lod;
-        if (config_.mode == LODMode::ScreenSpace) {
-          lod = screen_space::determine_lod_screenspace(screen_size, config_);
-        } else if (config_.mode == LODMode::Hybrid) {
-          lod = screen_space::determine_lod_hybrid(dist, screen_size, config_);
-        } else {
-          // Distance-based
-          if (dist < config_.distance_high) {
-            lod = LODLevel::High;
-          } else if (dist < config_.distance_medium) {
-            lod = LODLevel::Medium;
-          } else if (dist < config_.distance_cull) {
-            lod = LODLevel::Low;
-          } else {
-            lod = LODLevel::COUNT;
-          }
+        desired_lod = compute_lod_direct(inst, dist, screen_size, renderer);
+        state.current_lod = desired_lod;
+        state.target_lod = desired_lod;
+      }
+
+      // Handle crossfading instances
+      if (state.is_crossfading && config_.dither.enabled) {
+        // Add to previous LOD with inverse alpha
+        if (state.previous_lod < 3) {
+          auto prev_inst = inst;
+          prev_inst.lod_transition_alpha = 1.0f - state.transition_alpha;
+          crossfade_instances[state.previous_lod].push_back(
+              {prev_inst, 1.0f - state.transition_alpha});
         }
-        desired_lod = static_cast<uint32_t>(lod);
-      }
 
-      if (desired_lod == 0) {
-        high_lod.push_back(inst);
-      } else if (desired_lod == 1) {
-        medium_lod.push_back(inst);
-      } else if (desired_lod == 2) {
-        low_lod.push_back(inst);
-      }
-    }
-
-    lod_meshes_[0]->set_instances(high_lod);
-    lod_meshes_[1]->set_instances(medium_lod);
-    lod_meshes_[2]->set_instances(low_lod);
-
-    last_stats_.total_instances = total_instance_count_;
-    last_stats_.instances_per_lod[0] = high_lod.size();
-    last_stats_.instances_per_lod[1] = medium_lod.size();
-    last_stats_.instances_per_lod[2] = low_lod.size();
-    last_stats_.culled = total_instance_count_ - high_lod.size() -
-                         medium_lod.size() - low_lod.size();
-
-    return;
-  }
-
-  // GPU path: upload source instances
-  glBindBuffer(GL_SHADER_STORAGE_BUFFER, source_instances_ssbo_);
-  glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0,
-                  total_instance_count_ * sizeof(InstanceData),
-                  source_instances_.data());
-
-  // Reset counters
-  uint32_t zero_counters[4] = {0, 0, 0, 0};
-  glBindBuffer(GL_SHADER_STORAGE_BUFFER, lod_counters_ssbo_);
-  glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, 4 * sizeof(uint32_t),
-                  zero_counters);
-
-  // Get camera position and matrices
-  Vec3 cam_pos = renderer.camera().position;
-
-  float view[16], proj[16];
-  renderer.camera().get_view_matrix(view);
-  renderer.camera().get_projection_matrix(proj, renderer.window_width(),
-                                          renderer.window_height());
-
-  glm::mat4 view_mat, proj_mat;
-  memcpy(&view_mat[0][0], view, 16 * sizeof(float));
-  memcpy(&proj_mat[0][0], proj, 16 * sizeof(float));
-  glm::mat4 vp = proj_mat * view_mat;
-
-  // Extract frustum planes
-  Vec4 frustum_planes[6];
-  const float *m = glm::value_ptr(vp);
-  frustum_planes[0] = {m[3] + m[0], m[7] + m[4], m[11] + m[8], m[15] + m[12]};
-  frustum_planes[1] = {m[3] - m[0], m[7] - m[4], m[11] - m[8], m[15] - m[12]};
-  frustum_planes[2] = {m[3] + m[1], m[7] + m[5], m[11] + m[9], m[15] + m[13]};
-  frustum_planes[3] = {m[3] - m[1], m[7] - m[5], m[11] - m[9], m[15] - m[13]};
-  frustum_planes[4] = {m[3] + m[2], m[7] + m[6], m[11] + m[10], m[15] + m[14]};
-  frustum_planes[5] = {m[3] - m[2], m[7] - m[6], m[11] - m[10], m[15] - m[14]};
-
-  // Normalize planes
-  for (int i = 0; i < 6; i++) {
-    float len = std::sqrt(frustum_planes[i].x * frustum_planes[i].x +
-                          frustum_planes[i].y * frustum_planes[i].y +
-                          frustum_planes[i].z * frustum_planes[i].z);
-    if (len > 0) {
-      frustum_planes[i].x /= len;
-      frustum_planes[i].y /= len;
-      frustum_planes[i].z /= len;
-      frustum_planes[i].w /= len;
-    }
-  }
-
-  // Bind compute shader and set uniforms
-  glUseProgram(lod_compute_shader_);
-
-  GLint cam_pos_loc =
-      glGetUniformLocation(lod_compute_shader_, "camera_position");
-  glUniform3f(cam_pos_loc, cam_pos.x, cam_pos.y, cam_pos.z);
-
-  GLint view_loc = glGetUniformLocation(lod_compute_shader_, "view_matrix");
-  glUniformMatrix4fv(view_loc, 1, GL_FALSE, view);
-
-  GLint proj_loc =
-      glGetUniformLocation(lod_compute_shader_, "projection_matrix");
-  glUniformMatrix4fv(proj_loc, 1, GL_FALSE, proj);
-
-  GLint total_loc =
-      glGetUniformLocation(lod_compute_shader_, "total_instances");
-  glUniform1ui(total_loc, total_instance_count_);
-
-  GLint viewport_loc =
-      glGetUniformLocation(lod_compute_shader_, "viewport_height");
-  glUniform1i(viewport_loc, renderer.window_height());
-
-  // LOD mode
-  GLint mode_loc = glGetUniformLocation(lod_compute_shader_, "lod_mode");
-  glUniform1i(mode_loc, static_cast<int>(config_.mode));
-
-  // Distance thresholds
-  GLint dist_high_loc =
-      glGetUniformLocation(lod_compute_shader_, "distance_high");
-  glUniform1f(dist_high_loc, config_.distance_high);
-
-  GLint dist_med_loc =
-      glGetUniformLocation(lod_compute_shader_, "distance_medium");
-  glUniform1f(dist_med_loc, config_.distance_medium);
-
-  GLint dist_cull_loc =
-      glGetUniformLocation(lod_compute_shader_, "distance_cull");
-  glUniform1f(dist_cull_loc, config_.distance_cull);
-
-  // Screen-space thresholds
-  GLint ss_high_loc =
-      glGetUniformLocation(lod_compute_shader_, "screenspace_high");
-  glUniform1f(ss_high_loc, config_.screenspace_high);
-
-  GLint ss_med_loc =
-      glGetUniformLocation(lod_compute_shader_, "screenspace_medium");
-  glUniform1f(ss_med_loc, config_.screenspace_medium);
-
-  GLint ss_low_loc =
-      glGetUniformLocation(lod_compute_shader_, "screenspace_low");
-  glUniform1f(ss_low_loc, config_.screenspace_low);
-
-  // Hybrid weight
-  GLint hybrid_loc = glGetUniformLocation(lod_compute_shader_, "hybrid_weight");
-  glUniform1f(hybrid_loc, config_.hybrid_screenspace_weight);
-
-  // Frustum planes
-  GLint planes_loc =
-      glGetUniformLocation(lod_compute_shader_, "frustum_planes");
-  glUniform4fv(planes_loc, 6, (float *)frustum_planes);
-
-  // Bind SSBOs
-  typedef void(APIENTRYP PFNGLBINDBUFFERBASEPROC)(GLenum, GLuint, GLuint);
-  PFNGLBINDBUFFERBASEPROC glBindBufferBaseFunc =
-      (PFNGLBINDBUFFERBASEPROC)glfwGetProcAddress("glBindBufferBase");
-
-  if (glBindBufferBaseFunc) {
-    glBindBufferBaseFunc(GL_SHADER_STORAGE_BUFFER, 0, source_instances_ssbo_);
-    glBindBufferBaseFunc(GL_SHADER_STORAGE_BUFFER, 1, lod_assignments_ssbo_);
-    glBindBufferBaseFunc(GL_SHADER_STORAGE_BUFFER, 2, lod_counters_ssbo_);
-    glBindBufferBaseFunc(GL_SHADER_STORAGE_BUFFER, 3,
-                         lod_instance_indices_ssbo_);
-  }
-
-  // Dispatch compute shader
-  uint32_t work_groups = (total_instance_count_ + 255) / 256;
-  glDispatchCompute(work_groups, 1, 1);
-
-  // Memory barrier
-  glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-
-  glUseProgram(0);
-
-  // Read back LOD counters and instance indices
-  uint32_t counters[4];
-  glBindBuffer(GL_SHADER_STORAGE_BUFFER, lod_counters_ssbo_);
-  glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, 4 * sizeof(uint32_t),
-                     counters);
-
-  last_stats_.total_instances = total_instance_count_;
-  last_stats_.instances_per_lod[0] = counters[0];
-  last_stats_.instances_per_lod[1] = counters[1];
-  last_stats_.instances_per_lod[2] = counters[2];
-  last_stats_.culled = counters[3];
-
-  // Read back instance indices and populate LOD meshes
-  std::vector<uint32_t> indices(total_instance_count_ * 3);
-  glBindBuffer(GL_SHADER_STORAGE_BUFFER, lod_instance_indices_ssbo_);
-  glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0,
-                     total_instance_count_ * 3 * sizeof(uint32_t),
-                     indices.data());
-
-  // Build instance lists for each LOD
-  for (int lod = 0; lod < 3; lod++) {
-    std::vector<InstanceData> lod_instances;
-    lod_instances.reserve(counters[lod]);
-
-    uint32_t base_offset = lod * total_instance_count_;
-    for (uint32_t i = 0; i < counters[lod]; i++) {
-      uint32_t src_index = indices[base_offset + i];
-      if (src_index < total_instance_count_) {
-        lod_instances.push_back(source_instances_[src_index]);
+        // Add to current LOD with transition alpha
+        if (state.current_lod < 3) {
+          inst.lod_transition_alpha = state.transition_alpha;
+          lod_instances[state.current_lod].push_back(inst);
+        }
+      } else {
+        // Normal rendering - single LOD
+        if (state.current_lod < 3) {
+          inst.lod_transition_alpha = 1.0f;
+          lod_instances[state.current_lod].push_back(inst);
+        }
       }
     }
 
-    lod_meshes_[lod]->set_instances(lod_instances);
-  }
+    // Merge crossfade instances with main instances
+    for (int lod = 0; lod < 3; lod++) {
+      for (auto &[inst, alpha] : crossfade_instances[lod]) {
+        lod_instances[lod].push_back(inst);
+      }
+    }
 
-  glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    // Update instance buffers
+    for (int lod = 0; lod < 3; lod++) {
+      if (lod_meshes_[lod]) {
+        lod_meshes_[lod]->set_instances(lod_instances[lod]);
+      }
+    }
+  }
 }
 
 void LODMesh::draw_all_lods() const {
@@ -840,17 +747,46 @@ void LODMesh::update_temporal_states(float delta_time) {
     if (state.is_transitioning()) {
       state.transition_time += delta_time;
 
-      // Check if we should commit the transition
-      if (should_transition_lod(state, state.target_lod, delta_time)) {
-        state.current_lod = state.target_lod;
-        state.transition_time = 0.0f;
-        state.stable_frames = 0;
+      // Handle crossfade transitions
+      if (state.is_crossfading && config_.dither.enabled) {
+        // Update transition alpha for dithering
+        float crossfade_progress = std::min(
+            1.0f, state.transition_time / config_.dither.crossfade_duration);
+        state.transition_alpha = crossfade_progress;
+
+        // Complete crossfade when done
+        if (crossfade_progress >= 1.0f) {
+          state.current_lod = state.target_lod;
+          state.previous_lod = state.current_lod;
+          state.is_crossfading = false;
+          state.transition_alpha = 1.0f;
+          state.transition_time = 0.0f;
+          state.stable_frames = 0;
+        }
+      } else {
+        // Standard transition (no crossfade)
+        if (should_transition_lod(state, state.target_lod, delta_time)) {
+          // Begin crossfade if dithering enabled
+          if (config_.dither.enabled) {
+            state.previous_lod = state.current_lod;
+            state.current_lod = state.target_lod;
+            state.is_crossfading = true;
+            state.transition_alpha = 0.0f;
+            state.transition_time = 0.0f;
+          } else {
+            // Instant transition
+            state.current_lod = state.target_lod;
+            state.transition_time = 0.0f;
+            state.stable_frames = 0;
+          }
+        }
       }
     } else {
       // Stable - increment stability counter
       state.stable_frames =
           std::min(state.stable_frames + 1,
                    config_.temporal.stable_frames_required + 10);
+      state.transition_alpha = 1.0f;
     }
   }
 }
@@ -889,6 +825,12 @@ void RendererLOD::draw_lod(Renderer &renderer, LODMesh &mesh,
   shader->set_mat4("projection", proj);
   shader->set_vec3("lightPos", {5, 10, 5});
   shader->set_vec3("viewPos", renderer.camera().position);
+
+  shader->set_float("uTime", static_cast<float>(renderer.time()));
+  int dither_mode = mesh.config().dither.enabled
+                        ? (mesh.config().dither.temporal_jitter ? 2 : 1)
+                        : 0;
+  shader->set_int("uDitherEnabled", dither_mode);
 
   if (base_material.texture_array != INVALID_TEXTURE_ARRAY) {
     renderer.bind_texture_array(base_material.texture_array, 0);

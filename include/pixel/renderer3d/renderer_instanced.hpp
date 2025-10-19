@@ -15,15 +15,19 @@ struct InstanceData {
   Color color = Color::White();
   float texture_index = 0.0f;
   float culling_radius = 1.0f; // Bounding sphere radius for culling
-  float _padding[2] = {0, 0};  // Alignment padding
+  float lod_transition_alpha = 1.0f;
+  float _padding[2] = {0, 0}; // Alignment padding
 };
 
 struct InstanceLODState {
   uint32_t current_lod = 0;       // Current LOD level (0-3)
   uint32_t target_lod = 0;        // Target LOD level we're transitioning to
+  uint32_t previous_lod = 0;      // Previous LOD for crossfade
   float transition_time = 0.0f;   // Time spent in transition (seconds)
+  float transition_alpha = 0.0f;  // 0.0 shows previos, 1.0 shows current
   float last_metric_value = 0.0f; // Last distance/screen-size used for LOD
   uint32_t stable_frames = 0;     // Frames since last LOD change
+  bool is_crossfading = false;    // True during dithered transition
 
   bool is_stable() const { return current_lod == target_lod; }
   bool is_transitioning() const { return current_lod != target_lod; }
@@ -48,6 +52,13 @@ struct TemporalCoherenceConfig {
 
   // Bias toward maintaining current LOD
   float current_lod_bias = 0.1f; // 10% bias to keep current LOD
+};
+
+struct DitherConfig {
+  bool enabled = true;
+  float crossfade_duration = 0.2f;
+  float dither_scale = 1.0f;
+  bool temporal_jitter = true;
 };
 
 // GPU-side draw command structure (matches glDrawElementsIndirect)
