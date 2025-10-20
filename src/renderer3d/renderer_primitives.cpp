@@ -1,6 +1,7 @@
 // src/renderer3d/renderer_primitives.cpp
 #include "pixel/renderer3d/renderer.hpp"
 #include <cmath>
+#include <glm/gtc/type_ptr.hpp>
 
 namespace pixel::renderer3d::primitives {
 
@@ -155,9 +156,35 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
   cmd->setVertexBuffer(mesh.vertex_buffer());
   cmd->setIndexBuffer(mesh.index_buffer());
 
-  // TODO: Set uniforms via uniform buffers when RHI supports it
-  // For now, drawing will work but without proper transformations
+  // Build model matrix
+  glm::mat4 model = glm::mat4(1.0f);
+  model = glm::translate(model, glm::vec3(position.x, position.y, position.z));
+  model = glm::rotate(model, rotation.z, glm::vec3(0, 0, 1));
+  model = glm::rotate(model, rotation.y, glm::vec3(0, 1, 0));
+  model = glm::rotate(model, rotation.x, glm::vec3(1, 0, 0));
+  model = glm::scale(model, glm::vec3(scale.x, scale.y, scale.z));
 
+  // Get view and projection matrices
+  float view[16], projection[16];
+  camera_.get_view_matrix(view);
+  camera_.get_projection_matrix(projection, window_width(), window_height());
+
+  // Set transformation uniforms
+  cmd->setUniformMat4("model", glm::value_ptr(model));
+  cmd->setUniformMat4("view", view);
+  cmd->setUniformMat4("projection", projection);
+
+  // Set lighting uniforms
+  float light_pos[3] = {10.0f, 10.0f, 10.0f};
+  float view_pos[3] = {camera_.position.x, camera_.position.y,
+                       camera_.position.z};
+  cmd->setUniformVec3("lightPos", light_pos);
+  cmd->setUniformVec3("viewPos", view_pos);
+
+  // Set material uniforms
+  cmd->setUniformInt("useTexture", (material.texture.id != 0) ? 1 : 0);
+
+  // Draw
   cmd->drawIndexed(mesh.index_count(), 0, 1);
 }
 

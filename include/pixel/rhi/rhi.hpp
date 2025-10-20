@@ -34,6 +34,13 @@ struct CmdList {
   virtual void setPipeline(PipelineHandle) = 0;
   virtual void setVertexBuffer(BufferHandle, size_t offset = 0) = 0;
   virtual void setIndexBuffer(BufferHandle, size_t offset = 0) = 0;
+
+  // NEW: Uniform setting methods
+  virtual void setUniformMat4(const char *name, const float *mat4x4) = 0;
+  virtual void setUniformVec3(const char *name, const float *vec3) = 0;
+  virtual void setUniformInt(const char *name, int value) = 0;
+  virtual void setUniformFloat(const char *name, float value) = 0;
+
   virtual void drawIndexed(uint32_t indexCount, uint32_t firstIndex = 0,
                            uint32_t instanceCount = 1) = 0;
   virtual void endRender() = 0;
@@ -50,13 +57,12 @@ struct Device {
   virtual BufferHandle createBuffer(const BufferDesc &) = 0;
   virtual TextureHandle createTexture(const TextureDesc &) = 0;
   virtual SamplerHandle createSampler(const SamplerDesc &) = 0;
-  virtual ShaderHandle
-  createShader(std::string_view stage,
-               std::span<const uint8_t> bytes) = 0; // stage: "vs"/"fs"
+  virtual ShaderHandle createShader(std::string_view stage,
+                                    std::span<const uint8_t> bytes) = 0;
   virtual PipelineHandle createPipeline(const PipelineDesc &) = 0;
 
-  virtual CmdList *getImmediate() = 0; // keep it simple to start
-  virtual void present() = 0;          // swap
+  virtual CmdList *getImmediate() = 0;
+  virtual void present() = 0;
 };
 
 /// Factory (implemented in rhi_dispatch.cpp)

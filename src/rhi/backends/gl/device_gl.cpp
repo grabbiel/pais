@@ -57,9 +57,7 @@ struct GLPipeline {
   GLuint vao = 0;
   ShaderHandle vs{0};
   ShaderHandle fs{0};
-
-  // Cached uniform locations
-  std::unordered_map<std::string, GLint> uniforms;
+  std::unordered_map<std::string, GLint> uniform_locations;
 };
 
 // ============================================================================
@@ -77,19 +75,13 @@ public:
 
   void beginRender(TextureHandle rtColor, TextureHandle rtDepth, float clear[4],
                    float clearDepth, uint8_t clearStencil) override {
-    // For now, render to default framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    // Clear
     glClearColor(clear[0], clear[1], clear[2], clear[3]);
     glClearDepth(clearDepth);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    // Enable depth testing
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
-
-    // Enable blending for transparency
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   }
@@ -114,22 +106,31 @@ public:
     current_vb_ = handle;
     current_vb_offset_ = offset;
 
-    // Bind VBO and re-point attribute pointers for the currently bound VAO
+    auto pit = pipelines_->find(current_pipeline_.id);
+    if (pit == pipelines_->end())
+      return;
+
+    glBindVertexArray(pit->second.vao);
     glBindBuffer(GL_ARRAY_BUFFER, it->second.id);
 
-    // Make sure the VAO of the current pipeline is bound
-    auto pit = pipelines_->find(current_pipeline_.id);
-    if (pit != pipelines_->end()) {
-      glBindVertexArray(pit->second.vao);
-    }
-
-    // Hardcoded layout for renderer3d::Vertex (stride = 48 bytes):
-    //// position (vec3) @0, normal (vec3) @12, uv (vec2) @24, color (vec4) @32
+    // Vertex layout for renderer3d::Vertex (48 bytes total)
     const GLsizei stride = 48;
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void *)(0));
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void *)(12));
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void *)(24));
-    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride, (void *)(32));
+
+    // Position (vec3, offset 0)
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void *)0);
+
+    // Normal (vec3, offset 12)
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void *)12);
+
+    // TexCoord (vec2, offset 24)
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void *)24);
+
+    // Color (vec4, offset 32)
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride, (void *)32);
   }
 
   void setIndexBuffer(BufferHandle handle, size_t offset) override {
@@ -145,6 +146,34 @@ public:
       glBindVertexArray(pit->second.vao);
     }
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, it->second.id);
+  }
+
+  void setUniformMat4(const char *name, const float *mat4x4) override {
+    GLint loc = getUniformLocation(name);
+    if (loc >= 0) {
+      glUniformMatrix4fv(loc, 1, GL_FALSE, mat4x4);
+    }
+  }
+
+  void setUniformVec3(const char *name, const float *vec3) override {
+    GLint loc = getUniformLocation(name);
+    if (loc >= 0) {
+      glUniform3fv(loc, 1, vec3);
+    }
+  }
+
+  void setUniformInt(const char *name, int value) override {
+    GLint loc = getUniformLocation(name);
+    if (loc >= 0) {
+      glUniform1i(loc, value);
+    }
+  }
+
+  void setUniformFloat(const char *name, float value) override {
+    GLint loc = getUniformLocation(name);
+    if (loc >= 0) {
+      glUniform1f(loc, value);
+    }
   }
 
   void drawIndexed(uint32_t indexCount, uint32_t firstIndex,
@@ -183,6 +212,24 @@ public:
   void end() override { recording_ = false; }
 
 private:
+  GLint getUniformLocation(const char *name) {
+    auto pit = pipelines_->find(current_pipeline_.id);
+    if (pit == pipelines_->end())
+      return -1;
+
+    GLPipeline &pipeline = pit->second;
+
+    // Cache uniform locations
+    std::string name_str(name);
+    auto it = pipeline.uniform_locations.find(name_str);
+    if (it != pipeline.uniform_locations.end()) {
+      return it->second;
+    }
+
+    GLint loc = glGetUniformLocation(pipeline.program, name);
+    pipeline.uniform_locations[name_str] = loc;
+    return loc;
+  }
   std::unordered_map<uint32_t, GLBuffer> *buffers_;
   std::unordered_map<uint32_t, GLTexture> *textures_;
   std::unordered_map<uint32_t, GLPipeline> *pipelines_;
@@ -204,12 +251,6 @@ public:
   GLDevice(GLFWwindow *window) : window_(window) {
     glfwMakeContextCurrent(window);
 
-// Load OpenGL functions (on platforms that need it)
-#ifdef _WIN32
-// TODO: Load GL functions via GLFW or GLAD
-#endif
-
-    // Query capabilities
     GLint max_texture_size;
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_texture_size);
 
@@ -218,33 +259,25 @@ public:
 
     std::cout << "OpenGL Renderer: " << renderer << std::endl;
     std::cout << "OpenGL Version: " << version << std::endl;
-    std::cout << "Max Texture Size: " << max_texture_size << std::endl;
 
-    // Setup capabilities
     caps_.instancing = true;
     caps_.uniformBuffers = true;
-    caps_.samplerAniso = false;   // Check for extension
-    caps_.clipSpaceYDown = false; // OpenGL uses Y-up
+    caps_.samplerAniso = false;
+    caps_.clipSpaceYDown = false;
 
-    // Create command list
     cmd_list_ = std::make_unique<GLCmdList>(&buffers_, &textures_, &pipelines_);
   }
 
   ~GLDevice() override {
-    // Cleanup all resources
-    for (auto &[id, buf] : buffers_) {
+    for (auto &[id, buf] : buffers_)
       glDeleteBuffers(1, &buf.id);
-    }
-    for (auto &[id, tex] : textures_) {
+    for (auto &[id, tex] : textures_)
       glDeleteTextures(1, &tex.id);
-    }
-    for (auto &[id, samp] : samplers_) {
+    for (auto &[id, samp] : samplers_)
       glDeleteSamplers(1, &samp.id);
-    }
     for (auto &[id, shader] : shaders_) {
-      if (shader.shader_id != 0) {
+      if (shader.shader_id != 0)
         glDeleteShader(shader.shader_id);
-      }
     }
     for (auto &[id, pipe] : pipelines_) {
       glDeleteVertexArrays(1, &pipe.vao);
@@ -258,7 +291,6 @@ public:
     GLBuffer buffer;
     glGenBuffers(1, &buffer.id);
 
-    // Determine target - use bitwise AND for flag checking
     if ((desc.usage & BufferUsage::Vertex) == BufferUsage::Vertex) {
       buffer.target = GL_ARRAY_BUFFER;
     } else if ((desc.usage & BufferUsage::Index) == BufferUsage::Index) {
@@ -272,7 +304,6 @@ public:
     buffer.size = desc.size;
     buffer.host_visible = desc.hostVisible;
 
-    // Allocate storage
     glBindBuffer(buffer.target, buffer.id);
     GLenum usage = desc.hostVisible ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW;
     glBufferData(buffer.target, desc.size, nullptr, usage);
@@ -280,7 +311,6 @@ public:
 
     uint32_t handle_id = next_buffer_id_++;
     buffers_[handle_id] = buffer;
-
     return BufferHandle{handle_id};
   }
 
@@ -292,7 +322,6 @@ public:
     texture.height = desc.size.h;
     texture.format = desc.format;
 
-    // Determine format
     GLenum internal_format, format, type;
     switch (desc.format) {
     case Format::RGBA8:
@@ -323,17 +352,13 @@ public:
 
     texture.target = GL_TEXTURE_2D;
     glBindTexture(GL_TEXTURE_2D, texture.id);
-
-    // Allocate storage
     glTexImage2D(GL_TEXTURE_2D, 0, internal_format, desc.size.w, desc.size.h, 0,
                  format, type, nullptr);
 
-    // Generate mipmaps if requested
     if (desc.mipLevels > 1) {
       glGenerateMipmap(GL_TEXTURE_2D);
     }
 
-    // Default filtering
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -343,7 +368,6 @@ public:
 
     uint32_t handle_id = next_texture_id_++;
     textures_[handle_id] = texture;
-
     return TextureHandle{handle_id};
   }
 
