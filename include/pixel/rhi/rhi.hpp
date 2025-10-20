@@ -42,6 +42,11 @@ struct CmdList {
   virtual void setUniformInt(const char *name, int value) = 0;
   virtual void setUniformFloat(const char *name, float value) = 0;
 
+  virtual void setTexture(const char *name, TextureHandle texture,
+                          uint32_t slot = 0) = 0;
+  virtual void copyToTexture(TextureHandle texture, uint32_t mipLevel,
+                             std::span<const std::byte> data) = 0;
+
   virtual void drawIndexed(uint32_t indexCount, uint32_t firstIndex = 0,
                            uint32_t instanceCount = 1) = 0;
   virtual void endRender() = 0;

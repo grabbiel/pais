@@ -49,8 +49,13 @@ rhi::TextureHandle Renderer::create_texture(int width, int height,
     // Upload texture data
     auto *cmd = device_->getImmediate();
     cmd->begin();
-    // TODO: Need to add texture upload method to RHI CmdList
-    // For now this is a placeholder
+
+    // Convert pixel data to span
+    size_t data_size = width * height * 4; // RGBA8
+    std::span<const std::byte> data_span(
+        reinterpret_cast<const std::byte *>(data), data_size);
+    cmd->copyToTexture(texture_handle, 0, data_span);
+
     cmd->end();
   }
 

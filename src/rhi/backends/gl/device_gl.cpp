@@ -183,6 +183,58 @@ public:
     }
   }
 
+  void setTexture(const char *name, TextureHandle texture,
+                  uint32_t slot) override {
+    auto it = textures_->find(texture.id);
+    if (it == textures_->end())
+      return;
+
+    const GLTexture &tex = it->second;
+
+    // Activate texture unit
+    glActiveTexture(GL_TEXTURE0 + slot);
+    glBindTexture(tex.target, tex.id);
+
+    // Set sampler uniform
+    GLint loc = getUniformLocation(name);
+    if (loc >= 0) {
+      glUniform1i(loc, slot);
+    }
+  }
+
+  void copyToTexture(TextureHandle texture, uint32_t mipLevel,
+                     std::span<const std::byte> data) override {
+    auto it = textures_->find(texture.id);
+    if (it == textures_->end())
+      return;
+
+    GLTexture &tex = it->second;
+
+    GLenum format, type;
+    switch (tex.format) {
+    case Format::RGBA8:
+      format = GL_RGBA;
+      type = GL_UNSIGNED_BYTE;
+      break;
+    case Format::BGRA8:
+      format = GL_BGRA;
+      type = GL_UNSIGNED_BYTE;
+      break;
+    case Format::R8:
+      format = GL_RED;
+      type = GL_UNSIGNED_BYTE;
+      break;
+    default:
+      format = GL_RGBA;
+      type = GL_UNSIGNED_BYTE;
+    }
+
+    glBindTexture(tex.target, tex.id);
+    glTexSubImage2D(tex.target, mipLevel, 0, 0, tex.width, tex.height, format,
+                    type, data.data());
+    glBindTexture(tex.target, 0);
+  }
+
   void drawIndexed(uint32_t indexCount, uint32_t firstIndex,
                    uint32_t instanceCount) override {
     if (current_pipeline_.id == 0)
