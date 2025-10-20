@@ -1,3 +1,4 @@
+// src/renderer3d/renderer.cpp (Updated for RHI)
 #include "pixel/renderer3d/renderer.hpp"
 #include <GLFW/glfw3.h>
 #include <cmath>
@@ -15,6 +16,207 @@ static void glfw_error_callback(int error, const char *description) {
 }
 
 // ============================================================================
+// Default Shaders
+// ============================================================================
+
+const char *default_vertex_shader = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec2 aTexCoord;
+layout (location = 3) in vec4 aColor;
+
+out vec3 FragPos;
+out vec3 Normal;
+out vec2 TexCoord;
+out vec4 Color;
+
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+
+void main() {
+  FragPos = vec3(model * vec4(aPos, 1.0));
+  Normal = mat3(transpose(inverse(model))) * aNormal;
+  TexCoord = aTexCoord;
+  Color = aColor;
+  gl_Position = projection * view * vec4(FragPos, 1.0);
+}
+)";
+
+const char *default_fragment_shader = R"(
+#version 330 core
+out vec4 FragColor;
+
+in vec3 FragPos;
+in vec3 Normal;
+in vec2 TexCoord;
+in vec4 Color;
+
+uniform sampler2D uTexture;
+uniform int useTexture;
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+
+void main() {
+  vec3 lightColor = vec3(1.0, 1.0, 1.0);
+  float ambientStrength = 0.3;
+  vec3 ambient = ambientStrength * lightColor;
+  
+  vec3 norm = normalize(Normal);
+  vec3 lightDir = normalize(lightPos - FragPos);
+  float diff = max(dot(norm, lightDir), 0.0);
+  vec3 diffuse = diff * lightColor;
+  
+  vec3 viewDir = normalize(viewPos - FragPos);
+  vec3 reflectDir = reflect(-lightDir, norm);
+  float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
+  vec3 specular = 0.5 * spec * lightColor;
+  
+  vec4 texColor = (useTexture == 1) ? texture(uTexture, TexCoord) : Color;
+  vec3 result = (ambient + diffuse + specular) * texColor.rgb;
+  FragColor = vec4(result, texColor.a);
+}
+)";
+
+const char *instanced_vertex_shader = R"(
+#version 330 core
+layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec2 aTexCoord;
+layout (location = 3) in vec4 aColor;
+
+// Instance attributes
+layout (location = 4) in vec3 iPosition;
+layout (location = 5) in vec3 iRotation;
+layout (location = 6) in vec3 iScale;
+layout (location = 7) in vec4 iColor;
+layout (location = 8) in float iTextureIndex;
+layout (location = 9) in float iLODAlpha;
+
+out vec3 FragPos;
+out vec3 Normal;
+out vec2 TexCoord;
+out vec4 Color;
+out float TextureIndex;
+out float LODAlpha;
+
+uniform mat4 view;
+uniform mat4 projection;
+
+mat4 rotationMatrix(vec3 axis, float angle) {
+  axis = normalize(axis);
+  float s = sin(angle);
+  float c = cos(angle);
+  float oc = 1.0 - c;
+  
+  return mat4(
+    oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
+    oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,  0.0,
+    oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c,           0.0,
+    0.0,                                 0.0,                                 0.0,                                 1.0
+  );
+}
+
+void main() {
+  // Build transformation matrix
+  mat4 rotX = rotationMatrix(vec3(1, 0, 0), iRotation.x);
+  mat4 rotY = rotationMatrix(vec3(0, 1, 0), iRotation.y);
+  mat4 rotZ = rotationMatrix(vec3(0, 0, 1), iRotation.z);
+  mat4 rotation = rotZ * rotY * rotX;
+  
+  // Apply scale and rotation to position
+  vec4 scaledPos = vec4(aPos * iScale, 1.0);
+  vec4 rotatedPos = rotation * scaledPos;
+  vec4 worldPos = rotatedPos + vec4(iPosition, 0.0);
+  
+  FragPos = worldPos.xyz;
+  Normal = mat3(rotation) * aNormal;
+  TexCoord = aTexCoord;
+  Color = aColor * iColor;
+  TextureIndex = iTextureIndex;
+  LODAlpha = iLODAlpha;
+  
+  gl_Position = projection * view * worldPos;
+}
+)";
+
+const char *instanced_fragment_shader = R"(
+#version 330 core
+out vec4 FragColor;
+
+in vec3 FragPos;
+in vec3 Normal;
+in vec2 TexCoord;
+in vec4 Color;
+in float TextureIndex;
+in float LODAlpha;
+
+uniform sampler2DArray uTextureArray;
+uniform int useTextureArray;
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+uniform float uTime;
+uniform int uDitherEnabled;
+
+float getBayerValue(vec2 pos) {
+  int x = int(mod(pos.x, 4.0));
+  int y = int(mod(pos.y, 4.0));
+  
+  float bayer[16] = float[16](
+    0.0/16.0,  8.0/16.0,  2.0/16.0, 10.0/16.0,
+    12.0/16.0, 4.0/16.0, 14.0/16.0,  6.0/16.0,
+    3.0/16.0, 11.0/16.0,  1.0/16.0,  9.0/16.0,
+    15.0/16.0, 7.0/16.0, 13.0/16.0,  5.0/16.0
+  );
+  
+  return bayer[y * 4 + x];
+}
+
+void main() {
+  // Dithered LOD transition
+  if (uDitherEnabled > 0 && LODAlpha < 1.0) {
+    float threshold = getBayerValue(gl_FragCoord.xy);
+    
+    // Temporal jitter for animated dither
+    if (uDitherEnabled > 1) {
+      float jitter = fract(uTime * 0.5);
+      threshold = fract(threshold + jitter);
+    }
+    
+    if (LODAlpha < threshold) {
+      discard;
+    }
+  }
+  
+  // Standard lighting
+  vec3 lightColor = vec3(1.0);
+  float ambientStrength = 0.3;
+  vec3 ambient = ambientStrength * lightColor;
+  
+  vec3 norm = normalize(Normal);
+  vec3 lightDir = normalize(lightPos - FragPos);
+  float diff = max(dot(norm, lightDir), 0.0);
+  vec3 diffuse = diff * lightColor;
+  
+  vec3 viewDir = normalize(viewPos - FragPos);
+  vec3 reflectDir = reflect(-lightDir, norm);
+  float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
+  vec3 specular = 0.5 * spec * lightColor;
+  
+  vec4 texColor;
+  if (useTextureArray == 1) {
+    texColor = texture(uTextureArray, vec3(TexCoord, TextureIndex));
+  } else {
+    texColor = Color;
+  }
+  
+  vec3 result = (ambient + diffuse + specular) * texColor.rgb * Color.rgb;
+  FragColor = vec4(result, texColor.a * Color.a);
+}
+)";
+
+// ============================================================================
 // Renderer Implementation
 // ============================================================================
 
@@ -25,10 +227,16 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
   if (!glfwInit())
     throw std::runtime_error("Failed to initialize GLFW");
 
-  // Request no specific API - we'll use the RHI
-  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
   auto renderer = std::unique_ptr<Renderer>(new Renderer());
+
+  // Request OpenGL 3.3 Core
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+
+#ifdef __APPLE__
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+#endif
 
   renderer->window_ =
       glfwCreateWindow(spec.w, spec.h, spec.title.c_str(), nullptr, nullptr);
@@ -38,21 +246,20 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
   }
 
   // Create RHI device
-  // Check for Metal preference on macOS
   bool prefer_metal = false;
 #ifdef __APPLE__
   const char *backend_env = std::getenv("PIXEL_RENDERER_BACKEND");
   prefer_metal = !(backend_env && std::strcmp(backend_env, "OPENGL") == 0);
 #endif
 
-  renderer->device_ = rhi::create_device_from_config(prefer_metal);
+  renderer->device_ = rhi::create_gl_device(renderer->window_);
   if (!renderer->device_) {
     glfwDestroyWindow(renderer->window_);
     glfwTerminate();
     throw std::runtime_error("Failed to create RHI device");
   }
 
-  std::cout << "RHI Backend: " << renderer->backend_name() << std::endl;
+  std::cout << "Renderer Backend: OpenGL" << std::endl;
 
   renderer->setup_default_shaders();
   renderer->sprite_mesh_ = renderer->create_sprite_quad();
@@ -61,11 +268,22 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
 }
 
 Renderer::~Renderer() {
+  if (device_) {
+    delete device_;
+    device_ = nullptr;
+  }
+
   if (window_)
     glfwDestroyWindow(window_);
   glfwTerminate();
+}
 
-  // Device cleanup handled by RHI
+void Renderer::setup_default_shaders() {
+  default_shader_ =
+      create_shader_from_source(default_vertex_shader, default_fragment_shader);
+  instanced_shader_ = create_shader_from_source(instanced_vertex_shader,
+                                                instanced_fragment_shader);
+  sprite_shader_ = default_shader_; // Use same for sprites
 }
 
 void Renderer::begin_frame(const Color &clear_color) {
@@ -74,10 +292,8 @@ void Renderer::begin_frame(const Color &clear_color) {
 
   float clear[4] = {clear_color.r, clear_color.g, clear_color.b, clear_color.a};
 
-  // For now, we'll need a way to get the backbuffer texture handle
-  // This would be provided by the swapchain/device
-  rhi::TextureHandle backbuffer{0};   // Placeholder
-  rhi::TextureHandle depth_buffer{0}; // Placeholder
+  rhi::TextureHandle backbuffer{0};
+  rhi::TextureHandle depth_buffer{0};
 
   cmd->beginRender(backbuffer, depth_buffer, clear, 1.0f, 0);
 }
@@ -97,7 +313,6 @@ bool Renderer::process_events() {
 }
 
 void Renderer::update_input_state() {
-  // Copy current state to previous state
   std::memcpy(input_state_.prev_keys, input_state_.keys,
               sizeof(input_state_.keys));
   std::memcpy(input_state_.prev_mouse_buttons, input_state_.mouse_buttons,
@@ -105,18 +320,15 @@ void Renderer::update_input_state() {
   input_state_.prev_mouse_x = input_state_.mouse_x;
   input_state_.prev_mouse_y = input_state_.mouse_y;
 
-  // Update current key states
   for (int key = 0; key < 512; ++key) {
     input_state_.keys[key] = (glfwGetKey(window_, key) == GLFW_PRESS);
   }
 
-  // Update current mouse button states
   for (int btn = 0; btn < 8; ++btn) {
     input_state_.mouse_buttons[btn] =
         (glfwGetMouseButton(window_, btn) == GLFW_PRESS);
   }
 
-  // Update mouse position and delta
   double x, y;
   glfwGetCursorPos(window_, &x, &y);
   input_state_.mouse_delta_x = x - last_mouse_x_;
@@ -129,72 +341,6 @@ void Renderer::update_input_state() {
   input_state_.scroll_delta = 0.0;
 }
 
-// ============================================================================
-// Shader Management & Drawing
-// ============================================================================
-
-void Renderer::setup_default_shaders() {
-  // Default 3D shader source (simplified for RHI)
-  std::string vert_3d = R"(
-    #version 330 core
-    layout (location = 0) in vec3 aPos;
-    layout (location = 1) in vec3 aNormal;
-    layout (location = 2) in vec2 aTexCoord;
-    layout (location = 3) in vec4 aColor;
-    
-    out vec3 FragPos;
-    out vec3 Normal;
-    out vec2 TexCoord;
-    out vec4 Color;
-    
-    uniform mat4 model;
-    uniform mat4 view;
-    uniform mat4 projection;
-    
-    void main() {
-      FragPos = vec3(model * vec4(aPos, 1.0));
-      Normal = mat3(transpose(inverse(model))) * aNormal;
-      TexCoord = aTexCoord;
-      Color = aColor;
-      gl_Position = projection * view * vec4(FragPos, 1.0);
-    }
-  )";
-
-  std::string frag_3d = R"(
-    #version 330 core
-    out vec4 FragColor;
-    
-    in vec3 FragPos;
-    in vec3 Normal;
-    in vec2 TexCoord;
-    in vec4 Color;
-    
-    uniform sampler2D uTexture;
-    uniform bool useTexture;
-    uniform vec3 lightPos;
-    uniform vec3 viewPos;
-    
-    void main() {
-      vec3 lightColor = vec3(1.0, 1.0, 1.0);
-      float ambientStrength = 0.3;
-      vec3 ambient = ambientStrength * lightColor;
-      vec3 norm = normalize(Normal);
-      vec3 lightDir = normalize(lightPos - FragPos);
-      float diff = max(dot(norm, lightDir), 0.0);
-      vec3 diffuse = diff * lightColor;
-      vec4 texColor = useTexture ? texture(uTexture, TexCoord) : Color;
-      vec3 result = (ambient + diffuse) * texColor.rgb;
-      FragColor = vec4(result, texColor.a);
-    }
-  )";
-
-  default_shader_ = create_shader_from_source(vert_3d, frag_3d);
-
-  // Similar setup for instanced and sprite shaders...
-  instanced_shader_ = default_shader_; // Placeholder
-  sprite_shader_ = default_shader_;    // Placeholder
-}
-
 ShaderID Renderer::create_shader_from_source(const std::string &vert_src,
                                              const std::string &frag_src) {
   ShaderID id = next_shader_id_++;
@@ -205,68 +351,6 @@ ShaderID Renderer::create_shader_from_source(const std::string &vert_src,
 Shader *Renderer::get_shader(ShaderID id) {
   auto it = shaders_.find(id);
   return it != shaders_.end() ? it->second.get() : nullptr;
-}
-
-void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
-                         const Vec3 &rotation, const Vec3 &scale,
-                         const Material &material) {
-  Shader *shader = get_shader(default_shader_);
-  if (!shader)
-    return;
-
-  auto *cmd = device_->getImmediate();
-
-  cmd->setPipeline(shader->pipeline());
-  cmd->setVertexBuffer(mesh.vertex_buffer());
-  cmd->setIndexBuffer(mesh.index_buffer());
-
-  // TODO: Set uniforms (model, view, projection matrices)
-  // This requires extending the RHI with uniform buffer support
-
-  cmd->drawIndexed(mesh.index_count(), 0, 1);
-}
-
-void Renderer::draw_sprite(rhi::TextureHandle texture, const Vec3 &position,
-                           const Vec2 &size, const Color &tint) {
-  Shader *shader = get_shader(sprite_shader_);
-  if (!shader)
-    return;
-
-  // Similar to draw_mesh but for sprites
-  auto *cmd = device_->getImmediate();
-  cmd->setPipeline(shader->pipeline());
-
-  if (sprite_mesh_) {
-    cmd->setVertexBuffer(sprite_mesh_->vertex_buffer());
-    cmd->setIndexBuffer(sprite_mesh_->index_buffer());
-    cmd->drawIndexed(sprite_mesh_->index_count(), 0, 1);
-  }
-}
-
-std::unique_ptr<Mesh> Renderer::create_sprite_quad() {
-  std::vector<Vertex> verts = {
-      {{-0.5f, -0.5f, 0}, {0, 0, 1}, {0, 0}, Color::White()},
-      {{0.5f, -0.5f, 0}, {0, 0, 1}, {1, 0}, Color::White()},
-      {{0.5f, 0.5f, 0}, {0, 0, 1}, {1, 1}, Color::White()},
-      {{-0.5f, 0.5f, 0}, {0, 0, 1}, {0, 1}, Color::White()}};
-  std::vector<uint32_t> indices = {0, 1, 2, 2, 3, 0};
-  return Mesh::create(device_, verts, indices);
-}
-
-std::unique_ptr<Mesh> Renderer::create_cube(float size) {
-  std::vector<Vertex> verts = primitives::create_cube_vertices(size);
-  std::vector<uint32_t> indices;
-  for (uint32_t i = 0; i < verts.size(); ++i)
-    indices.push_back(i);
-  return Mesh::create(device_, verts, indices);
-}
-
-std::unique_ptr<Mesh> Renderer::create_plane(float w, float d, int segs) {
-  std::vector<Vertex> verts = primitives::create_plane_vertices(w, d, segs);
-  std::vector<uint32_t> indices;
-  for (uint32_t i = 0; i < verts.size(); ++i)
-    indices.push_back(i);
-  return Mesh::create(device_, verts, indices);
 }
 
 int Renderer::window_width() const {
@@ -283,9 +367,6 @@ int Renderer::window_height() const {
 
 double Renderer::time() const { return glfwGetTime(); }
 
-const char *Renderer::backend_name() const {
-  // This would be queried from the RHI device
-  return "RHI Backend";
-}
+const char *Renderer::backend_name() const { return "OpenGL 3.3 Core"; }
 
 } // namespace pixel::renderer3d
