@@ -148,6 +148,61 @@ public:
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, it->second.id);
   }
 
+  void setInstanceBuffer(BufferHandle handle, size_t stride,
+                        size_t offset) override {
+    auto it = buffers_->find(handle.id);
+    if (it == buffers_->end())
+      return;
+
+    auto pit = pipelines_->find(current_pipeline_.id);
+    if (pit == pipelines_->end())
+      return;
+
+    glBindVertexArray(pit->second.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, it->second.id);
+
+    // InstanceData layout: Vec3 position, Vec3 rotation, Vec3 scale, Color color,
+    // float texture_index, float culling_radius, float lod_transition_alpha, float padding
+    // Total stride should match sizeof(InstanceData)
+    const GLsizei instance_stride = stride;
+
+    // iPosition (vec3, location 4)
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, instance_stride,
+                         (void *)(offset + 0));
+    glVertexAttribDivisor(4, 1);
+
+    // iRotation (vec3, location 5)
+    glEnableVertexAttribArray(5);
+    glVertexAttribPointer(5, 3, GL_FLOAT, GL_FALSE, instance_stride,
+                         (void *)(offset + 12));
+    glVertexAttribDivisor(5, 1);
+
+    // iScale (vec3, location 6)
+    glEnableVertexAttribArray(6);
+    glVertexAttribPointer(6, 3, GL_FLOAT, GL_FALSE, instance_stride,
+                         (void *)(offset + 24));
+    glVertexAttribDivisor(6, 1);
+
+    // iColor (vec4, location 7)
+    glEnableVertexAttribArray(7);
+    glVertexAttribPointer(7, 4, GL_FLOAT, GL_FALSE, instance_stride,
+                         (void *)(offset + 36));
+    glVertexAttribDivisor(7, 1);
+
+    // iTextureIndex (float, location 8)
+    glEnableVertexAttribArray(8);
+    glVertexAttribPointer(8, 1, GL_FLOAT, GL_FALSE, instance_stride,
+                         (void *)(offset + 52));
+    glVertexAttribDivisor(8, 1);
+
+    // iLODAlpha (float, location 9) - skip culling_radius at offset 56
+    glEnableVertexAttribArray(9);
+    glVertexAttribPointer(9, 1, GL_FLOAT, GL_FALSE, instance_stride,
+                         (void *)(offset + 60));
+    glVertexAttribDivisor(9, 1);
+  }
+
   void setUniformMat4(const char *name, const float *mat4x4) override {
     GLint loc = getUniformLocation(name);
     if (loc >= 0) {

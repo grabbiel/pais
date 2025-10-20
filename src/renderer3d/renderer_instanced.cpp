@@ -92,7 +92,7 @@ void InstancedMesh::draw(rhi::CmdList *cmd) const {
 
   cmd->setVertexBuffer(vertex_buffer_);
   cmd->setIndexBuffer(index_buffer_);
-  // TODO: Need to bind instance buffer as well - requires RHI extension
+  cmd->setInstanceBuffer(instance_buffer_, sizeof(InstanceData));
   cmd->drawIndexed(index_count_, 0, instance_count_);
 }
 
@@ -116,8 +116,35 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
   auto *cmd = renderer.device()->getImmediate();
   cmd->setPipeline(shader->pipeline());
 
-  // TODO: Set uniforms (view, projection, light positions, etc.)
-  // This requires extending RHI with uniform buffer support
+  // Set view and projection matrices
+  float view[16], projection[16];
+  renderer.camera().get_view_matrix(view);
+  renderer.camera().get_projection_matrix(projection, renderer.window_width(),
+                                          renderer.window_height());
+  cmd->setUniformMat4("view", view);
+  cmd->setUniformMat4("projection", projection);
+
+  // Set lighting uniforms
+  float light_pos[3] = {10.0f, 10.0f, 10.0f};
+  float view_pos[3] = {renderer.camera().position.x,
+                       renderer.camera().position.y,
+                       renderer.camera().position.z};
+  cmd->setUniformVec3("lightPos", light_pos);
+  cmd->setUniformVec3("viewPos", view_pos);
+
+  // Set time uniform for animated dither (if shader supports it)
+  cmd->setUniformFloat("uTime", static_cast<float>(renderer.time()));
+
+  // Set dither mode (0 = off, 1 = static, 2 = animated)
+  cmd->setUniformInt("uDitherEnabled", 1);
+
+  // Set texture array if available
+  if (base_material.texture_array.id != 0) {
+    cmd->setTexture("uTextureArray", base_material.texture_array, 0);
+    cmd->setUniformInt("useTextureArray", 1);
+  } else {
+    cmd->setUniformInt("useTextureArray", 0);
+  }
 
   mesh.draw(cmd);
 }
