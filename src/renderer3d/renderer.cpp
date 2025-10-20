@@ -7,6 +7,14 @@
 #include <iostream>
 #include <stdexcept>
 
+#if PIXEL_USE_METAL && __APPLE__
+// Forward declarations for Metal backend
+namespace pixel::renderer3d {
+std::unique_ptr<Renderer>
+create_metal_renderer(const pixel::platform::WindowSpec &spec);
+}
+#endif
+
 namespace pixel::renderer3d {
 
 static void glfw_error_callback(int error, const char *description) {
@@ -58,6 +66,26 @@ void Renderer::load_gl_functions() {
 
 std::unique_ptr<Renderer>
 Renderer::create(const pixel::platform::WindowSpec &spec) {
+#if PIXEL_USE_METAL && __APPLE__
+  // Check environment variable for backend override
+  const char *backend_env = std::getenv("PIXEL_RENDERER_BACKEND");
+  bool force_opengl = backend_env && std::strcmp(backend_env, "OPENGL") == 0;
+
+  if (!force_opengl) {
+    // Try to create Metal renderer first
+    try {
+      auto metal_renderer = create_metal_renderer(spec);
+      if (metal_renderer) {
+        std::cout << "Using Metal renderer" << std::endl;
+        return metal_renderer;
+      }
+    } catch (...) {
+      // Fall through to OpenGL
+    }
+  }
+
+  std::cout << "Using OpenGL renderer" << std::endl;
+#endif
   glfwSetErrorCallback(glfw_error_callback);
 
   if (!glfwInit())
@@ -506,6 +534,66 @@ int Renderer::window_height() const {
 }
 
 double Renderer::time() const { return glfwGetTime(); }
+
+bool Renderer::is_metal_backend() const {
+  return false; // This base class is always OpenGL
+}
+
+bool Renderer::is_opengl_backend() const {
+  return true; // This base class is always OpenGL
+}
+
+const char *Renderer::backend_name() const { return "OpenGL"; }
+
+bool Renderer::supports_compute_shaders() const {
+  const char *version = (const char *)glGetString(GL_VERSION);
+  if (!version)
+    return false;
+
+  int major = 0, minor = 0;
+  sscanf(version, "%d.%d", &major, &minor);
+  return (major > 4) || (major == 4 && minor >= 3);
+}
+
+bool Renderer::supports_texture_arrays() const {
+  return true; // OpenGL 3.0+ which we require
+}
+
+bool Renderer::supports_indirect_drawing() const {
+  const char *version = (const char *)glGetString(GL_VERSION);
+  if (!version)
+    return false;
+
+  int major = 0, minor = 0;
+  sscanf(version, "%d.%d", &major, &minor);
+
+  if (major >= 4)
+    return true;
+
+  const char *extensions = (const char *)glGetString(GL_EXTENSIONS);
+  return extensions && strstr(extensions, "GL_ARB_draw_indirect");
+}
+
+bool Renderer::supports_persistent_mapping() const {
+  const char *extensions = (const char *)glGetString(GL_EXTENSIONS);
+  return extensions && strstr(extensions, "GL_ARB_buffer_storage");
+}
+
+Renderer::PerformanceProfile Renderer::get_performance_profile() const {
+  PerformanceProfile profile;
+
+  // Conservative OpenGL defaults
+  profile.max_recommended_instances = 10000;
+  profile.max_recommended_vertices = 1000000;
+  profile.max_recommended_texture_size = 8192;
+  profile.max_recommended_texture_array_layers = 256;
+  profile.supports_gpu_culling = supports_compute_shaders();
+  profile.supports_gpu_lod = supports_compute_shaders();
+  profile.recommended_lod_mode =
+      profile.supports_gpu_lod ? "Hybrid" : "Distance";
+
+  return profile;
+}
 
 namespace primitives {
 std::vector<Vertex> create_cube_vertices(float s) {

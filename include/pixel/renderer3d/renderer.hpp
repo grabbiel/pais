@@ -1,5 +1,6 @@
 #pragma once
 #include "../platform/platform.hpp"
+#include "pixel/renderer3d/metal/metal_renderer.hpp"
 #include <glm/glm.hpp>
 #include <memory>
 #include <string>
@@ -336,11 +337,46 @@ public:
   ShaderID sprite_shader() const { return sprite_shader_; }
   ShaderID instanced_shader() const { return instanced_shader_; }
 
+  bool is_metal_backend() const;
+  bool is_opengl_backend() const;
+  const char *backend_name() const;
+
+  // Feature support queries
+  bool supports_compute_shaders() const;
+  bool supports_texture_arrays() const;
+  bool supports_indirect_drawing() const;
+  bool supports_persistent_mapping() const;
+
+  // Performance profile for adaptive quality
+  struct PerformanceProfile {
+    size_t max_recommended_instances;
+    size_t max_recommended_vertices;
+    int max_recommended_texture_size;
+    int max_recommended_texture_array_layers;
+    bool supports_gpu_culling;
+    bool supports_gpu_lod;
+    const char *recommended_lod_mode;
+  };
+
+  PerformanceProfile get_performance_profile() const;
+
+#if PIXEL_USE_METAL && __APPLE__
+  // Backend-specific factory methods
+  static std::unique_ptr<Renderer>
+  create_with_metal(const pixel::platform::WindowSpec &spec);
+  static std::unique_ptr<Renderer>
+  create_with_opengl(const pixel::platform::WindowSpec &spec);
+#endif
+
+protected:
+  friend class metal::MetalRenderer;
+
 private:
   Renderer() = default;
   void setup_default_shaders();
   void update_input_state();
   void load_gl_functions(); // Load OpenGL function pointers on Windows
+  static void glfw_error_callback(int error, const char *description);
 
   GLFWwindow *window_ = nullptr;
 
