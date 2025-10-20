@@ -23,6 +23,8 @@ static void glfw_error_callback(int error, const char *description) {
 // Default Shaders
 // ============================================================================
 
+// In renderer.cpp - Update default shaders to include material color
+
 const char *default_vertex_shader = R"(
 #version 330 core
 layout (location = 0) in vec3 aPos;
@@ -59,6 +61,7 @@ in vec4 Color;
 
 uniform sampler2D uTexture;
 uniform int useTexture;
+uniform vec4 materialColor;  // ADD THIS
 uniform vec3 lightPos;
 uniform vec3 viewPos;
 
@@ -77,7 +80,10 @@ void main() {
   float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
   vec3 specular = 0.5 * spec * lightColor;
   
-  vec4 texColor = (useTexture == 1) ? texture(uTexture, TexCoord) : Color;
+  // Use materialColor instead of just vertex color
+  vec4 baseColor = materialColor * Color;
+  vec4 texColor = (useTexture == 1) ? texture(uTexture, TexCoord) * baseColor : baseColor;
+  
   vec3 result = (ambient + diffuse + specular) * texColor.rgb;
   FragColor = vec4(result, texColor.a);
 }

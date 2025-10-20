@@ -35,9 +35,10 @@ struct CmdList {
   virtual void setVertexBuffer(BufferHandle, size_t offset = 0) = 0;
   virtual void setIndexBuffer(BufferHandle, size_t offset = 0) = 0;
 
-  // NEW: Uniform setting methods
   virtual void setUniformMat4(const char *name, const float *mat4x4) = 0;
   virtual void setUniformVec3(const char *name, const float *vec3) = 0;
+  virtual void setUniformVec4(const char *name,
+                              const float *vec4) = 0; // ADD THIS
   virtual void setUniformInt(const char *name, int value) = 0;
   virtual void setUniformFloat(const char *name, float value) = 0;
 

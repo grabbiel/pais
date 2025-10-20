@@ -162,6 +162,13 @@ public:
     }
   }
 
+  void setUniformVec4(const char *name, const float *vec4) override {
+    GLint loc = getUniformLocation(name);
+    if (loc >= 0) {
+      glUniform4fv(loc, 1, vec4);
+    }
+  }
+
   void setUniformInt(const char *name, int value) override {
     GLint loc = getUniformLocation(name);
     if (loc >= 0) {
