@@ -1,6 +1,5 @@
 #pragma once
 #include "../platform/platform.hpp"
-#include "pixel/renderer3d/metal/metal_renderer.hpp"
 #include <glm/glm.hpp>
 #include <memory>
 #include <string>
