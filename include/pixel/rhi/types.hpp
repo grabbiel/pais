@@ -28,6 +28,9 @@ enum class BufferUsage : uint32_t {
 inline BufferUsage operator|(BufferUsage a, BufferUsage b) {
   return BufferUsage(uint32_t(a) | uint32_t(b));
 }
+inline BufferUsage operator&(BufferUsage a, BufferUsage b) {
+  return BufferUsage(uint32_t(a) & uint32_t(b));
+}
 
 struct BufferDesc {
   size_t size;

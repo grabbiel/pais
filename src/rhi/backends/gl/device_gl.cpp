@@ -12,11 +12,13 @@ struct GLFWwindow;
 #ifdef _WIN32
 #include <windows.h>
 #include <GL/gl.h>
-// Windows needs manual function loading
 #else
-// macOS/Linux can use GLFW's function loading
 #define GL_GLEXT_PROTOTYPES
+#ifdef __APPLE__
 #include <OpenGL/gl3.h>
+#else
+#include <GL/gl.h>
+#endif
 #endif
 namespace pixel::rhi::gl {
 
@@ -45,9 +47,9 @@ struct GLSampler {
 };
 
 struct GLShader {
-  GLuint program = 0;
-  std::string stage; // "vs" or "fs"
-  std::unordered_map<std::string, GLint> uniform_locations;
+  GLuint shader_id = 0; // Individual shader object
+  GLenum shader_type = 0;
+  std::string stage;
 };
 
 struct GLPipeline {
@@ -222,11 +224,13 @@ public:
       glDeleteSamplers(1, &samp.id);
     }
     for (auto &[id, shader] : shaders_) {
-      glDeleteProgram(shader.program);
+      if (shader.shader_id != 0) {
+        glDeleteShader(shader.shader_id);
+      }
     }
     for (auto &[id, pipe] : pipelines_) {
       glDeleteVertexArrays(1, &pipe.vao);
-      // Program is shared with shader, don't delete here
+      glDeleteProgram(pipe.program);
     }
   }
 
@@ -236,12 +240,12 @@ public:
     GLBuffer buffer;
     glGenBuffers(1, &buffer.id);
 
-    // Determine target
-    if (desc.usage & BufferUsage::Vertex) {
+    // Determine target - use bitwise AND for flag checking
+    if ((desc.usage & BufferUsage::Vertex) == BufferUsage::Vertex) {
       buffer.target = GL_ARRAY_BUFFER;
-    } else if (desc.usage & BufferUsage::Index) {
+    } else if ((desc.usage & BufferUsage::Index) == BufferUsage::Index) {
       buffer.target = GL_ELEMENT_ARRAY_BUFFER;
-    } else if (desc.usage & BufferUsage::Uniform) {
+    } else if ((desc.usage & BufferUsage::Uniform) == BufferUsage::Uniform) {
       buffer.target = GL_UNIFORM_BUFFER;
     } else {
       buffer.target = GL_ARRAY_BUFFER;
@@ -377,13 +381,9 @@ public:
       return ShaderHandle{0};
     }
 
-    // Create a program for this shader (will be linked in createPipeline)
-    GLuint program = glCreateProgram();
-    glAttachShader(program, shader);
-    glDeleteShader(shader); // Can delete after attaching
-
     GLShader gl_shader;
-    gl_shader.program = program;
+    gl_shader.shader_id = shader;
+    gl_shader.shader_type = shader_type;
     gl_shader.stage = std::string(stage);
 
     uint32_t handle_id = next_shader_id_++;
@@ -404,15 +404,10 @@ public:
     // Create linked program
     GLuint program = glCreateProgram();
 
-    // Attach both shaders
-    GLuint vs_shader = glGetAttachedShaders(vs_it->second.program, 1);
-    GLuint fs_shader = glGetAttachedShaders(fs_it->second.program, 1);
+    // Attach both shader objects
+    glAttachShader(program, vs_it->second.shader_id);
+    glAttachShader(program, fs_it->second.shader_id);
 
-    // Actually we need to recompile and attach - simpler approach:
-    // Just use one of the programs and attach the other shader
-    // Better: create new program and attach both
-
-    // For simplicity, assume shaders are already compiled
     // Link the program
     glLinkProgram(program);
 
@@ -425,6 +420,10 @@ public:
       glDeleteProgram(program);
       return PipelineHandle{0};
     }
+
+    // Detach shaders after linking (they're still valid, just not attached)
+    glDetachShader(program, vs_it->second.shader_id);
+    glDetachShader(program, fs_it->second.shader_id);
 
     // Create VAO for this pipeline
     GLuint vao;
