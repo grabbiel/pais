@@ -1,66 +1,53 @@
-
 #include "pixel/renderer3d/renderer.hpp"
-// ============================================================================
-// Mesh Implementation
-// ============================================================================
+#include <cstring>
 
 namespace pixel::renderer3d {
-std::unique_ptr<Mesh> Mesh::create(const std::vector<Vertex> &vertices,
+
+std::unique_ptr<Mesh> Mesh::create(rhi::Device *device,
+                                   const std::vector<Vertex> &vertices,
                                    const std::vector<uint32_t> &indices) {
   auto mesh = std::unique_ptr<Mesh>(new Mesh());
   mesh->vertex_count_ = vertices.size();
   mesh->index_count_ = indices.size();
-
   mesh->vertices_ = vertices;
   mesh->indices_ = indices;
 
-  glGenVertexArrays(1, &mesh->vao_);
-  glGenBuffers(1, &mesh->vbo_);
-  glGenBuffers(1, &mesh->ebo_);
+  // Create vertex buffer
+  rhi::BufferDesc vb_desc;
+  vb_desc.size = vertices.size() * sizeof(Vertex);
+  vb_desc.usage = rhi::BufferUsage::Vertex;
+  vb_desc.hostVisible = true;
+  mesh->vertex_buffer_ = device->createBuffer(vb_desc);
 
-  glBindVertexArray(mesh->vao_);
+  // Upload vertex data
+  auto *cmd = device->getImmediate();
+  cmd->begin();
+  cmd->copyToBuffer(mesh->vertex_buffer_, 0,
+                    std::span<const std::byte>(
+                        reinterpret_cast<const std::byte *>(vertices.data()),
+                        vertices.size() * sizeof(Vertex)));
+  cmd->end();
 
-  glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo_);
-  glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex),
-               vertices.data(), GL_STATIC_DRAW);
+  // Create index buffer
+  rhi::BufferDesc ib_desc;
+  ib_desc.size = indices.size() * sizeof(uint32_t);
+  ib_desc.usage = rhi::BufferUsage::Index;
+  ib_desc.hostVisible = true;
+  mesh->index_buffer_ = device->createBuffer(ib_desc);
 
-  glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ebo_);
-  glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32_t),
-               indices.data(), GL_STATIC_DRAW);
-
-  glEnableVertexAttribArray(0);
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                        (void *)offsetof(Vertex, position));
-
-  glEnableVertexAttribArray(1);
-  glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                        (void *)offsetof(Vertex, normal));
-
-  glEnableVertexAttribArray(2);
-  glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                        (void *)offsetof(Vertex, texcoord));
-
-  glEnableVertexAttribArray(3);
-  glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex),
-                        (void *)offsetof(Vertex, color));
-
-  glBindVertexArray(0);
+  // Upload index data
+  cmd->begin();
+  cmd->copyToBuffer(mesh->index_buffer_, 0,
+                    std::span<const std::byte>(
+                        reinterpret_cast<const std::byte *>(indices.data()),
+                        indices.size() * sizeof(uint32_t)));
+  cmd->end();
 
   return mesh;
 }
 
 Mesh::~Mesh() {
-  if (vao_)
-    glDeleteVertexArrays(1, &vao_);
-  if (vbo_)
-    glDeleteBuffers(1, &vbo_);
-  if (ebo_)
-    glDeleteBuffers(1, &ebo_);
+  // RHI device will handle cleanup through handle management
 }
 
-void Mesh::draw() const {
-  glBindVertexArray(vao_);
-  glDrawElements(GL_TRIANGLES, index_count_, GL_UNSIGNED_INT, 0);
-  glBindVertexArray(0);
-}
 } // namespace pixel::renderer3d

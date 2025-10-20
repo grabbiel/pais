@@ -1,44 +1,11 @@
 #pragma once
 #include "../platform/platform.hpp"
+#include "../rhi/rhi.hpp"
 #include <glm/glm.hpp>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-// Forward declaration for Metal renderer (only on Apple when enabled)
-#if PIXEL_USE_METAL && __APPLE__
-namespace pixel::renderer3d::metal {
-class MetalRenderer;
-}
-#endif
-
-// Platform-specific OpenGL headers (no GLAD)
-#if defined(__APPLE__)
-#define GL_SILENCE_DEPRECATION
-#include <OpenGL/gl3.h>
-#elif defined(_WIN32)
-#include <GL/gl.h>
-#include <windows.h>
-// Windows needs extension definitions
-#ifndef GL_ARRAY_BUFFER
-#define GL_ARRAY_BUFFER 0x8892
-#define GL_ELEMENT_ARRAY_BUFFER 0x8893
-#define GL_STATIC_DRAW 0x88E4
-#define GL_FRAGMENT_SHADER 0x8B30
-#define GL_VERTEX_SHADER 0x8B31
-#define GL_COMPILE_STATUS 0x8B81
-#define GL_LINK_STATUS 0x8B82
-#define GL_TEXTURE0 0x84C0
-#define GL_TEXTURE_2D_ARRAY 0x8C1A
-#endif
-#else
-// Linux
-#include <GL/gl.h>
-#include <GL/glext.h>
-#endif
-
-struct GLFWwindow;
 
 namespace pixel::renderer3d {
 
@@ -78,7 +45,6 @@ struct Color {
   Color() : r(1), g(1), b(1), a(1) {}
   Color(float r_, float g_, float b_, float a_ = 1.0f)
       : r(r_), g(g_), b(b_), a(a_) {}
-
   static Color White() { return {1, 1, 1, 1}; }
   static Color Black() { return {0, 0, 0, 1}; }
   static Color Red() { return {1, 0, 0, 1}; }
@@ -87,68 +53,110 @@ struct Color {
 };
 
 // ============================================================================
+// Camera
+// ============================================================================
+
+class Camera {
+public:
+  Vec3 position{0, 2, 5};
+  Vec3 target{0, 0, 0};
+  Vec3 up{0, 1, 0};
+  float fov = 60.0f;
+  float near_plane = 0.1f;
+  float far_plane = 1000.0f;
+
+  void get_view_matrix(float *out) const;
+  void get_projection_matrix(float *out, int width, int height) const;
+};
+
+// ============================================================================
 // Input State
 // ============================================================================
 
 struct InputState {
   bool keys[512] = {false};
-  bool prev_keys[512] = {false}; // NEW: Previous frame key state
-
+  bool prev_keys[512] = {false};
   bool mouse_buttons[8] = {false};
-  bool prev_mouse_buttons[8] = {false}; // NEW: Previous frame mouse state
-
+  bool prev_mouse_buttons[8] = {false};
   double mouse_x = 0.0;
   double mouse_y = 0.0;
-  double prev_mouse_x = 0.0; // NEW: Previous frame mouse position
-  double prev_mouse_y = 0.0; // NEW: Previous frame mouse position
-
+  double prev_mouse_x = 0.0;
+  double prev_mouse_y = 0.0;
   double mouse_delta_x = 0.0;
   double mouse_delta_y = 0.0;
   double scroll_delta = 0.0;
 
-  bool key_pressed(int key) const { return key >= 0 && key < 512 && keys[key]; }
-
-  bool key_just_pressed(int key) const {
+  bool key_pressed(int key) const {
     return key >= 0 && key < 512 && keys[key] && !prev_keys[key];
   }
-
-  bool key_just_released(int key) const {
+  bool key_down(int key) const { return key >= 0 && key < 512 && keys[key]; }
+  bool key_released(int key) const {
     return key >= 0 && key < 512 && !keys[key] && prev_keys[key];
   }
 
   bool mouse_pressed(int button) const {
-    return button >= 0 && button < 8 && mouse_buttons[button];
-  }
-
-  bool mouse_just_pressed(int button) const {
     return button >= 0 && button < 8 && mouse_buttons[button] &&
            !prev_mouse_buttons[button];
   }
-
-  bool mouse_just_released(int button) const {
+  bool mouse_down(int button) const {
+    return button >= 0 && button < 8 && mouse_buttons[button];
+  }
+  bool mouse_released(int button) const {
     return button >= 0 && button < 8 && !mouse_buttons[button] &&
            prev_mouse_buttons[button];
   }
 };
 
-enum Key {
-  KEY_ESCAPE = 256,
-  KEY_ENTER = 257,
-  KEY_TAB = 258,
-  KEY_BACKSPACE = 259,
-  KEY_SPACE = 32,
-  KEY_LEFT = 263,
-  KEY_RIGHT = 262,
-  KEY_UP = 265,
-  KEY_DOWN = 264,
-  KEY_W = 87,
-  KEY_A = 65,
-  KEY_S = 83,
-  KEY_D = 68,
-  KEY_R = 82,
-  KEY_1 = 49,
-  KEY_2 = 50,
-  KEY_0 = 48
+// ============================================================================
+// Material
+// ============================================================================
+
+struct Material {
+  rhi::TextureHandle texture{0};
+  rhi::TextureHandle texture_array{0};
+  Color color = Color::White();
+  float roughness = 0.5f;
+  float metallic = 0.0f;
+};
+
+// ============================================================================
+// Vertex Structure
+// ============================================================================
+
+struct Vertex {
+  Vec3 position;
+  Vec3 normal;
+  Vec2 texcoord;
+  Color color;
+};
+
+// ============================================================================
+// Mesh
+// ============================================================================
+
+class Mesh {
+public:
+  static std::unique_ptr<Mesh> create(rhi::Device *device,
+                                      const std::vector<Vertex> &vertices,
+                                      const std::vector<uint32_t> &indices);
+  ~Mesh();
+
+  rhi::BufferHandle vertex_buffer() const { return vertex_buffer_; }
+  rhi::BufferHandle index_buffer() const { return index_buffer_; }
+
+  size_t vertex_count() const { return vertex_count_; }
+  size_t index_count() const { return index_count_; }
+
+private:
+  Mesh() = default;
+
+  rhi::BufferHandle vertex_buffer_{0};
+  rhi::BufferHandle index_buffer_{0};
+  size_t vertex_count_ = 0;
+  size_t index_count_ = 0;
+
+  std::vector<Vertex> vertices_;
+  std::vector<uint32_t> indices_;
 };
 
 // ============================================================================
@@ -160,138 +168,27 @@ constexpr ShaderID INVALID_SHADER = 0;
 
 class Shader {
 public:
-  static std::unique_ptr<Shader> create(const std::string &vert_src,
+  static std::unique_ptr<Shader> create(rhi::Device *device,
+                                        const std::string &vert_src,
                                         const std::string &frag_src);
-  ~Shader();
+  ~Shader() = default;
 
-  void bind() const;
-  void unbind() const;
-
-  void set_int(const std::string &name, int value);
-  void set_float(const std::string &name, float value);
-  void set_vec2(const std::string &name, const Vec2 &value);
-  void set_vec3(const std::string &name, const Vec3 &value);
-  void set_vec4(const std::string &name, const Vec4 &value);
-  void set_mat4(const std::string &name, const float *value);
-
-  uint32_t program() const { return program_; }
+  rhi::PipelineHandle pipeline() const { return pipeline_; }
 
 private:
   Shader() = default;
-  uint32_t program_ = 0;
+  rhi::PipelineHandle pipeline_{0};
+  rhi::ShaderHandle vs_{0};
+  rhi::ShaderHandle fs_{0};
 };
 
 // ============================================================================
-// Texture Management
-// ============================================================================
-
-using TextureID = uint32_t;
-constexpr TextureID INVALID_TEXTURE = 0;
-
-using TextureArrayID = uint32_t;
-constexpr TextureArrayID INVALID_TEXTURE_ARRAY = 0;
-
-struct TextureInfo {
-  int width = 0;
-  int height = 0;
-  uint32_t gl_id = 0;
-};
-
-struct TextureArrayInfo {
-  int width = 0;
-  int height = 0;
-  int layers = 0;
-  uint32_t gl_id = 0;
-};
-
-// ============================================================================
-// Mesh / Geometry
-// ============================================================================
-
-struct Vertex {
-  Vec3 position;
-  Vec3 normal;
-  Vec2 texcoord;
-  Color color;
-};
-
-class Mesh {
-public:
-  static std::unique_ptr<Mesh> create(const std::vector<Vertex> &vertices,
-                                      const std::vector<uint32_t> &indices);
-  ~Mesh();
-
-  void draw() const;
-
-  size_t vertex_count() const { return vertex_count_; }
-  size_t index_count() const { return index_count_; }
-
-  const std::vector<Vertex> &vertices() const { return vertices_; }
-  const std::vector<uint32_t> &indices() const { return indices_; }
-
-  uint32_t vao() const { return vao_; }
-  uint32_t vbo() const { return vbo_; }
-  uint32_t ebo() const { return ebo_; }
-
-private:
-  Mesh() = default;
-  size_t vertex_count_ = 0;
-  size_t index_count_ = 0;
-  std::vector<Vertex> vertices_;
-  std::vector<uint32_t> indices_;
-  uint32_t vao_ = 0;
-  uint32_t vbo_ = 0;
-  uint32_t ebo_ = 0;
-};
-
-// ============================================================================
-// Camera (2.5D)
-// ============================================================================
-
-class Camera {
-public:
-  enum class ProjectionMode { Perspective, Orthographic };
-
-  Vec3 position{0, 5, 10};
-  Vec3 target{0, 0, 0};
-  Vec3 up{0, 1, 0};
-
-  ProjectionMode mode = ProjectionMode::Perspective;
-  float fov = 45.0f;
-  float ortho_size = 10.0f;
-  float near_clip = 0.1f;
-  float far_clip = 100.0f;
-
-  Camera() = default;
-
-  void get_view_matrix(float *out_mat4) const;
-  void get_projection_matrix(float *out_mat4, int screen_w, int screen_h) const;
-
-  void orbit(float dx, float dy);
-  void pan(float dx, float dy);
-  void zoom(float delta);
-};
-
-// ============================================================================
-// Material
-// ============================================================================
-
-struct Material {
-  Color ambient{0.2f, 0.2f, 0.2f, 1.0f};
-  Color diffuse{0.8f, 0.8f, 0.8f, 1.0f};
-  Color specular{1.0f, 1.0f, 1.0f, 1.0f};
-  float shininess = 32.0f;
-  TextureID texture = INVALID_TEXTURE;
-  TextureArrayID texture_array = INVALID_TEXTURE_ARRAY;
-};
-
-// ============================================================================
-// Main Renderer
+// Renderer
 // ============================================================================
 
 class Renderer {
 public:
-  static std::unique_ptr<Renderer> create(const pixel::platform::WindowSpec &);
+  static std::unique_ptr<Renderer> create(const platform::WindowSpec &spec);
   virtual ~Renderer();
 
   virtual void begin_frame(const Color &clear_color = Color::Black());
@@ -307,18 +204,13 @@ public:
                                      const std::string &frag_src);
   Shader *get_shader(ShaderID id);
 
-  TextureID load_texture(const std::string &path);
-  TextureID create_texture(int width, int height, const uint8_t *data);
-  void bind_texture(TextureID id, int slot = 0);
-  TextureInfo get_texture_info(TextureID id) const;
+  rhi::TextureHandle load_texture(const std::string &path);
+  rhi::TextureHandle create_texture(int width, int height, const uint8_t *data);
 
-  // Texture Array support
-  TextureArrayID create_texture_array(int width, int height, int layers);
-  TextureArrayID load_texture_array(const std::vector<std::string> &paths);
-  void set_texture_array_layer(TextureArrayID array_id, int layer,
+  rhi::TextureHandle create_texture_array(int width, int height, int layers);
+  rhi::TextureHandle load_texture_array(const std::vector<std::string> &paths);
+  void set_texture_array_layer(rhi::TextureHandle array_id, int layer,
                                const uint8_t *data);
-  void bind_texture_array(TextureArrayID id, int slot = 0);
-  TextureArrayInfo get_texture_array_info(TextureArrayID id) const;
 
   std::unique_ptr<Mesh> create_quad(float size = 1.0f);
   std::unique_ptr<Mesh> create_cube(float size = 1.0f);
@@ -330,8 +222,8 @@ public:
                          const Vec3 &rotation, const Vec3 &scale,
                          const Material &material);
 
-  void draw_sprite(TextureID texture, const Vec3 &position, const Vec2 &size,
-                   const Color &tint = Color::White());
+  void draw_sprite(rhi::TextureHandle texture, const Vec3 &position,
+                   const Vec2 &size, const Color &tint = Color::White());
 
   Camera &camera() { return camera_; }
   const Camera &camera() const { return camera_; }
@@ -344,42 +236,18 @@ public:
   ShaderID sprite_shader() const { return sprite_shader_; }
   ShaderID instanced_shader() const { return instanced_shader_; }
 
-  bool is_metal_backend() const;
-  bool is_opengl_backend() const;
   const char *backend_name() const;
 
-  // Feature support queries
-  bool supports_compute_shaders() const;
-  bool supports_texture_arrays() const;
-  bool supports_indirect_drawing() const;
-  bool supports_persistent_mapping() const;
-
-  // Performance profile for adaptive quality
-  struct PerformanceProfile {
-    size_t max_recommended_instances;
-    size_t max_recommended_vertices;
-    int max_recommended_texture_size;
-    int max_recommended_texture_array_layers;
-    bool supports_gpu_culling;
-    bool supports_gpu_lod;
-    const char *recommended_lod_mode;
-  };
-
-  PerformanceProfile get_performance_profile() const;
+  rhi::Device *device() { return device_; }
+  const rhi::Device *device() const { return device_; }
 
 protected:
-#if PIXEL_USE_METAL && __APPLE__
-  friend class metal::MetalRenderer;
-#endif
-
-private:
   Renderer() = default;
   void setup_default_shaders();
   void update_input_state();
-  void load_gl_functions(); // Load OpenGL function pointers on Windows
-  static void glfw_error_callback(int error, const char *description);
 
-  GLFWwindow *window_ = nullptr;
+  struct GLFWwindow *window_ = nullptr;
+  rhi::Device *device_ = nullptr;
 
   InputState input_state_;
   double last_mouse_x_ = 0.0;
@@ -391,12 +259,9 @@ private:
   ShaderID sprite_shader_ = INVALID_SHADER;
   ShaderID instanced_shader_ = INVALID_SHADER;
 
-  std::unordered_map<std::string, TextureID> texture_path_to_id_;
-  std::unordered_map<TextureID, TextureInfo> textures_;
-  TextureID next_texture_id_ = 1;
-
-  std::unordered_map<TextureArrayID, TextureArrayInfo> texture_arrays_;
-  TextureArrayID next_texture_array_id_ = 1;
+  std::unordered_map<std::string, rhi::TextureHandle> texture_path_to_id_;
+  std::unordered_map<uint32_t, rhi::TextureHandle> textures_;
+  uint32_t next_texture_id_ = 1;
 
   std::unique_ptr<Mesh> sprite_mesh_;
 
