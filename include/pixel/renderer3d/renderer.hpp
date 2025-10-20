@@ -7,6 +7,13 @@
 #include <unordered_map>
 #include <vector>
 
+// Forward declaration for Metal renderer (only on Apple when enabled)
+#if PIXEL_USE_METAL && __APPLE__
+namespace pixel::renderer3d::metal {
+class MetalRenderer;
+}
+#endif
+
 // Platform-specific OpenGL headers (no GLAD)
 #if defined(__APPLE__)
 #define GL_SILENCE_DEPRECATION
@@ -286,10 +293,10 @@ struct Material {
 class Renderer {
 public:
   static std::unique_ptr<Renderer> create(const pixel::platform::WindowSpec &);
-  ~Renderer();
+  virtual ~Renderer();
 
-  void begin_frame(const Color &clear_color = Color::Black());
-  void end_frame();
+  virtual void begin_frame(const Color &clear_color = Color::Black());
+  virtual void end_frame();
 
   bool process_events();
 
@@ -320,8 +327,9 @@ public:
                                      int segments = 1);
   std::unique_ptr<Mesh> create_sprite_quad();
 
-  void draw_mesh(const Mesh &mesh, const Vec3 &position, const Vec3 &rotation,
-                 const Vec3 &scale, const Material &material);
+  virtual void draw_mesh(const Mesh &mesh, const Vec3 &position,
+                         const Vec3 &rotation, const Vec3 &scale,
+                         const Material &material);
 
   void draw_sprite(TextureID texture, const Vec3 &position, const Vec2 &size,
                    const Color &tint = Color::White());
@@ -360,16 +368,10 @@ public:
 
   PerformanceProfile get_performance_profile() const;
 
-#if PIXEL_USE_METAL && __APPLE__
-  // Backend-specific factory methods
-  static std::unique_ptr<Renderer>
-  create_with_metal(const pixel::platform::WindowSpec &spec);
-  static std::unique_ptr<Renderer>
-  create_with_opengl(const pixel::platform::WindowSpec &spec);
-#endif
-
 protected:
+#if PIXEL_USE_METAL && __APPLE__
   friend class metal::MetalRenderer;
+#endif
 
 private:
   Renderer() = default;

@@ -6,8 +6,10 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
 #include <stdexcept>
+#include <cstdlib>
 
 #if PIXEL_USE_METAL && __APPLE__
+#include "pixel/renderer3d/metal/metal_renderer.hpp"
 // Forward declarations for Metal backend
 namespace pixel::renderer3d {
 std::unique_ptr<Renderer>
@@ -536,16 +538,22 @@ int Renderer::window_height() const {
 double Renderer::time() const { return glfwGetTime(); }
 
 bool Renderer::is_metal_backend() const {
-  return false; // This base class is always OpenGL
+#if PIXEL_USE_METAL && __APPLE__
+  return dynamic_cast<const metal::MetalRenderer *>(this) != nullptr;
+#else
+  return false;
+#endif
 }
 
-bool Renderer::is_opengl_backend() const {
-  return true; // This base class is always OpenGL
-}
+bool Renderer::is_opengl_backend() const { return !is_metal_backend(); }
 
-const char *Renderer::backend_name() const { return "OpenGL"; }
+const char *Renderer::backend_name() const {
+  return is_metal_backend() ? "Metal" : "OpenGL";
+}
 
 bool Renderer::supports_compute_shaders() const {
+  if (is_metal_backend())
+    return true;
   const char *version = (const char *)glGetString(GL_VERSION);
   if (!version)
     return false;
@@ -556,10 +564,14 @@ bool Renderer::supports_compute_shaders() const {
 }
 
 bool Renderer::supports_texture_arrays() const {
+  if (is_metal_backend())
+    return true;
   return true; // OpenGL 3.0+ which we require
 }
 
 bool Renderer::supports_indirect_drawing() const {
+  if (is_metal_backend())
+    return true;
   const char *version = (const char *)glGetString(GL_VERSION);
   if (!version)
     return false;
@@ -575,12 +587,25 @@ bool Renderer::supports_indirect_drawing() const {
 }
 
 bool Renderer::supports_persistent_mapping() const {
+  if (is_metal_backend())
+    return true;
   const char *extensions = (const char *)glGetString(GL_EXTENSIONS);
   return extensions && strstr(extensions, "GL_ARB_buffer_storage");
 }
 
 Renderer::PerformanceProfile Renderer::get_performance_profile() const {
   PerformanceProfile profile;
+
+  if (is_metal_backend()) {
+    profile.max_recommended_instances = 100000;
+    profile.max_recommended_vertices = 10000000;
+    profile.max_recommended_texture_size = 16384;
+    profile.max_recommended_texture_array_layers = 2048;
+    profile.supports_gpu_culling = true;
+    profile.supports_gpu_lod = true;
+    profile.recommended_lod_mode = "Hybrid";
+    return profile;
+  }
 
   // Conservative OpenGL defaults
   profile.max_recommended_instances = 10000;
