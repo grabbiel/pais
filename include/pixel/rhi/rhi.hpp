@@ -46,6 +46,9 @@ struct CmdList {
                           uint32_t slot = 0) = 0;
   virtual void copyToTexture(TextureHandle texture, uint32_t mipLevel,
                              std::span<const std::byte> data) = 0;
+  virtual void copyToTextureLayer(TextureHandle texture, uint32_t layer,
+                                  uint32_t mipLevel,
+                                  std::span<const std::byte> data) = 0;
 
   virtual void drawIndexed(uint32_t indexCount, uint32_t firstIndex = 0,
                            uint32_t instanceCount = 1) = 0;

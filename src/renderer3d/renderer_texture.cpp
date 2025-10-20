@@ -71,8 +71,8 @@ rhi::TextureHandle Renderer::create_texture_array(int width, int height,
   desc.size = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
   desc.format = rhi::Format::RGBA8;
   desc.mipLevels = 1;
+  desc.layers = static_cast<uint32_t>(layers);
   desc.renderTarget = false;
-  // TODO: Add array layer count to TextureDesc
 
   auto texture_handle = device_->createTexture(desc);
 
@@ -124,7 +124,7 @@ Renderer::load_texture_array(const std::vector<std::string> &paths) {
       continue;
     }
 
-    set_texture_array_layer(array_id, i, data);
+    set_texture_array_layer(array_id, i, width, height, data);
     stbi_image_free(data);
   }
 
@@ -135,12 +135,24 @@ Renderer::load_texture_array(const std::vector<std::string> &paths) {
 }
 
 void Renderer::set_texture_array_layer(rhi::TextureHandle array_id, int layer,
+                                       int width, int height,
                                        const uint8_t *data) {
-  // TODO: Implement texture array layer upload via RHI
-  // This requires extending the CmdList interface with texture copy commands
+  if (!data) {
+    std::cerr << "Cannot upload null data to texture array layer" << std::endl;
+    return;
+  }
+
   auto *cmd = device_->getImmediate();
   cmd->begin();
-  // Placeholder for texture array layer upload
+
+  // Convert pixel data to span (assuming RGBA8 format)
+  size_t data_size = width * height * 4; // RGBA8
+  std::span<const std::byte> data_span(reinterpret_cast<const std::byte *>(data),
+                                       data_size);
+
+  // Upload to the specific layer (mip level 0)
+  cmd->copyToTextureLayer(array_id, layer, 0, data_span);
+
   cmd->end();
 }
 
