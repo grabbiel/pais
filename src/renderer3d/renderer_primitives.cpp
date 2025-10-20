@@ -184,7 +184,12 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
   // Set material uniforms
   cmd->setUniformInt("useTexture", (material.texture.id != 0) ? 1 : 0);
 
-  // ADD THIS: Set material color
+  // Bind texture if available
+  if (material.texture.id != 0) {
+    cmd->setTexture("uTexture", material.texture, 0);
+  }
+
+  // Set material color
   float mat_color[4] = {material.color.r, material.color.g, material.color.b,
                         material.color.a};
   cmd->setUniformVec4("materialColor", mat_color);

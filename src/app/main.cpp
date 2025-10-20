@@ -59,27 +59,41 @@ int main(int, char **) {
   pixel::platform::WindowSpec ws;
   ws.w = 1280;
   ws.h = 720;
-  ws.title = "Red Sphere Demo";
+  ws.title = "Textured Sphere Demo";
   auto r = Renderer::create(ws);
+
+  // Load textures
+  auto brick_tex = r->load_texture("assets/textures/brick.png");
+  auto grass_tex = r->load_texture("assets/textures/grass.png");
+  auto stone_tex = r->load_texture("assets/textures/stone.png");
 
   // Geometry
   auto sphere =
       make_uv_sphere(*r, /*radius*/ 1.0f, /*slices*/ 36, /*stacks*/ 18);
+  auto cube = r->create_cube(1.5f);
 
   // If your renderer has a plane helper, use it; otherwise, keep your existing
   // ground creation
   auto ground = r->create_plane(40.0f, 40.0f, 1);
 
   // Materials
-  Material red{};
-  red.color = Color(0.85f, 0.10f, 0.10f, 1.0f); // red
-  red.roughness = 0.4f;
-  red.metallic = 0.0f;
+  Material brick{};
+  brick.texture = brick_tex;
+  brick.color = Color(1.0f, 1.0f, 1.0f, 1.0f); // white tint
+  brick.roughness = 0.8f;
+  brick.metallic = 0.0f;
 
-  Material brown{};
-  brown.color = Color(0.38f, 0.26f, 0.18f, 1.0f); // brown
-  brown.roughness = 0.9f;
-  brown.metallic = 0.0f;
+  Material grass{};
+  grass.texture = grass_tex;
+  grass.color = Color(1.0f, 1.0f, 1.0f, 1.0f); // white tint
+  grass.roughness = 0.9f;
+  grass.metallic = 0.0f;
+
+  Material stone{};
+  stone.texture = stone_tex;
+  stone.color = Color(1.0f, 1.0f, 1.0f, 1.0f); // white tint
+  stone.roughness = 0.7f;
+  stone.metallic = 0.0f;
 
   // Camera setup
   r->camera().mode = Camera::ProjectionMode::Perspective;
@@ -88,8 +102,9 @@ int main(int, char **) {
   r->camera().fov = 60.0f;
   r->camera().far_clip = 200.0f;
 
-  std::cout << "Controls: LMB drag = orbit, Mouse wheel = zoom, A/D = pan, ESC "
-               "= quit\n";
+  std::cout << "Textured Demo - Controls: LMB drag = orbit, Mouse wheel = zoom, "
+               "A/D = pan, ESC = quit\n";
+  std::cout << "Scene: Brick sphere, stone cube, grass ground\n";
 
   // Main loop
   while (r->process_events()) {
@@ -116,11 +131,14 @@ int main(int, char **) {
     // Frame
     r->begin_frame(Color(0.50f, 0.70f, 0.90f, 1.0f)); // sky blue background
 
-    // Draw ground at y=0
-    r->draw_mesh(*ground, {0.0f, 0.0f, 0.0f}, {0, 0, 0}, {1, 1, 1}, brown);
+    // Draw grass ground at y=0
+    r->draw_mesh(*ground, {0.0f, 0.0f, 0.0f}, {0, 0, 0}, {1, 1, 1}, grass);
 
-    // Draw sphere centered at (0,1,0) so it rests on the plane
-    r->draw_mesh(*sphere, {0.0f, 1.0f, 0.0f}, {0, 0, 0}, {1, 1, 1}, red);
+    // Draw brick sphere centered at (0,1,0) so it rests on the plane
+    r->draw_mesh(*sphere, {0.0f, 1.0f, 0.0f}, {0, 0, 0}, {1, 1, 1}, brick);
+
+    // Draw stone cube to the right at (3, 0.75, 0)
+    r->draw_mesh(*cube, {3.0f, 0.75f, 0.0f}, {0, 0, 0}, {1, 1, 1}, stone);
 
     r->end_frame();
   }
