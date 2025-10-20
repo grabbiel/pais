@@ -235,6 +235,61 @@ public:
     glBindTexture(tex.target, 0);
   }
 
+  void copyToTextureLayer(TextureHandle texture, uint32_t layer,
+                          uint32_t mipLevel,
+                          std::span<const std::byte> data) override {
+    auto it = textures_->find(texture.id);
+    if (it == textures_->end())
+      return;
+
+    GLTexture &tex = it->second;
+
+    // Validate layer index
+    if (layer >= static_cast<uint32_t>(tex.layers)) {
+      std::cerr << "Invalid layer index: " << layer << " (max: " << tex.layers - 1
+                << ")" << std::endl;
+      return;
+    }
+
+    GLenum format, type;
+    switch (tex.format) {
+    case Format::RGBA8:
+      format = GL_RGBA;
+      type = GL_UNSIGNED_BYTE;
+      break;
+    case Format::BGRA8:
+      format = GL_BGRA;
+      type = GL_UNSIGNED_BYTE;
+      break;
+    case Format::R8:
+      format = GL_RED;
+      type = GL_UNSIGNED_BYTE;
+      break;
+    default:
+      format = GL_RGBA;
+      type = GL_UNSIGNED_BYTE;
+    }
+
+    glBindTexture(tex.target, tex.id);
+
+    if (tex.target == GL_TEXTURE_2D_ARRAY) {
+      // For texture arrays, use glTexSubImage3D with z offset = layer
+      glTexSubImage3D(GL_TEXTURE_2D_ARRAY, mipLevel, 0, 0, layer, tex.width,
+                      tex.height, 1, format, type, data.data());
+    } else {
+      // For regular 2D textures, layer must be 0
+      if (layer == 0) {
+        glTexSubImage2D(tex.target, mipLevel, 0, 0, tex.width, tex.height,
+                        format, type, data.data());
+      } else {
+        std::cerr << "Cannot upload to layer " << layer
+                  << " of a non-array texture" << std::endl;
+      }
+    }
+
+    glBindTexture(tex.target, 0);
+  }
+
   void drawIndexed(uint32_t indexCount, uint32_t firstIndex,
                    uint32_t instanceCount) override {
     if (current_pipeline_.id == 0)
@@ -379,6 +434,7 @@ public:
 
     texture.width = desc.size.w;
     texture.height = desc.size.h;
+    texture.layers = desc.layers;
     texture.format = desc.format;
 
     GLenum internal_format, format, type;
@@ -409,21 +465,40 @@ public:
       type = GL_UNSIGNED_BYTE;
     }
 
-    texture.target = GL_TEXTURE_2D;
-    glBindTexture(GL_TEXTURE_2D, texture.id);
-    glTexImage2D(GL_TEXTURE_2D, 0, internal_format, desc.size.w, desc.size.h, 0,
-                 format, type, nullptr);
+    // Choose texture target based on layer count
+    if (desc.layers > 1) {
+      texture.target = GL_TEXTURE_2D_ARRAY;
+      glBindTexture(GL_TEXTURE_2D_ARRAY, texture.id);
+      glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, internal_format, desc.size.w,
+                   desc.size.h, desc.layers, 0, format, type, nullptr);
 
-    if (desc.mipLevels > 1) {
-      glGenerateMipmap(GL_TEXTURE_2D);
+      if (desc.mipLevels > 1) {
+        glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+      }
+
+      glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+      glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+      glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+    } else {
+      texture.target = GL_TEXTURE_2D;
+      glBindTexture(GL_TEXTURE_2D, texture.id);
+      glTexImage2D(GL_TEXTURE_2D, 0, internal_format, desc.size.w, desc.size.h, 0,
+                   format, type, nullptr);
+
+      if (desc.mipLevels > 1) {
+        glGenerateMipmap(GL_TEXTURE_2D);
+      }
+
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+
+      glBindTexture(GL_TEXTURE_2D, 0);
     }
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-
-    glBindTexture(GL_TEXTURE_2D, 0);
 
     uint32_t handle_id = next_texture_id_++;
     textures_[handle_id] = texture;

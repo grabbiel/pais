@@ -229,7 +229,7 @@ public:
   rhi::TextureHandle create_texture_array(int width, int height, int layers);
   rhi::TextureHandle load_texture_array(const std::vector<std::string> &paths);
   void set_texture_array_layer(rhi::TextureHandle array_id, int layer,
-                               const uint8_t *data);
+                               int width, int height, const uint8_t *data);
 
   std::unique_ptr<Mesh> create_quad(float size = 1.0f);
   std::unique_ptr<Mesh> create_cube(float size = 1.0f);

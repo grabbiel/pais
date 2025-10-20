@@ -41,6 +41,7 @@ struct TextureDesc {
   Extent2D size;
   Format format;
   uint32_t mipLevels{1};
+  uint32_t layers{1};
   bool renderTarget{false};
 };
 struct SamplerDesc {
