@@ -1,7 +1,7 @@
 // src/renderer3d/metal/metal_backend.mm
 #ifdef __APPLE__
 
-#include "pixel/renderer3d/metal/metal_renderer.hpp"
+#include "metal_backend.hpp"
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_COCOA
 #include <GLFW/glfw3native.h>
