@@ -183,8 +183,8 @@ int main(int argc, char **argv) {
   config.dither.temporal_jitter = true;     // Animated dither
 
   const int MAX_GRASS = 50000;
-  auto grass_lod = RendererLOD::create_lod_mesh(
-      *grass_high, *grass_medium, *grass_low, MAX_GRASS / 3, config);
+  auto grass_lod = LODMesh::create(r->device(), *grass_high, *grass_medium,
+                                   *grass_low, MAX_GRASS / 3, config);
 
   // ============================================================================
   // Generate Grass Field

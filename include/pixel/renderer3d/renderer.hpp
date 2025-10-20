@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <vector>
 
+struct GLFWwindow;
+
 namespace pixel::renderer3d {
 
 // ============================================================================
@@ -56,19 +58,36 @@ struct Color {
 // Camera
 // ============================================================================
 
+// ============================================================================
+// Camera
+// ============================================================================
+
 class Camera {
 public:
+  enum class ProjectionMode { Perspective, Orthographic };
+
   Vec3 position{0, 2, 5};
   Vec3 target{0, 0, 0};
   Vec3 up{0, 1, 0};
+
+  ProjectionMode mode = ProjectionMode::Perspective;
+
+  // Perspective parameters
   float fov = 60.0f;
-  float near_plane = 0.1f;
-  float far_plane = 1000.0f;
+  float near_clip = 0.1f;
+  float far_clip = 1000.0f;
+
+  // Orthographic parameters
+  float ortho_size = 10.0f;
 
   void get_view_matrix(float *out) const;
   void get_projection_matrix(float *out, int width, int height) const;
-};
 
+  // Camera controls
+  void orbit(float dx, float dy);
+  void pan(float dx, float dy);
+  void zoom(float delta);
+};
 // ============================================================================
 // Input State
 // ============================================================================

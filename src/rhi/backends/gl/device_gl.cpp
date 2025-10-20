@@ -6,6 +6,8 @@
 #include <vector>
 #include <cstring>
 
+struct GLFWwindow;
+
 // OpenGL function loading for modern OpenGL
 #ifdef _WIN32
 #include <windows.h>

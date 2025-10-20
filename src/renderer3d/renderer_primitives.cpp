@@ -115,10 +115,14 @@ std::vector<Vertex> create_plane_vertices(float width, float depth,
 
 namespace pixel::renderer3d {
 
-std::unique_ptr<Mesh> Renderer::create_sprite_quad() {
-  std::vector<Vertex> verts = primitives::create_quad_vertices(1.0f);
+std::unique_ptr<Mesh> Renderer::create_quad(float size) {
+  std::vector<Vertex> verts = primitives::create_quad_vertices(size);
   std::vector<uint32_t> indices = {0, 1, 2, 2, 3, 0};
   return Mesh::create(device_, verts, indices);
+}
+
+std::unique_ptr<Mesh> Renderer::create_sprite_quad() {
+  return create_quad(1.0f);
 }
 
 std::unique_ptr<Mesh> Renderer::create_cube(float size) {

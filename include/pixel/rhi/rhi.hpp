@@ -5,6 +5,8 @@
 #include <string_view>
 #include <functional>
 
+struct GLFWwindow;
+
 namespace pixel::rhi {
 
 struct Caps {
