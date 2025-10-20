@@ -1,5 +1,6 @@
 // src/renderer3d/renderer.cpp (Updated for RHI)
 #include "pixel/renderer3d/renderer.hpp"
+#include "pixel/renderer3d/renderer_fwd.hpp"
 #include "pixel/rhi/rhi.hpp"
 #include <GLFW/glfw3.h>
 #include <cmath>

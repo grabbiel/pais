@@ -36,19 +36,27 @@ struct LODConfig {
   float screenspace_medium = 30.0f;
   float screenspace_cull = 5.0f;
 
+  // Hybrid mode weight (0.0 = distance only, 1.0 = screenspace only)
+  float hybrid_screenspace_weight = 0.5f;
+
   // Temporal coherence (prevents rapid LOD switching)
-  struct {
+  struct TemporalSettings {
     bool enabled = true;
-    float hysteresis_factor = 0.2f; // 20% hysteresis
-    float min_stable_time = 0.1f;   // Min time before LOD change (seconds)
-    int min_stable_frames = 3;      // Min frames before LOD change
+    float hysteresis_factor = 0.2f;
+    float min_stable_time = 0.1f;
+    int min_stable_frames = 3;
+    float upgrade_delay = 0.1f;
+    float downgrade_delay = 0.3f;
+    float distance_hysteresis = 3.0f;
+    float screenspace_hysteresis = 0.015f;
   } temporal;
 
   // Dithered transitions
-  struct {
+  struct DitherSettings {
     bool enabled = true;
-    float crossfade_duration = 0.25f; // Crossfade time (seconds)
+    float crossfade_duration = 0.25f;
     float dither_pattern_scale = 1.0f;
+    bool temporal_jitter = true;
   } dither;
 };
 
