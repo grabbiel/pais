@@ -42,6 +42,10 @@ struct CmdList {
   virtual void setUniformInt(const char *name, int value) = 0;
   virtual void setUniformFloat(const char *name, float value) = 0;
 
+  // Uniform buffer binding for instanced rendering
+  virtual void setUniformBuffer(uint32_t binding, BufferHandle buffer,
+                                size_t offset = 0, size_t size = 0) = 0;
+
   virtual void setTexture(const char *name, TextureHandle texture,
                           uint32_t slot = 0) = 0;
   virtual void copyToTexture(TextureHandle texture, uint32_t mipLevel,

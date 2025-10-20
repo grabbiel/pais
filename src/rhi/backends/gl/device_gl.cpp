@@ -183,6 +183,24 @@ public:
     }
   }
 
+  void setUniformBuffer(uint32_t binding, BufferHandle buffer, size_t offset,
+                        size_t size) override {
+    auto it = buffers_->find(buffer.id);
+    if (it == buffers_->end())
+      return;
+
+    const GLBuffer &buf = it->second;
+
+    // Bind uniform buffer to binding point
+    if (size > 0) {
+      // Bind a range of the buffer
+      glBindBufferRange(GL_UNIFORM_BUFFER, binding, buf.id, offset, size);
+    } else {
+      // Bind the entire buffer
+      glBindBufferBase(GL_UNIFORM_BUFFER, binding, buf.id);
+    }
+  }
+
   void setTexture(const char *name, TextureHandle texture,
                   uint32_t slot) override {
     auto it = textures_->find(texture.id);
