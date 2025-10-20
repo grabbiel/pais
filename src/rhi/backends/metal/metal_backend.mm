@@ -1,4 +1,4 @@
-// src/renderer3d/metal/metal_backend.mm
+// src/rhi/backends/metal/metal_backend.mm
 #ifdef __APPLE__
 
 #include "metal_backend.hpp"
@@ -7,13 +7,29 @@
 #include <GLFW/glfw3native.h>
 #import <Cocoa/Cocoa.h>
 #include <iostream>
-#include <fstream>
-#include <sstream>
 
 namespace pixel::renderer3d::metal {
 
 // ============================================================================
-// Metal Shader Implementation
+// Uniforms structure (simplified)
+// ============================================================================
+
+struct Uniforms {
+  float model[16];
+  float view[16];
+  float projection[16];
+  float lightPos[3];
+  float _pad1;
+  float viewPos[3];
+  float _pad2;
+  float time;
+  int useTexture;
+  int useTextureArray;
+  int ditherEnabled;
+};
+
+// ============================================================================
+// Metal Shader Implementation (Stub)
 // ============================================================================
 
 std::unique_ptr<MetalShader>
@@ -22,11 +38,7 @@ MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
   auto shader = std::unique_ptr<MetalShader>(new MetalShader());
   shader->device_ = device;
 
-  // Compile shader library from source
-  NSError *error = nil;
-
-  // For now, we'll use the default library with pre-compiled shaders
-  // In production, you'd compile from source strings
+  // Use default library with pre-compiled shaders
   shader->library_ = [device newDefaultLibrary];
 
   if (!shader->library_) {
@@ -39,14 +51,6 @@ MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
       [shader->library_ newFunctionWithName:@"vertex_main"];
   shader->fragment_function_ =
       [shader->library_ newFunctionWithName:@"fragment_main"];
-
-  if (!shader->vertex_function_ || !shader->fragment_function_) {
-    // Try instanced shaders
-    shader->vertex_function_ =
-        [shader->library_ newFunctionWithName:@"vertex_instanced"];
-    shader->fragment_function_ =
-        [shader->library_ newFunctionWithName:@"fragment_instanced"];
-  }
 
   if (!shader->vertex_function_ || !shader->fragment_function_) {
     std::cerr << "Failed to load shader functions" << std::endl;
@@ -68,35 +72,7 @@ MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
   pipelineDesc.colorAttachments[0].destinationRGBBlendFactor =
       MTLBlendFactorOneMinusSourceAlpha;
 
-  // Create vertex descriptor
-  MTLVertexDescriptor *vertexDesc = [[MTLVertexDescriptor alloc] init];
-
-  // Position
-  vertexDesc.attributes[0].format = MTLVertexFormatFloat3;
-  vertexDesc.attributes[0].offset = offsetof(Vertex, position);
-  vertexDesc.attributes[0].bufferIndex = 0;
-
-  // Normal
-  vertexDesc.attributes[1].format = MTLVertexFormatFloat3;
-  vertexDesc.attributes[1].offset = offsetof(Vertex, normal);
-  vertexDesc.attributes[1].bufferIndex = 0;
-
-  // TexCoord
-  vertexDesc.attributes[2].format = MTLVertexFormatFloat2;
-  vertexDesc.attributes[2].offset = offsetof(Vertex, texcoord);
-  vertexDesc.attributes[2].bufferIndex = 0;
-
-  // Color
-  vertexDesc.attributes[3].format = MTLVertexFormatFloat4;
-  vertexDesc.attributes[3].offset = offsetof(Vertex, color);
-  vertexDesc.attributes[3].bufferIndex = 0;
-
-  vertexDesc.layouts[0].stride = sizeof(Vertex);
-  vertexDesc.layouts[0].stepRate = 1;
-  vertexDesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
-
-  pipelineDesc.vertexDescriptor = vertexDesc;
-
+  NSError *error = nil;
   shader->pipeline_state_ =
       [device newRenderPipelineStateWithDescriptor:pipelineDesc error:&error];
 
@@ -115,7 +91,7 @@ MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
   shader->depth_stencil_state_ =
       [device newDepthStencilStateWithDescriptor:depthDesc];
 
-  // Create uniform buffers
+  // Create uniform buffer
   shader->uniform_buffers_["uniforms"].buffer =
       [device newBufferWithLength:sizeof(Uniforms)
                           options:MTLResourceCPUCacheModeWriteCombined];
@@ -125,7 +101,7 @@ MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
 }
 
 MetalShader::~MetalShader() {
-  // ARC will handle cleanup
+  // ARC handles cleanup
 }
 
 void MetalShader::bind(id<MTLRenderCommandEncoder> encoder) {
@@ -146,11 +122,11 @@ void MetalShader::set_mat4(const std::string &name, const float *value) {
   if (it != uniform_buffers_.end()) {
     Uniforms *uniforms = (Uniforms *)it->second.buffer.contents;
     if (name == "model") {
-      memcpy(&uniforms->model, value, sizeof(float) * 16);
+      memcpy(uniforms->model, value, sizeof(float) * 16);
     } else if (name == "view") {
-      memcpy(&uniforms->view, value, sizeof(float) * 16);
+      memcpy(uniforms->view, value, sizeof(float) * 16);
     } else if (name == "projection") {
-      memcpy(&uniforms->projection, value, sizeof(float) * 16);
+      memcpy(uniforms->projection, value, sizeof(float) * 16);
     }
   }
 }
@@ -160,9 +136,13 @@ void MetalShader::set_vec3(const std::string &name, const Vec3 &value) {
   if (it != uniform_buffers_.end()) {
     Uniforms *uniforms = (Uniforms *)it->second.buffer.contents;
     if (name == "lightPos") {
-      uniforms->lightPos = simd_make_float3(value.x, value.y, value.z);
+      uniforms->lightPos[0] = value.x;
+      uniforms->lightPos[1] = value.y;
+      uniforms->lightPos[2] = value.z;
     } else if (name == "viewPos") {
-      uniforms->viewPos = simd_make_float3(value.x, value.y, value.z);
+      uniforms->viewPos[0] = value.x;
+      uniforms->viewPos[1] = value.y;
+      uniforms->viewPos[2] = value.z;
     }
   }
 }
@@ -192,7 +172,7 @@ void MetalShader::set_float(const std::string &name, float value) {
 }
 
 // ============================================================================
-// Metal Mesh Implementation
+// Metal Mesh Implementation (Stub)
 // ============================================================================
 
 std::unique_ptr<MetalMesh>
@@ -219,7 +199,7 @@ MetalMesh::create(id<MTLDevice> device, const std::vector<Vertex> &vertices,
 }
 
 MetalMesh::~MetalMesh() {
-  // ARC will handle cleanup
+  // ARC handles cleanup
 }
 
 void MetalMesh::draw(id<MTLRenderCommandEncoder> encoder) const {
@@ -232,7 +212,7 @@ void MetalMesh::draw(id<MTLRenderCommandEncoder> encoder) const {
 }
 
 // ============================================================================
-// Metal Texture Implementation
+// Metal Texture Implementation (Stub)
 // ============================================================================
 
 std::unique_ptr<MetalTexture> MetalTexture::create(id<MTLDevice> device,
@@ -259,15 +239,6 @@ std::unique_ptr<MetalTexture> MetalTexture::create(id<MTLDevice> device,
                          mipmapLevel:0
                            withBytes:data
                          bytesPerRow:width * 4];
-
-    // Generate mipmaps
-    id<MTLCommandQueue> commandQueue = [device newCommandQueue];
-    id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
-    id<MTLBlitCommandEncoder> blitEncoder = [commandBuffer blitCommandEncoder];
-    [blitEncoder generateMipmapsForTexture:texture->texture_];
-    [blitEncoder endEncoding];
-    [commandBuffer commit];
-    [commandBuffer waitUntilCompleted];
   }
 
   // Create sampler
@@ -284,7 +255,7 @@ std::unique_ptr<MetalTexture> MetalTexture::create(id<MTLDevice> device,
 }
 
 MetalTexture::~MetalTexture() {
-  // ARC will handle cleanup
+  // ARC handles cleanup
 }
 
 void MetalTexture::bind(id<MTLRenderCommandEncoder> encoder, int slot) {
@@ -293,62 +264,7 @@ void MetalTexture::bind(id<MTLRenderCommandEncoder> encoder, int slot) {
 }
 
 // ============================================================================
-// Metal Texture Array Implementation
-// ============================================================================
-
-std::unique_ptr<MetalTextureArray>
-MetalTextureArray::create(id<MTLDevice> device, int width, int height,
-                          int layers) {
-  auto textureArray =
-      std::unique_ptr<MetalTextureArray>(new MetalTextureArray());
-  textureArray->device_ = device;
-  textureArray->width_ = width;
-  textureArray->height_ = height;
-  textureArray->layers_ = layers;
-
-  // Create texture array descriptor
-  MTLTextureDescriptor *desc = [[MTLTextureDescriptor alloc] init];
-  desc.textureType = MTLTextureType2DArray;
-  desc.pixelFormat = MTLPixelFormatRGBA8Unorm;
-  desc.width = width;
-  desc.height = height;
-  desc.arrayLength = layers;
-  desc.mipmapLevelCount = 1;
-
-  textureArray->texture_ = [device newTextureWithDescriptor:desc];
-
-  // Create sampler
-  MTLSamplerDescriptor *samplerDesc = [[MTLSamplerDescriptor alloc] init];
-  samplerDesc.minFilter = MTLSamplerMinMagFilterLinear;
-  samplerDesc.magFilter = MTLSamplerMinMagFilterLinear;
-  samplerDesc.sAddressMode = MTLSamplerAddressModeRepeat;
-  samplerDesc.tAddressMode = MTLSamplerAddressModeRepeat;
-
-  textureArray->sampler_ = [device newSamplerStateWithDescriptor:samplerDesc];
-
-  return textureArray;
-}
-
-void MetalTextureArray::set_layer(int layer, const uint8_t *data) {
-  if (layer < 0 || layer >= layers_ || !data)
-    return;
-
-  MTLRegion region = MTLRegionMake2D(0, 0, width_, height_);
-  [texture_ replaceRegion:region
-              mipmapLevel:0
-                    slice:layer
-                withBytes:data
-              bytesPerRow:width_ * 4
-            bytesPerImage:0];
-}
-
-void MetalTextureArray::bind(id<MTLRenderCommandEncoder> encoder, int slot) {
-  [encoder setFragmentTexture:texture_ atIndex:slot];
-  [encoder setFragmentSamplerState:sampler_ atIndex:slot];
-}
-
-// ============================================================================
-// Metal Backend Implementation
+// Metal Backend Implementation (Stub)
 // ============================================================================
 
 std::unique_ptr<MetalBackend> MetalBackend::create(GLFWwindow *window) {
@@ -408,20 +324,11 @@ bool MetalBackend::initialize(GLFWwindow *window) {
 
   depth_texture_ = [device_ newTextureWithDescriptor:depthDesc];
 
-  // Create default shaders
-  create_default_shaders();
-
   return true;
 }
 
-void MetalBackend::create_default_shaders() {
-  // These would be created from the Metal shader library
-  default_shader_ = create_shader("vertex_main", "fragment_main");
-  instanced_shader_ = create_shader("vertex_instanced", "fragment_instanced");
-}
-
 MetalBackend::~MetalBackend() {
-  // ARC will handle cleanup
+  // ARC handles cleanup
 }
 
 void MetalBackend::begin_frame(const Color &clear_color) {
@@ -441,17 +348,6 @@ void MetalBackend::begin_frame(const Color &clear_color) {
   // Create render encoder
   render_encoder_ = [command_buffer_
       renderCommandEncoderWithDescriptor:render_pass_descriptor_];
-
-  // Set viewport
-  MTLViewport viewport;
-  viewport.originX = 0;
-  viewport.originY = 0;
-  viewport.width = viewport_width_;
-  viewport.height = viewport_height_;
-  viewport.znear = 0.0;
-  viewport.zfar = 1.0;
-
-  [render_encoder_ setViewport:viewport];
 }
 
 void MetalBackend::end_frame() {
@@ -488,6 +384,10 @@ void MetalBackend::setup_render_pass_descriptor() {
   render_pass_descriptor_.depthAttachment.clearDepth = 1.0;
 }
 
+void MetalBackend::create_default_shaders() {
+  // Stub - shaders loaded from library
+}
+
 std::unique_ptr<MetalShader>
 MetalBackend::create_shader(const std::string &vertex_src,
                             const std::string &fragment_src) {
@@ -505,31 +405,14 @@ MetalBackend::create_texture(int width, int height, const uint8_t *data) {
   return MetalTexture::create(device_, width, height, data);
 }
 
-std::unique_ptr<MetalTextureArray>
-MetalBackend::create_texture_array(int width, int height, int layers) {
-  return MetalTextureArray::create(device_, width, height, layers);
-}
-
 void MetalBackend::draw_mesh(const MetalMesh &mesh, const Vec3 &position,
                              const Vec3 &rotation, const Vec3 &scale,
                              MetalShader *shader, const Material &material) {
+  // Stub implementation - just draw the mesh
   if (!shader || !render_encoder_)
     return;
 
-  // Bind shader
   shader->bind(render_encoder_);
-
-  // Set transform matrices
-  glm::mat4 model = glm::mat4(1.0f);
-  model = glm::translate(model, glm::vec3(position.x, position.y, position.z));
-  model = glm::rotate(model, glm::radians(rotation.x), glm::vec3(1, 0, 0));
-  model = glm::rotate(model, glm::radians(rotation.y), glm::vec3(0, 1, 0));
-  model = glm::rotate(model, glm::radians(rotation.z), glm::vec3(0, 0, 1));
-  model = glm::scale(model, glm::vec3(scale.x, scale.y, scale.z));
-
-  shader->set_mat4("model", glm::value_ptr(model));
-
-  // Draw mesh
   mesh.draw(render_encoder_);
 }
 

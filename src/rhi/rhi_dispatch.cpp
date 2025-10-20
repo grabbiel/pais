@@ -8,7 +8,7 @@
 namespace pixel::rhi {
 
 // Forward declarations for backend factories
-Device *create_gl_device(void *window);
+Device *create_gl_device(GLFWwindow *window);
 
 #ifdef __APPLE__
 Device *create_metal_device(void *window);

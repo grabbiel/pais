@@ -1,6 +1,6 @@
 #ifdef __APPLE__
 
-#include "pixel/renderer3d/metal/metal_renderer.hpp"
+#include "pixel/rhi/backends/metal/metal_renderer.hpp"
 
 #include "metal_backend.hpp"
 

@@ -1,6 +1,6 @@
 #pragma once
-#include "../platform/platform.hpp"
-#include "../rhi/rhi.hpp"
+#include "pixel/platform/platform.hpp"
+#include "pixel/rhi/rhi.hpp"
 #include <glm/glm.hpp>
 #include <memory>
 #include <string>

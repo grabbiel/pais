@@ -3,8 +3,8 @@
 
 #ifdef __APPLE__
 
-#include "metal/metal_backend.hpp"
-#include "../renderer.hpp"
+#include "../src/rhi/backends/metal/metal_backend.hpp"
+#include "pixel/renderer3d/renderer.hpp"
 
 #include <memory>
 

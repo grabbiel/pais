@@ -114,8 +114,22 @@ public:
     current_vb_ = handle;
     current_vb_offset_ = offset;
 
-    // Vertex buffer will be bound when we set up vertex attributes
+    // Bind VBO and re-point attribute pointers for the currently bound VAO
     glBindBuffer(GL_ARRAY_BUFFER, it->second.id);
+
+    // Make sure the VAO of the current pipeline is bound
+    auto pit = pipelines_->find(current_pipeline_.id);
+    if (pit != pipelines_->end()) {
+      glBindVertexArray(pit->second.vao);
+    }
+
+    // Hardcoded layout for renderer3d::Vertex (stride = 48 bytes):
+    //// position (vec3) @0, normal (vec3) @12, uv (vec2) @24, color (vec4) @32
+    const GLsizei stride = 48;
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void *)(0));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void *)(12));
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void *)(24));
+    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, stride, (void *)(32));
   }
 
   void setIndexBuffer(BufferHandle handle, size_t offset) override {
@@ -126,6 +140,10 @@ public:
     current_ib_ = handle;
     current_ib_offset_ = offset;
 
+    auto pit = pipelines_->find(current_pipeline_.id);
+    if (pit != pipelines_->end()) {
+      glBindVertexArray(pit->second.vao);
+    }
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, it->second.id);
   }
 
@@ -433,19 +451,15 @@ public:
     // Setup vertex attributes (hardcoded for our Vertex structure)
     // Position (vec3) at location 0
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 48, (void *)0);
 
     // Normal (vec3) at location 1
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 48, (void *)12);
 
     // TexCoord (vec2) at location 2
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 48, (void *)24);
 
     // Color (vec4) at location 3
     glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, 48, (void *)32);
 
     glBindVertexArray(0);
 
@@ -463,7 +477,14 @@ public:
 
   CmdList *getImmediate() override { return cmd_list_.get(); }
 
-  void present() override { glfwSwapBuffers(window_); }
+  void present() override {
+    int fbw = 0, fbh = 0;
+    glfwGetFramebufferSize(window_, &fbw, &fbh);
+    if (fbw > 0 && fbh > 0) {
+      glViewport(0, 0, fbw, fbh);
+    }
+    glfwSwapBuffers(window_);
+  }
 
 private:
   GLFWwindow *window_;
@@ -492,8 +513,8 @@ private:
 
 namespace pixel::rhi {
 
-Device *create_gl_device(void *window) {
-  return new gl::GLDevice(static_cast<GLFWwindow *>(window));
+Device *create_gl_device(GLFWwindow *window) {
+  return new gl::GLDevice(window);
 }
 
 } // namespace pixel::rhi
