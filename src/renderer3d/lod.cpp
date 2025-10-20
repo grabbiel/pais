@@ -434,8 +434,38 @@ void RendererLOD::draw_lod(Renderer &renderer, LODMesh &mesh,
   auto *cmd = renderer.device()->getImmediate();
   cmd->setPipeline(shader->pipeline());
 
-  // TODO: Set uniforms (view, projection, light, time, dither settings)
-  // This requires uniform buffer support in RHI
+  // Set view and projection matrices
+  float view[16], projection[16];
+  renderer.camera().get_view_matrix(view);
+  renderer.camera().get_projection_matrix(projection, renderer.window_width(),
+                                          renderer.window_height());
+  cmd->setUniformMat4("view", view);
+  cmd->setUniformMat4("projection", projection);
+
+  // Set lighting uniforms
+  float light_pos[3] = {10.0f, 10.0f, 10.0f};
+  float view_pos[3] = {renderer.camera().position.x,
+                       renderer.camera().position.y,
+                       renderer.camera().position.z};
+  cmd->setUniformVec3("lightPos", light_pos);
+  cmd->setUniformVec3("viewPos", view_pos);
+
+  // Set time uniform for animated dither
+  cmd->setUniformFloat("uTime", static_cast<float>(renderer.time()));
+
+  // Set dither settings based on LOD config
+  const auto &dither = mesh.config().dither;
+  cmd->setUniformInt("uDitherEnabled", dither.enabled ? 1 : 0);
+  cmd->setUniformFloat("uDitherScale", dither.dither_pattern_scale);
+  cmd->setUniformFloat("uCrossfadeDuration", dither.crossfade_duration);
+
+  // Set texture array if available
+  if (base_material.texture_array.id != 0) {
+    cmd->setTexture("uTextureArray", base_material.texture_array, 0);
+    cmd->setUniformInt("useTextureArray", 1);
+  } else {
+    cmd->setUniformInt("useTextureArray", 0);
+  }
 
   mesh.draw_all_lods(cmd);
 }
