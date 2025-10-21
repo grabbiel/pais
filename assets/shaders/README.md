@@ -30,6 +30,27 @@ Metal Shading Language shaders are used by the Metal backend on Apple platforms.
   - Texture sampling
   - Uniform buffer support
 
+**Note:** The Metal backend includes built-in compute shaders in the compiled library:
+- `culling_compute` - GPU frustum culling (equivalent to culling.comp)
+- `lod_compute` - GPU LOD computation (equivalent to lod.comp)
+
+### Compute Shaders (.comp)
+
+Compute shaders are used for GPU-accelerated processing tasks.
+
+- **culling.comp** - GPU frustum culling shader:
+  - Tests instances against frustum planes
+  - Outputs list of visible instance indices
+  - Uses atomic operations for lock-free output
+  - Supports bounding sphere culling
+
+- **lod.comp** - GPU LOD (Level of Detail) computation shader:
+  - Integrates frustum culling
+  - Calculates distance-based LOD levels
+  - Calculates screen-space LOD levels
+  - Supports hybrid LOD mode (distance + screen-space)
+  - Outputs per-instance LOD assignments
+
 ## Loading Shaders
 
 ### From Files

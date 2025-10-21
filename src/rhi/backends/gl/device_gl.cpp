@@ -57,6 +57,7 @@ struct GLPipeline {
   GLuint vao = 0;
   ShaderHandle vs{0};
   ShaderHandle fs{0};
+  ShaderHandle cs{0};
   std::unordered_map<std::string, GLint> uniform_locations;
 };
 
@@ -363,6 +364,43 @@ public:
     glBindTexture(tex.target, 0);
   }
 
+  // Compute shader support
+  void setComputePipeline(PipelineHandle handle) override {
+    auto it = pipelines_->find(handle.id);
+    if (it == pipelines_->end())
+      return;
+
+    current_pipeline_ = handle;
+    const GLPipeline &pipeline = it->second;
+
+    glUseProgram(pipeline.program);
+  }
+
+  void setStorageBuffer(uint32_t binding, BufferHandle buffer, size_t offset,
+                       size_t size) override {
+    auto it = buffers_->find(buffer.id);
+    if (it == buffers_->end())
+      return;
+
+    const GLBuffer &buf = it->second;
+
+    // Bind shader storage buffer to binding point
+    if (size > 0) {
+      glBindBufferRange(GL_SHADER_STORAGE_BUFFER, binding, buf.id, offset, size);
+    } else {
+      glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding, buf.id);
+    }
+  }
+
+  void dispatch(uint32_t groupCountX, uint32_t groupCountY,
+               uint32_t groupCountZ) override {
+    glDispatchCompute(groupCountX, groupCountY, groupCountZ);
+  }
+
+  void memoryBarrier() override {
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+  }
+
   void drawIndexed(uint32_t indexCount, uint32_t firstIndex,
                    uint32_t instanceCount) override {
     if (current_pipeline_.id == 0)
@@ -484,6 +522,8 @@ public:
       buffer.target = GL_ELEMENT_ARRAY_BUFFER;
     } else if ((desc.usage & BufferUsage::Uniform) == BufferUsage::Uniform) {
       buffer.target = GL_UNIFORM_BUFFER;
+    } else if ((desc.usage & BufferUsage::Storage) == BufferUsage::Storage) {
+      buffer.target = GL_SHADER_STORAGE_BUFFER;
     } else {
       buffer.target = GL_ARRAY_BUFFER;
     }
@@ -608,6 +648,8 @@ public:
       shader_type = GL_VERTEX_SHADER;
     } else if (stage == "fs") {
       shader_type = GL_FRAGMENT_SHADER;
+    } else if (stage == "cs") {
+      shader_type = GL_COMPUTE_SHADER;
     } else {
       std::cerr << "Unknown shader stage: " << stage << std::endl;
       return ShaderHandle{0};
@@ -642,6 +684,48 @@ public:
   }
 
   PipelineHandle createPipeline(const PipelineDesc &desc) override {
+    // Create linked program
+    GLuint program = glCreateProgram();
+
+    // Check if this is a compute pipeline
+    if (desc.cs.id != 0) {
+      auto cs_it = shaders_.find(desc.cs.id);
+      if (cs_it == shaders_.end()) {
+        std::cerr << "Invalid compute shader handle for pipeline" << std::endl;
+        return PipelineHandle{0};
+      }
+
+      // Attach compute shader
+      glAttachShader(program, cs_it->second.shader_id);
+
+      // Link the program
+      glLinkProgram(program);
+
+      GLint success;
+      glGetProgramiv(program, GL_LINK_STATUS, &success);
+      if (!success) {
+        char log[512];
+        glGetProgramInfoLog(program, 512, nullptr, log);
+        std::cerr << "Compute pipeline linking failed:\n" << log << std::endl;
+        glDeleteProgram(program);
+        return PipelineHandle{0};
+      }
+
+      // Detach shader after linking
+      glDetachShader(program, cs_it->second.shader_id);
+
+      GLPipeline pipeline;
+      pipeline.program = program;
+      pipeline.vao = 0;  // No VAO for compute pipelines
+      pipeline.cs = desc.cs;
+
+      uint32_t handle_id = next_pipeline_id_++;
+      pipelines_[handle_id] = pipeline;
+
+      return PipelineHandle{handle_id};
+    }
+
+    // Graphics pipeline
     auto vs_it = shaders_.find(desc.vs.id);
     auto fs_it = shaders_.find(desc.fs.id);
 
@@ -649,9 +733,6 @@ public:
       std::cerr << "Invalid shader handles for pipeline" << std::endl;
       return PipelineHandle{0};
     }
-
-    // Create linked program
-    GLuint program = glCreateProgram();
 
     // Attach both shader objects
     glAttachShader(program, vs_it->second.shader_id);

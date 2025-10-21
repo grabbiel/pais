@@ -96,9 +96,11 @@ struct MTLShaderResource {
 
 struct MTLPipelineResource {
   id<MTLRenderPipelineState> pipeline_state = nil;
+  id<MTLComputePipelineState> compute_pipeline_state = nil;
   id<MTLDepthStencilState> depth_stencil_state = nil;
   ShaderHandle vs{0};
   ShaderHandle fs{0};
+  ShaderHandle cs{0};
   std::unordered_map<std::string, uint32_t> argument_indices;
 };
 
@@ -391,10 +393,78 @@ public:
                              instanceCount:instanceCount];
   }
 
+  // Compute shader support
+  void setComputePipeline(PipelineHandle handle) override {
+    auto it = pipelines_->find(handle.id);
+    if (it == pipelines_->end())
+      return;
+
+    current_compute_pipeline_ = handle;
+    const MTLPipelineResource &pipeline = it->second;
+
+    // End render encoder if active
+    if (render_encoder_) {
+      [render_encoder_ endEncoding];
+      render_encoder_ = nil;
+    }
+
+    // Create compute encoder if needed
+    if (!compute_encoder_) {
+      compute_encoder_ = [command_buffer_ computeCommandEncoder];
+    }
+
+    [compute_encoder_ setComputePipelineState:pipeline.compute_pipeline_state];
+  }
+
+  void setStorageBuffer(uint32_t binding, BufferHandle buffer, size_t offset,
+                       size_t size) override {
+    auto it = buffers_->find(buffer.id);
+    if (it == buffers_->end())
+      return;
+
+    const MTLBufferResource &buf = it->second;
+
+    if (compute_encoder_) {
+      [compute_encoder_ setBuffer:buf.buffer offset:offset atIndex:binding];
+    }
+  }
+
+  void dispatch(uint32_t groupCountX, uint32_t groupCountY,
+               uint32_t groupCountZ) override {
+    if (!compute_encoder_)
+      return;
+
+    auto it = pipelines_->find(current_compute_pipeline_.id);
+    if (it == pipelines_->end())
+      return;
+
+    // Get the thread group size from the pipeline
+    NSUInteger threadExecutionWidth = it->second.compute_pipeline_state.threadExecutionWidth;
+    NSUInteger maxThreads = it->second.compute_pipeline_state.maxTotalThreadsPerThreadgroup;
+
+    // Use a reasonable thread group size (e.g., 256 threads per group)
+    MTLSize threadsPerGroup = MTLSizeMake(MIN(256, maxThreads), 1, 1);
+    MTLSize threadgroups = MTLSizeMake(groupCountX, groupCountY, groupCountZ);
+
+    [compute_encoder_ dispatchThreadgroups:threadgroups
+                     threadsPerThreadgroup:threadsPerGroup];
+  }
+
+  void memoryBarrier() override {
+    if (compute_encoder_) {
+      // Metal handles memory barriers automatically
+      // But we can end and restart the encoder if needed for explicit barriers
+    }
+  }
+
   void endRender() override {
     if (render_encoder_) {
       [render_encoder_ endEncoding];
       render_encoder_ = nil;
+    }
+    if (compute_encoder_) {
+      [compute_encoder_ endEncoding];
+      compute_encoder_ = nil;
     }
   }
 
@@ -443,6 +513,7 @@ private:
 
   id<MTLCommandBuffer> command_buffer_ = nil;
   id<MTLRenderCommandEncoder> render_encoder_ = nil;
+  id<MTLComputeCommandEncoder> compute_encoder_ = nil;
   id<CAMetalDrawable> current_drawable_ = nil;
 
   id<MTLBuffer> uniform_buffer_ = nil;
@@ -450,6 +521,7 @@ private:
 
   bool recording_ = false;
   PipelineHandle current_pipeline_{0};
+  PipelineHandle current_compute_pipeline_{0};
   BufferHandle current_vb_{0};
   BufferHandle current_ib_{0};
   size_t current_vb_offset_ = 0;
@@ -623,6 +695,10 @@ public:
       functionName = @"fragment_main";
     } else if (stage == "fs_instanced") {
       functionName = @"fragment_instanced";
+    } else if (stage == "cs_culling") {
+      functionName = @"culling_compute";
+    } else if (stage == "cs_lod") {
+      functionName = @"lod_compute";
     } else {
       std::cerr << "Unknown shader stage: " << stage << std::endl;
       return ShaderHandle{0};
@@ -642,6 +718,35 @@ public:
   }
 
   PipelineHandle createPipeline(const PipelineDesc &desc) override {
+    MTLPipelineResource pipeline;
+
+    // Check if this is a compute pipeline
+    if (desc.cs.id != 0) {
+      auto cs_it = shaders_.find(desc.cs.id);
+      if (cs_it == shaders_.end()) {
+        std::cerr << "Invalid compute shader handle for pipeline" << std::endl;
+        return PipelineHandle{0};
+      }
+
+      NSError *error = nil;
+      pipeline.compute_pipeline_state = [device_ newComputePipelineStateWithFunction:cs_it->second.function
+                                                                                error:&error];
+
+      if (!pipeline.compute_pipeline_state) {
+        std::cerr << "Failed to create compute pipeline state: "
+                  << [[error localizedDescription] UTF8String] << std::endl;
+        return PipelineHandle{0};
+      }
+
+      pipeline.cs = desc.cs;
+
+      uint32_t handle_id = next_pipeline_id_++;
+      pipelines_[handle_id] = pipeline;
+
+      return PipelineHandle{handle_id};
+    }
+
+    // Graphics pipeline
     auto vs_it = shaders_.find(desc.vs.id);
     auto fs_it = shaders_.find(desc.fs.id);
 
@@ -649,8 +754,6 @@ public:
       std::cerr << "Invalid shader handles for pipeline" << std::endl;
       return PipelineHandle{0};
     }
-
-    MTLPipelineResource pipeline;
 
     MTLRenderPipelineDescriptor *pipelineDesc = [[MTLRenderPipelineDescriptor alloc] init];
     pipelineDesc.vertexFunction = vs_it->second.function;
