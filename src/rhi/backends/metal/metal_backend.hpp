@@ -9,11 +9,14 @@
 #include <MetalKit/MetalKit.h>
 #include <QuartzCore/CAMetalLayer.h>
 
+#include <dispatch/dispatch.h>
 #include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <mutex>
+#include <cstdint>
 
 namespace pixel::renderer3d::metal {
 
@@ -162,7 +165,12 @@ private:
 
   bool initialize(GLFWwindow *window);
   void create_default_shaders();
-  void setup_render_pass_descriptor();
+  bool setup_render_pass_descriptor();
+  void log_nserror(const std::string &context, NSError *error) const;
+  void on_command_buffer_complete(id<MTLCommandBuffer> command_buffer);
+  void track_inflight_command_buffer(id<MTLCommandBuffer> command_buffer);
+  void flush_pending_releases(void *command_buffer_key);
+  std::string describe_command_buffer(id<MTLCommandBuffer> command_buffer) const;
 
   id<MTLDevice> device_ = nil;
   id<MTLCommandQueue> command_queue_ = nil;
@@ -174,6 +182,14 @@ private:
   MTLRenderPassDescriptor *render_pass_descriptor_ = nil;
 
   id<MTLTexture> depth_texture_ = nil;
+
+  dispatch_semaphore_t inflight_semaphore_ = nullptr;
+  NSMutableArray<id<MTLCommandBuffer>> *inflight_command_buffers_ = nil;
+  mutable std::mutex inflight_mutex_;
+  std::unordered_map<void *, std::vector<std::function<void()>>> pending_releases_;
+  uint64_t frame_counter_ = 0;
+  uint64_t current_frame_id_ = 0;
+  bool validation_enabled_ = false;
 
   int viewport_width_ = 0;
   int viewport_height_ = 0;
