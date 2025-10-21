@@ -6,11 +6,31 @@
 #define GLFW_EXPOSE_NATIVE_COCOA
 #include <GLFW/glfw3native.h>
 #import <Cocoa/Cocoa.h>
+#import <Metal/MTLCommandBuffer.h>
+#include <cstdlib>
 #include <iostream>
+#include <iterator>
+#include <sstream>
 
 namespace pixel::renderer3d::metal {
 
 namespace {
+
+std::string to_std_string(NSString *string) {
+  if (!string) {
+    return std::string();
+  }
+  const char *c_str = [string UTF8String];
+  return c_str ? std::string(c_str) : std::string();
+}
+
+std::string describe_nsobject(NSObject *object) {
+  if (!object) {
+    return std::string();
+  }
+  NSString *description = [object description];
+  return to_std_string(description);
+}
 
 MTLCompareFunction to_mtl_compare(rhi::CompareOp op) {
   switch (op) {
@@ -95,6 +115,8 @@ MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
     return nullptr;
   }
 
+  shader->library_.label = @"DefaultLibrary";
+
   // Get vertex and fragment functions
   shader->vertex_function_ =
       [shader->library_ newFunctionWithName:@"vertex_main"];
@@ -106,9 +128,13 @@ MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
     return nullptr;
   }
 
+  shader->vertex_function_.label = @"vertex_main";
+  shader->fragment_function_.label = @"fragment_main";
+
   // Create pipeline state
   MTLRenderPipelineDescriptor *pipelineDesc =
       [[MTLRenderPipelineDescriptor alloc] init];
+  pipelineDesc.label = @"Pipeline_Default_Opaque";
   pipelineDesc.vertexFunction = shader->vertex_function_;
   pipelineDesc.fragmentFunction = shader->fragment_function_;
   pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
@@ -129,16 +155,31 @@ MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
       [device newRenderPipelineStateWithDescriptor:pipelineDesc error:&error];
 
   if (!shader->pipeline_state_) {
-    std::cerr << "Failed to create pipeline state: " <<
-        [[error localizedDescription] UTF8String] << std::endl;
+    std::cerr << "Failed to create pipeline state: "
+              << to_std_string([error localizedDescription]) << std::endl;
+    if (error) {
+      std::string details = describe_nsobject([error userInfo]);
+      if (!details.empty()) {
+        std::cerr << "  Details: " << details << std::endl;
+      }
+    }
     return nullptr;
   }
+
+  shader->pipeline_state_.label = @"Pipeline_Default_Opaque";
 
   // Create uniform buffer
   shader->uniform_buffers_["uniforms"].buffer =
       [device newBufferWithLength:sizeof(Uniforms)
                           options:MTLResourceCPUCacheModeWriteCombined];
   shader->uniform_buffers_["uniforms"].size = sizeof(Uniforms);
+
+  if (!shader->uniform_buffers_["uniforms"].buffer) {
+    std::cerr << "Failed to allocate Metal uniform buffer" << std::endl;
+    return nullptr;
+  }
+
+  shader->uniform_buffers_["uniforms"].buffer.label = @"UniformBuffer_Frame_0";
 
   return shader;
 }
@@ -235,11 +276,25 @@ MetalMesh::create(id<MTLDevice> device, const std::vector<Vertex> &vertices,
                           length:vertices.size() * sizeof(Vertex)
                          options:MTLResourceCPUCacheModeWriteCombined];
 
+  if (!mesh->vertex_buffer_) {
+    std::cerr << "Failed to create Metal vertex buffer for mesh" << std::endl;
+    return nullptr;
+  }
+
+  mesh->vertex_buffer_.label = @"VertexBuffer_Sphere";
+
   // Create index buffer
   mesh->index_buffer_ =
       [device newBufferWithBytes:indices.data()
                           length:indices.size() * sizeof(uint32_t)
                          options:MTLResourceCPUCacheModeWriteCombined];
+
+  if (!mesh->index_buffer_) {
+    std::cerr << "Failed to create Metal index buffer for mesh" << std::endl;
+    return nullptr;
+  }
+
+  mesh->index_buffer_.label = @"IndexBuffer_Sphere";
 
   return mesh;
 }
@@ -278,6 +333,13 @@ std::unique_ptr<MetalTexture> MetalTexture::create(id<MTLDevice> device,
 
   texture->texture_ = [device newTextureWithDescriptor:desc];
 
+  if (!texture->texture_) {
+    std::cerr << "Failed to create Metal texture resource" << std::endl;
+    return nullptr;
+  }
+
+  texture->texture_.label = @"Texture_Brick";
+
   // Upload texture data
   if (data) {
     MTLRegion region = MTLRegionMake2D(0, 0, width, height);
@@ -296,6 +358,13 @@ std::unique_ptr<MetalTexture> MetalTexture::create(id<MTLDevice> device,
   samplerDesc.tAddressMode = MTLSamplerAddressModeRepeat;
 
   texture->sampler_ = [device newSamplerStateWithDescriptor:samplerDesc];
+
+  if (!texture->sampler_) {
+    std::cerr << "Failed to create Metal sampler state" << std::endl;
+    return nullptr;
+  }
+
+  texture->sampler_.label = @"Sampler_Default";
 
   return texture;
 }
@@ -324,10 +393,27 @@ std::unique_ptr<MetalBackend> MetalBackend::create(GLFWwindow *window) {
 }
 
 bool MetalBackend::initialize(GLFWwindow *window) {
+#if !defined(NDEBUG)
+  if (setenv("MTL_DEBUG_LAYER", "1", 1) == 0 &&
+      setenv("MTL_API_VALIDATION", "1", 1) == 0) {
+    validation_enabled_ = true;
+    std::cout << "Metal API validation enabled" << std::endl;
+  } else {
+    std::cerr << "Failed to enable Metal API validation via environment" << std::endl;
+  }
+#endif
+
+  inflight_command_buffers_ = [[NSMutableArray alloc] init];
+
   // Get the native window
   NSWindow *nsWindow = glfwGetCocoaWindow(window);
   if (!nsWindow) {
     std::cerr << "Failed to get Cocoa window" << std::endl;
+    return false;
+  }
+
+  if (!nsWindow.contentView) {
+    std::cerr << "Cocoa window does not have a content view" << std::endl;
     return false;
   }
 
@@ -342,9 +428,25 @@ bool MetalBackend::initialize(GLFWwindow *window) {
 
   // Create command queue
   command_queue_ = [device_ newCommandQueue];
+  if (!command_queue_) {
+    std::cerr << "Failed to create Metal command queue" << std::endl;
+    return false;
+  }
+
+  command_queue_.label = @"CommandQueue_Main";
+
+  inflight_semaphore_ = dispatch_semaphore_create(3);
+  if (!inflight_semaphore_) {
+    std::cerr << "Failed to create Metal inflight semaphore" << std::endl;
+    return false;
+  }
 
   // Create Metal layer
   metal_layer_ = [CAMetalLayer layer];
+  if (!metal_layer_) {
+    std::cerr << "Failed to create CAMetalLayer" << std::endl;
+    return false;
+  }
   metal_layer_.device = device_;
   metal_layer_.pixelFormat = MTLPixelFormatBGRA8Unorm;
   metal_layer_.framebufferOnly = NO;
@@ -369,57 +471,275 @@ bool MetalBackend::initialize(GLFWwindow *window) {
   depthDesc.storageMode = MTLStorageModePrivate;
 
   depth_texture_ = [device_ newTextureWithDescriptor:depthDesc];
+  if (!depth_texture_) {
+    std::cerr << "Failed to create Metal depth texture" << std::endl;
+    return false;
+  }
+
+  depth_texture_.label = @"DepthTexture_Main";
+
+  frame_counter_ = 0;
+  current_frame_id_ = 0;
 
   return true;
 }
 
 MetalBackend::~MetalBackend() {
-  // ARC handles cleanup
+  if (inflight_command_buffers_) {
+    for (id<MTLCommandBuffer> buffer in inflight_command_buffers_) {
+      [buffer waitUntilCompleted];
+    }
+    [inflight_command_buffers_ removeAllObjects];
+  }
+
+  flush_pending_releases(nullptr);
+
+  inflight_command_buffers_ = nil;
+  inflight_semaphore_ = nullptr;
 }
 
 void MetalBackend::begin_frame(const Color &clear_color) {
-  // Get next drawable
+  if (!command_queue_ || !metal_layer_) {
+    std::cerr << "Metal backend is not initialized before begin_frame" << std::endl;
+    return;
+  }
+
+  if (!inflight_semaphore_) {
+    std::cerr << "Metal inflight semaphore not initialized" << std::endl;
+    return;
+  }
+
+  dispatch_semaphore_wait(inflight_semaphore_, DISPATCH_TIME_FOREVER);
+
+  current_frame_id_ = frame_counter_++;
   current_drawable_ = [metal_layer_ nextDrawable];
 
-  // Create command buffer
+  if (!current_drawable_) {
+    std::cerr << "Failed to acquire CAMetalDrawable for frame" << std::endl;
+    dispatch_semaphore_signal(inflight_semaphore_);
+    return;
+  }
+
   command_buffer_ = [command_queue_ commandBuffer];
+  if (!command_buffer_) {
+    std::cerr << "Failed to create Metal command buffer" << std::endl;
+    current_drawable_ = nil;
+    dispatch_semaphore_signal(inflight_semaphore_);
+    return;
+  }
 
-  // Setup render pass descriptor
-  setup_render_pass_descriptor();
+  NSString *frameLabel =
+      [NSString stringWithFormat:@"Frame_%llu", current_frame_id_];
+  command_buffer_.label = frameLabel;
 
-  // Set clear color
+  MetalBackend *backend = this;
+  [command_buffer_ addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
+    backend->on_command_buffer_complete(buffer);
+  }];
+
+  if (!setup_render_pass_descriptor()) {
+    std::cerr << "Failed to configure Metal render pass descriptor" << std::endl;
+    command_buffer_ = nil;
+    current_drawable_ = nil;
+    dispatch_semaphore_signal(inflight_semaphore_);
+    return;
+  }
+
   render_pass_descriptor_.colorAttachments[0].clearColor = MTLClearColorMake(
       clear_color.r, clear_color.g, clear_color.b, clear_color.a);
 
-  // Create render encoder
   render_encoder_ = [command_buffer_
       renderCommandEncoderWithDescriptor:render_pass_descriptor_];
+
+  if (!render_encoder_) {
+    std::cerr << "Failed to create Metal render command encoder" << std::endl;
+    command_buffer_ = nil;
+    current_drawable_ = nil;
+    dispatch_semaphore_signal(inflight_semaphore_);
+    return;
+  }
+
+  render_encoder_.label = @"MainPass";
 }
 
 void MetalBackend::end_frame() {
-  // End encoding
+  if (!command_buffer_ || !render_encoder_ || !current_drawable_) {
+    std::cerr << "Attempted to end Metal frame without active encoder" << std::endl;
+    if (command_buffer_) {
+      dispatch_semaphore_signal(inflight_semaphore_);
+    }
+    render_encoder_ = nil;
+    command_buffer_ = nil;
+    current_drawable_ = nil;
+    return;
+  }
+
   [render_encoder_ endEncoding];
 
-  // Present drawable
   [command_buffer_ presentDrawable:current_drawable_];
 
-  // Commit command buffer
+  {
+    id<CAMetalDrawable> drawable = current_drawable_;
+    std::lock_guard<std::mutex> lock(inflight_mutex_);
+    void *key = (__bridge void *)command_buffer_;
+    pending_releases_[key].emplace_back([drawable]() {
+      (void)drawable;
+    });
+  }
+
+  track_inflight_command_buffer(command_buffer_);
+
   [command_buffer_ commit];
 
-  // Reset for next frame
   render_encoder_ = nil;
   command_buffer_ = nil;
   current_drawable_ = nil;
+
+  if (render_pass_descriptor_) {
+    render_pass_descriptor_.colorAttachments[0].texture = nil;
+  }
 }
 
-void MetalBackend::setup_render_pass_descriptor() {
+void MetalBackend::track_inflight_command_buffer(
+    id<MTLCommandBuffer> command_buffer) {
+  if (!command_buffer || !inflight_command_buffers_) {
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(inflight_mutex_);
+  [inflight_command_buffers_ addObject:command_buffer];
+}
+
+void MetalBackend::flush_pending_releases(void *command_buffer_key) {
+  std::vector<std::function<void()>> releases;
+
+  {
+    std::lock_guard<std::mutex> lock(inflight_mutex_);
+    if (!command_buffer_key) {
+      for (auto &[key, callbacks] : pending_releases_) {
+        releases.insert(releases.end(), std::make_move_iterator(callbacks.begin()),
+                        std::make_move_iterator(callbacks.end()));
+      }
+      pending_releases_.clear();
+    } else {
+      auto it = pending_releases_.find(command_buffer_key);
+      if (it != pending_releases_.end()) {
+        releases = std::move(it->second);
+        pending_releases_.erase(it);
+      }
+    }
+  }
+
+  for (auto &callback : releases) {
+    if (callback) {
+      callback();
+    }
+  }
+}
+
+void MetalBackend::log_nserror(const std::string &context, NSError *error) const {
+  if (!error) {
+    std::cerr << "[Metal] " << context << " failed with unknown error" << std::endl;
+    return;
+  }
+
+  std::string domain = to_std_string([error domain]);
+  std::string description = to_std_string([error localizedDescription]);
+
+  std::cerr << "[Metal] " << context << " failed (" << domain << ":"
+            << error.code << ") - " << description << std::endl;
+
+  NSDictionary *userInfo = [error userInfo];
+  if (userInfo) {
+    NSString *infoDescription = [userInfo description];
+    std::string details = to_std_string(infoDescription);
+    if (!details.empty()) {
+      std::cerr << "[Metal]   userInfo: " << details << std::endl;
+    }
+
+    NSArray *encoderInfos = userInfo[MTLCommandBufferEncoderInfoErrorKey];
+    if ([encoderInfos isKindOfClass:[NSArray class]]) {
+      for (id entry in (NSArray *)encoderInfos) {
+        if ([entry respondsToSelector:@selector(label)] &&
+            [entry respondsToSelector:@selector(errorDescription)]) {
+          NSString *label = [entry label];
+          NSString *errorText = [entry errorDescription];
+          std::cerr << "[Metal]   Encoder '" << to_std_string(label)
+                    << "': " << to_std_string(errorText) << std::endl;
+        }
+      }
+    }
+  }
+}
+
+std::string MetalBackend::describe_command_buffer(
+    id<MTLCommandBuffer> command_buffer) const {
+  if (!command_buffer) {
+    return "CommandBuffer<null>";
+  }
+
+  std::ostringstream oss;
+  std::string label = to_std_string([command_buffer label]);
+  if (!label.empty()) {
+    oss << label;
+  } else {
+    oss << "CommandBuffer@" << command_buffer;
+  }
+
+  return oss.str();
+}
+
+void MetalBackend::on_command_buffer_complete(
+    id<MTLCommandBuffer> command_buffer) {
+  void *key = command_buffer ? (__bridge void *)command_buffer : nullptr;
+
+  if (command_buffer && command_buffer.status == MTLCommandBufferStatusError) {
+    std::string context = "command buffer " + describe_command_buffer(command_buffer);
+    log_nserror(context, command_buffer.error);
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(inflight_mutex_);
+    if (command_buffer && inflight_command_buffers_) {
+      [inflight_command_buffers_ removeObjectIdenticalTo:command_buffer];
+    }
+  }
+
+  flush_pending_releases(key);
+
+  if (inflight_semaphore_) {
+    dispatch_semaphore_signal(inflight_semaphore_);
+  }
+}
+
+bool MetalBackend::setup_render_pass_descriptor() {
+  if (!current_drawable_) {
+    std::cerr << "No drawable available for render pass" << std::endl;
+    return false;
+  }
+
   if (!render_pass_descriptor_) {
     render_pass_descriptor_ = [[MTLRenderPassDescriptor alloc] init];
   }
 
+  if (!render_pass_descriptor_) {
+    std::cerr << "Failed to allocate Metal render pass descriptor" << std::endl;
+    return false;
+  }
+
+  id<MTLTexture> drawableTexture = current_drawable_.texture;
+  if (!drawableTexture) {
+    std::cerr << "CAMetalDrawable returned without texture" << std::endl;
+    return false;
+  }
+
+  if (!depth_texture_) {
+    std::cerr << "Depth texture is not initialized" << std::endl;
+    return false;
+  }
+
   // Color attachment
-  render_pass_descriptor_.colorAttachments[0].texture =
-      current_drawable_.texture;
+  render_pass_descriptor_.colorAttachments[0].texture = drawableTexture;
   render_pass_descriptor_.colorAttachments[0].loadAction = MTLLoadActionClear;
   render_pass_descriptor_.colorAttachments[0].storeAction = MTLStoreActionStore;
 
@@ -435,6 +755,8 @@ void MetalBackend::setup_render_pass_descriptor() {
   render_pass_descriptor_.stencilAttachment.storeAction =
       MTLStoreActionDontCare;
   render_pass_descriptor_.stencilAttachment.clearStencil = 0;
+
+  return true;
 }
 
 void MetalBackend::create_default_shaders() {
@@ -511,14 +833,16 @@ MetalBackend::create_mesh(const std::vector<Vertex> &vertices,
       descriptor.backFaceStencil = back;
     }
 
-    id<MTLDepthStencilState> state =
-        [device_ newDepthStencilStateWithDescriptor:descriptor];
+  id<MTLDepthStencilState> state =
+      [device_ newDepthStencilStateWithDescriptor:descriptor];
 
-    if (state) {
-      depth_stencil_states_.emplace(key, state);
-    }
-    return state;
+  if (state) {
+    depth_stencil_states_.emplace(key, state);
+  } else {
+    std::cerr << "Failed to create Metal depth-stencil state" << std::endl;
   }
+  return state;
+}
 
   void MetalBackend::draw_mesh(const MetalMesh &mesh, const Vec3 &position,
                                const Vec3 &rotation, const Vec3 &scale,
@@ -527,10 +851,14 @@ MetalBackend::create_mesh(const std::vector<Vertex> &vertices,
     if (!shader || !render_encoder_)
       return;
 
-    DepthStencilStateKey key = make_depth_stencil_key(material);
-    id<MTLDepthStencilState> depth_state = get_depth_stencil_state(key);
+  DepthStencilStateKey key = make_depth_stencil_key(material);
+  id<MTLDepthStencilState> depth_state = get_depth_stencil_state(key);
 
-    shader->bind(render_encoder_, depth_state);
+  if (!depth_state && material.depth_test) {
+    std::cerr << "Failed to retrieve Metal depth state for material" << std::endl;
+  }
+
+  shader->bind(render_encoder_, depth_state);
 
     if (material.stencil_enable) {
       [render_encoder_ setStencilReferenceValue:material.stencil_reference];
