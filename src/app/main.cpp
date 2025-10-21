@@ -82,18 +82,21 @@ int main(int, char **) {
   brick.color = Color(1.0f, 1.0f, 1.0f, 1.0f); // white tint
   brick.roughness = 0.8f;
   brick.metallic = 0.0f;
+  brick.blend_mode = Material::BlendMode::Opaque;
 
   Material grass{};
   grass.texture = grass_tex;
   grass.color = Color(1.0f, 1.0f, 1.0f, 1.0f); // white tint
   grass.roughness = 0.9f;
   grass.metallic = 0.0f;
+  grass.blend_mode = Material::BlendMode::Opaque;
 
   Material stone{};
   stone.texture = stone_tex;
   stone.color = Color(1.0f, 1.0f, 1.0f, 1.0f); // white tint
   stone.roughness = 0.7f;
   stone.metallic = 0.0f;
+  stone.blend_mode = Material::BlendMode::Opaque;
 
   // Camera setup
   r->camera().mode = Camera::ProjectionMode::Perspective;

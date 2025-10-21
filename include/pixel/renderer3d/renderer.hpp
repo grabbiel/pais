@@ -2,6 +2,8 @@
 #include "pixel/platform/platform.hpp"
 #include "pixel/rhi/rhi.hpp"
 #include <glm/glm.hpp>
+#include <array>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -131,11 +133,21 @@ struct InputState {
 // ============================================================================
 
 struct Material {
+  enum class BlendMode : uint8_t {
+    Alpha = 0,
+    Additive = 1,
+    Multiply = 2,
+    Opaque = 3,
+  };
+
+  static constexpr size_t kBlendModeCount = 4;
+
   rhi::TextureHandle texture{0};
   rhi::TextureHandle texture_array{0};
   Color color = Color::White();
   float roughness = 0.5f;
   float metallic = 0.0f;
+  BlendMode blend_mode = BlendMode::Alpha;
   bool depth_test = true;
   bool depth_write = true;
   rhi::CompareOp depth_compare = rhi::CompareOp::Less;
@@ -203,11 +215,11 @@ public:
                                         const std::string &frag_path);
   ~Shader() = default;
 
-  rhi::PipelineHandle pipeline() const { return pipeline_; }
+  rhi::PipelineHandle pipeline(Material::BlendMode mode) const;
 
 private:
   Shader() = default;
-  rhi::PipelineHandle pipeline_{0};
+  std::array<rhi::PipelineHandle, Material::kBlendModeCount> pipelines_{};
   rhi::ShaderHandle vs_{0};
   rhi::ShaderHandle fs_{0};
 };

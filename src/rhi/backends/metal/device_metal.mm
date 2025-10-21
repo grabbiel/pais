@@ -12,8 +12,10 @@
 #import <Cocoa/Cocoa.h>
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <iostream>
+#include <type_traits>
 #include <unordered_map>
 
 namespace pixel::rhi {
@@ -83,10 +85,23 @@ struct PipelineCacheKey {
   uint32_t fs_id{0};
   uint32_t cs_id{0};
   bool instanced{false};
+  uint32_t color_attachment_count{0};
+  std::array<ColorAttachmentDesc, kMaxColorAttachments> color_attachments{};
 
   bool operator==(const PipelineCacheKey &other) const {
-    return vs_id == other.vs_id && fs_id == other.fs_id &&
-           cs_id == other.cs_id && instanced == other.instanced;
+    if (vs_id != other.vs_id || fs_id != other.fs_id || cs_id != other.cs_id ||
+        instanced != other.instanced ||
+        color_attachment_count != other.color_attachment_count) {
+      return false;
+    }
+
+    for (uint32_t i = 0; i < color_attachment_count; ++i) {
+      if (!(color_attachments[i] == other.color_attachments[i])) {
+        return false;
+      }
+    }
+
+    return true;
   }
 };
 
@@ -100,6 +115,31 @@ struct PipelineCacheKeyHash {
     hash_combine(std::hash<uint32_t>{}(key.fs_id));
     hash_combine(std::hash<uint32_t>{}(key.cs_id));
     hash_combine(std::hash<bool>{}(key.instanced));
+    hash_combine(std::hash<uint32_t>{}(key.color_attachment_count));
+
+    using FormatUnderlying = std::underlying_type_t<Format>;
+    using BlendFactorUnderlying = std::underlying_type_t<BlendFactor>;
+    using BlendOpUnderlying = std::underlying_type_t<BlendOp>;
+
+    for (uint32_t i = 0; i < key.color_attachment_count; ++i) {
+      const auto &attachment = key.color_attachments[i];
+      hash_combine(std::hash<FormatUnderlying>{}(static_cast<FormatUnderlying>(
+          attachment.format)));
+      const auto &blend = attachment.blend;
+      hash_combine(std::hash<bool>{}(blend.enabled));
+      hash_combine(std::hash<BlendFactorUnderlying>{}(static_cast<
+          BlendFactorUnderlying>(blend.srcColor)));
+      hash_combine(std::hash<BlendFactorUnderlying>{}(static_cast<
+          BlendFactorUnderlying>(blend.dstColor)));
+      hash_combine(std::hash<BlendOpUnderlying>{}(static_cast<BlendOpUnderlying>(
+          blend.colorOp)));
+      hash_combine(std::hash<BlendFactorUnderlying>{}(static_cast<
+          BlendFactorUnderlying>(blend.srcAlpha)));
+      hash_combine(std::hash<BlendFactorUnderlying>{}(static_cast<
+          BlendFactorUnderlying>(blend.dstAlpha)));
+      hash_combine(std::hash<BlendOpUnderlying>{}(static_cast<BlendOpUnderlying>(
+          blend.alphaOp)));
+    }
     return seed;
   }
 };
@@ -149,6 +189,50 @@ static size_t getBytesPerPixel(Format format) {
   default:
     return 4;
   }
+}
+
+static MTLBlendFactor toMTLBlendFactor(BlendFactor factor) {
+  switch (factor) {
+  case BlendFactor::Zero:
+    return MTLBlendFactorZero;
+  case BlendFactor::One:
+    return MTLBlendFactorOne;
+  case BlendFactor::SrcColor:
+    return MTLBlendFactorSourceColor;
+  case BlendFactor::OneMinusSrcColor:
+    return MTLBlendFactorOneMinusSourceColor;
+  case BlendFactor::DstColor:
+    return MTLBlendFactorDestinationColor;
+  case BlendFactor::OneMinusDstColor:
+    return MTLBlendFactorOneMinusDestinationColor;
+  case BlendFactor::SrcAlpha:
+    return MTLBlendFactorSourceAlpha;
+  case BlendFactor::OneMinusSrcAlpha:
+    return MTLBlendFactorOneMinusSourceAlpha;
+  case BlendFactor::DstAlpha:
+    return MTLBlendFactorDestinationAlpha;
+  case BlendFactor::OneMinusDstAlpha:
+    return MTLBlendFactorOneMinusDestinationAlpha;
+  case BlendFactor::SrcAlphaSaturated:
+    return MTLBlendFactorSourceAlphaSaturated;
+  }
+  return MTLBlendFactorOne;
+}
+
+static MTLBlendOperation toMTLBlendOp(BlendOp op) {
+  switch (op) {
+  case BlendOp::Add:
+    return MTLBlendOperationAdd;
+  case BlendOp::Subtract:
+    return MTLBlendOperationSubtract;
+  case BlendOp::ReverseSubtract:
+    return MTLBlendOperationReverseSubtract;
+  case BlendOp::Min:
+    return MTLBlendOperationMin;
+  case BlendOp::Max:
+    return MTLBlendOperationMax;
+  }
+  return MTLBlendOperationAdd;
 }
 
 // ============================================================================
@@ -517,6 +601,24 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
   cacheKey.fs_id = desc.fs.id;
   cacheKey.instanced = isInstanced;
 
+  std::array<ColorAttachmentDesc, kMaxColorAttachments> attachments{};
+  uint32_t colorAttachmentCount = desc.colorAttachmentCount;
+  if (colorAttachmentCount > kMaxColorAttachments) {
+    colorAttachmentCount = kMaxColorAttachments;
+  }
+  if (colorAttachmentCount == 0) {
+    colorAttachmentCount = 1;
+    attachments[0].format = Format::BGRA8;
+    attachments[0].blend = make_alpha_blend_state();
+  } else {
+    for (uint32_t i = 0; i < colorAttachmentCount && i < kMaxColorAttachments; ++i) {
+      attachments[i] = desc.colorAttachments[i];
+    }
+  }
+
+  cacheKey.color_attachment_count = colorAttachmentCount;
+  cacheKey.color_attachments = attachments;
+
   auto cached = impl_->pipeline_cache_.find(cacheKey);
   if (cached != impl_->pipeline_cache_.end()) {
     return cached->second;
@@ -527,18 +629,47 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
       [[MTLRenderPipelineDescriptor alloc] init];
   pipelineDesc.vertexFunction = vs_it->second.function;
   pipelineDesc.fragmentFunction = fs_it->second.function;
-  pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-  pipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+  for (uint32_t i = 0; i < colorAttachmentCount; ++i) {
+    const auto &attachment = attachments[i];
+    pipelineDesc.colorAttachments[i].pixelFormat =
+        toMTLFormat(attachment.format);
+    pipelineDesc.colorAttachments[i].writeMask = MTLColorWriteMaskAll;
+    if (attachment.blend.enabled) {
+      pipelineDesc.colorAttachments[i].blendingEnabled = YES;
+      pipelineDesc.colorAttachments[i].sourceRGBBlendFactor =
+          toMTLBlendFactor(attachment.blend.srcColor);
+      pipelineDesc.colorAttachments[i].destinationRGBBlendFactor =
+          toMTLBlendFactor(attachment.blend.dstColor);
+      pipelineDesc.colorAttachments[i].rgbBlendOperation =
+          toMTLBlendOp(attachment.blend.colorOp);
+      pipelineDesc.colorAttachments[i].sourceAlphaBlendFactor =
+          toMTLBlendFactor(attachment.blend.srcAlpha);
+      pipelineDesc.colorAttachments[i].destinationAlphaBlendFactor =
+          toMTLBlendFactor(attachment.blend.dstAlpha);
+      pipelineDesc.colorAttachments[i].alphaBlendOperation =
+          toMTLBlendOp(attachment.blend.alphaOp);
+    } else {
+      pipelineDesc.colorAttachments[i].blendingEnabled = NO;
+      pipelineDesc.colorAttachments[i].sourceRGBBlendFactor = MTLBlendFactorOne;
+      pipelineDesc.colorAttachments[i].destinationRGBBlendFactor =
+          MTLBlendFactorZero;
+      pipelineDesc.colorAttachments[i].rgbBlendOperation =
+          MTLBlendOperationAdd;
+      pipelineDesc.colorAttachments[i].sourceAlphaBlendFactor =
+          MTLBlendFactorOne;
+      pipelineDesc.colorAttachments[i].destinationAlphaBlendFactor =
+          MTLBlendFactorZero;
+      pipelineDesc.colorAttachments[i].alphaBlendOperation =
+          MTLBlendOperationAdd;
+    }
+  }
 
-  // Configure blending
-  pipelineDesc.colorAttachments[0].blendingEnabled = YES;
-  pipelineDesc.colorAttachments[0].sourceRGBBlendFactor =
-      MTLBlendFactorSourceAlpha;
-  pipelineDesc.colorAttachments[0].destinationRGBBlendFactor =
-      MTLBlendFactorOneMinusSourceAlpha;
-  pipelineDesc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
-  pipelineDesc.colorAttachments[0].destinationAlphaBlendFactor =
-      MTLBlendFactorOneMinusSourceAlpha;
+  for (uint32_t i = colorAttachmentCount; i < kMaxColorAttachments; ++i) {
+    pipelineDesc.colorAttachments[i].pixelFormat = MTLPixelFormatInvalid;
+    pipelineDesc.colorAttachments[i].blendingEnabled = NO;
+  }
+
+  pipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
 
   MTLVertexDescriptor *vertexDesc =
       impl_->getOrCreateVertexDescriptor(isInstanced);
