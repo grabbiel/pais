@@ -2,6 +2,7 @@
 #include "pixel/renderer3d/renderer.hpp"
 #include "pixel/renderer3d/renderer_fwd.hpp"
 #include "pixel/rhi/rhi.hpp"
+#include "pixel/platform/shader_loader.hpp"
 #include <GLFW/glfw3.h>
 #include <cmath>
 #include <cstring>
@@ -356,6 +357,15 @@ ShaderID Renderer::create_shader_from_source(const std::string &vert_src,
   ShaderID id = next_shader_id_++;
   shaders_[id] = Shader::create(device_, vert_src, frag_src);
   return id;
+}
+
+ShaderID Renderer::load_shader(const std::string &vert_path,
+                                const std::string &frag_path) {
+  // Load shader source files from disk
+  auto [vert_src, frag_src] = platform::load_shader_pair(vert_path, frag_path);
+
+  // Create shader from the loaded source code
+  return create_shader_from_source(vert_src, frag_src);
 }
 
 Shader *Renderer::get_shader(ShaderID id) {
