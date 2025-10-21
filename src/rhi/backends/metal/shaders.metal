@@ -22,14 +22,16 @@ struct VertexInInstanced {
     float3 normal   [[attribute(1)]];
     float2 texCoord [[attribute(2)]];
     float4 color    [[attribute(3)]];
-    
+
     // Per-instance attributes (buffer 2)
-    float3 instancePosition [[attribute(4)]];
-    float3 instanceRotation [[attribute(5)]];
-    float3 instanceScale    [[attribute(6)]];
-    float4 instanceColor    [[attribute(7)]];
-    float instanceTextureIndex [[attribute(8)]];
-    float instanceLodAlpha     [[attribute(9)]];
+    // Pre-calculated transformation matrix (4x4 matrix uses 4 attribute slots)
+    float4 instanceTransformCol0 [[attribute(4)]];
+    float4 instanceTransformCol1 [[attribute(5)]];
+    float4 instanceTransformCol2 [[attribute(6)]];
+    float4 instanceTransformCol3 [[attribute(7)]];
+    float4 instanceColor         [[attribute(8)]];
+    float instanceTextureIndex   [[attribute(9)]];
+    float instanceLodAlpha       [[attribute(10)]];
 };
 
 struct VertexOut {
@@ -122,67 +124,22 @@ fragment float4 fragment_main(
 // Instanced Rendering Shaders
 // ============================================================================
 
-// Helper function: Create rotation matrix from Euler angles (XYZ order)
-float4x4 createRotationMatrix(float3 rotation) {
-    float cx = cos(rotation.x);
-    float sx = sin(rotation.x);
-    float cy = cos(rotation.y);
-    float sy = sin(rotation.y);
-    float cz = cos(rotation.z);
-    float sz = sin(rotation.z);
-
-    float4x4 rotX = float4x4(
-        float4(1.0, 0.0, 0.0, 0.0),
-        float4(0.0, cx, -sx, 0.0),
-        float4(0.0, sx, cx, 0.0),
-        float4(0.0, 0.0, 0.0, 1.0)
-    );
-
-    float4x4 rotY = float4x4(
-        float4(cy, 0.0, sy, 0.0),
-        float4(0.0, 1.0, 0.0, 0.0),
-        float4(-sy, 0.0, cy, 0.0),
-        float4(0.0, 0.0, 0.0, 1.0)
-    );
-
-    float4x4 rotZ = float4x4(
-        float4(cz, -sz, 0.0, 0.0),
-        float4(sz, cz, 0.0, 0.0),
-        float4(0.0, 0.0, 1.0, 0.0),
-        float4(0.0, 0.0, 0.0, 1.0)
-    );
-
-    return rotZ * rotY * rotX;
-}
-
-// FIXED: Single stage_in parameter with all vertex and instance data combined
+// OPTIMIZED: Uses pre-calculated transformation matrix from CPU
 vertex VertexOutInstanced vertex_instanced(
     VertexInInstanced in [[stage_in]],
     constant Uniforms& uniforms [[buffer(1)]]
 ) {
     VertexOutInstanced out;
 
-    // Create instance transform matrix using instance attributes
-    float4x4 scaleMatrix = float4x4(
-        float4(in.instanceScale.x, 0.0, 0.0, 0.0),
-        float4(0.0, in.instanceScale.y, 0.0, 0.0),
-        float4(0.0, 0.0, in.instanceScale.z, 0.0),
-        float4(0.0, 0.0, 0.0, 1.0)
+    // Reconstruct the pre-calculated transformation matrix from the 4 column vectors
+    float4x4 instanceTransform = float4x4(
+        in.instanceTransformCol0,
+        in.instanceTransformCol1,
+        in.instanceTransformCol2,
+        in.instanceTransformCol3
     );
 
-    float4x4 rotationMatrix = createRotationMatrix(in.instanceRotation);
-
-    float4x4 translationMatrix = float4x4(
-        float4(1.0, 0.0, 0.0, 0.0),
-        float4(0.0, 1.0, 0.0, 0.0),
-        float4(0.0, 0.0, 1.0, 0.0),
-        float4(in.instancePosition.x, in.instancePosition.y, in.instancePosition.z, 1.0)
-    );
-
-    // Combine transformations: Translation * Rotation * Scale
-    float4x4 instanceTransform = translationMatrix * rotationMatrix * scaleMatrix;
-
-    // Apply instance transform to vertex position
+    // Apply instance transform to vertex position (calculated once on CPU)
     float4 localPos = float4(in.position, 1.0);
     float4 instancedPos = instanceTransform * localPos;
 
@@ -191,9 +148,8 @@ vertex VertexOutInstanced vertex_instanced(
     out.fragPos = worldPos.xyz;
     out.position = uniforms.projection * uniforms.view * worldPos;
 
-    // Transform normal (only rotation and scale, no translation)
-    float4x4 normalTransform = rotationMatrix * scaleMatrix;
-    out.normal = (uniforms.model * normalTransform * float4(in.normal, 0.0)).xyz;
+    // Transform normal using the same instance transform (but without translation component)
+    out.normal = (uniforms.model * instanceTransform * float4(in.normal, 0.0)).xyz;
 
     // Pass through texture coordinates
     out.texCoord = in.texCoord;

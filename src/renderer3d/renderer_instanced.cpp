@@ -1,8 +1,48 @@
 #include "pixel/renderer3d/renderer_instanced.hpp"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <cstring>
 #include <iostream>
 
 namespace pixel::renderer3d {
+
+// ============================================================================
+// InstanceData Implementation
+// ============================================================================
+
+InstanceGPUData InstanceData::to_gpu_data() const {
+  InstanceGPUData gpu_data;
+
+  // Build transformation matrix using GLM
+  // Order: Translation * Rotation * Scale
+  glm::mat4 mat(1.0f);
+
+  // Apply translation
+  mat = glm::translate(mat, glm::vec3(position.x, position.y, position.z));
+
+  // Apply rotation (Euler angles in XYZ order)
+  mat = glm::rotate(mat, rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
+  mat = glm::rotate(mat, rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
+  mat = glm::rotate(mat, rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
+
+  // Apply scale
+  mat = glm::scale(mat, glm::vec3(scale.x, scale.y, scale.z));
+
+  // Copy matrix data to GPU buffer (GLM is column-major, which matches Metal's expectation)
+  memcpy(gpu_data.transform, &mat[0][0], sizeof(float) * 16);
+
+  // Copy other instance data
+  gpu_data.color[0] = color.r;
+  gpu_data.color[1] = color.g;
+  gpu_data.color[2] = color.b;
+  gpu_data.color[3] = color.a;
+  gpu_data.texture_index = texture_index;
+  gpu_data.culling_radius = culling_radius;
+  gpu_data.lod_transition_alpha = lod_transition_alpha;
+  gpu_data._padding = 0.0f;
+
+  return gpu_data;
+}
 
 // ============================================================================
 // InstancedMesh Implementation
@@ -20,9 +60,9 @@ std::unique_ptr<InstancedMesh> InstancedMesh::create(rhi::Device *device,
   instanced->max_instances_ = max_instances;
   instanced->instance_count_ = 0;
 
-  // Create instance buffer
+  // Create instance buffer (GPU format only)
   rhi::BufferDesc instance_desc;
-  instance_desc.size = max_instances * sizeof(InstanceData);
+  instance_desc.size = max_instances * sizeof(InstanceGPUData);
   instance_desc.usage = rhi::BufferUsage::Vertex;
   instance_desc.hostVisible = true;
   instanced->instance_buffer_ = device->createBuffer(instance_desc);
@@ -30,7 +70,7 @@ std::unique_ptr<InstancedMesh> InstancedMesh::create(rhi::Device *device,
   instanced->instance_data_.reserve(max_instances);
 
   std::cout << "Created instanced mesh with capacity for " << max_instances
-            << " instances" << std::endl;
+            << " instances (GPU buffer: " << instance_desc.size << " bytes)" << std::endl;
 
   return instanced;
 }
@@ -53,15 +93,21 @@ void InstancedMesh::set_instances(const std::vector<InstanceData> &instances) {
     instance_data_.resize(max_instances_);
   }
 
-  // Upload instance data to GPU
+  // Convert to GPU format and upload
   if (instance_count_ > 0) {
+    std::vector<InstanceGPUData> gpu_data;
+    gpu_data.reserve(instance_count_);
+    for (size_t i = 0; i < instance_count_; ++i) {
+      gpu_data.push_back(instance_data_[i].to_gpu_data());
+    }
+
     auto *cmd = device_->getImmediate();
     cmd->begin();
     cmd->copyToBuffer(
         instance_buffer_, 0,
         std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(instance_data_.data()),
-            instance_count_ * sizeof(InstanceData)));
+            reinterpret_cast<const std::byte *>(gpu_data.data()),
+            instance_count_ * sizeof(InstanceGPUData)));
     cmd->end();
   }
 }
@@ -76,13 +122,15 @@ void InstancedMesh::update_instance(size_t index, const InstanceData &data) {
 
   instance_data_[index] = data;
 
-  // Update single instance on GPU
+  // Convert to GPU format and update single instance
+  InstanceGPUData gpu_data = data.to_gpu_data();
+
   auto *cmd = device_->getImmediate();
   cmd->begin();
   cmd->copyToBuffer(
-      instance_buffer_, index * sizeof(InstanceData),
-      std::span<const std::byte>(reinterpret_cast<const std::byte *>(&data),
-                                 sizeof(InstanceData)));
+      instance_buffer_, index * sizeof(InstanceGPUData),
+      std::span<const std::byte>(reinterpret_cast<const std::byte *>(&gpu_data),
+                                 sizeof(InstanceGPUData)));
   cmd->end();
 }
 
@@ -92,7 +140,7 @@ void InstancedMesh::draw(rhi::CmdList *cmd) const {
 
   cmd->setVertexBuffer(vertex_buffer_);
   cmd->setIndexBuffer(index_buffer_);
-  cmd->setInstanceBuffer(instance_buffer_, sizeof(InstanceData));
+  cmd->setInstanceBuffer(instance_buffer_, sizeof(InstanceGPUData));
   cmd->drawIndexed(index_count_, 0, instance_count_);
 }
 
