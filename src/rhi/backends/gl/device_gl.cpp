@@ -787,6 +787,25 @@ public:
     return PipelineHandle{handle_id};
   }
 
+  void readBuffer(BufferHandle handle, void *dst, size_t size,
+                  size_t offset = 0) override {
+    auto it = buffers_.find(handle.id);
+    if (it == buffers_.end()) {
+      std::cerr << "Attempted to read from invalid buffer handle" << std::endl;
+      return;
+    }
+
+    const GLBuffer &buffer = it->second;
+    if (offset + size > buffer.size) {
+      std::cerr << "Read range exceeds buffer bounds" << std::endl;
+      return;
+    }
+
+    glBindBuffer(buffer.target, buffer.id);
+    glGetBufferSubData(buffer.target, offset, size, dst);
+    glBindBuffer(buffer.target, 0);
+  }
+
   CmdList *getImmediate() override { return cmd_list_.get(); }
 
   void present() override {
