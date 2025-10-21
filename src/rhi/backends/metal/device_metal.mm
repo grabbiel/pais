@@ -138,8 +138,9 @@ public:
         pipelines_(pipelines) {
 
     // Create uniform buffer for per-frame uniforms
-    uniform_buffer_ = [device newBufferWithLength:sizeof(Uniforms)
-                                          options:MTLResourceCPUCacheModeWriteCombined];
+    uniform_buffer_ =
+        [device newBufferWithLength:sizeof(Uniforms)
+                            options:MTLResourceCPUCacheModeWriteCombined];
   }
 
   void begin() override {
@@ -149,34 +150,34 @@ public:
 
   void beginRender(TextureHandle rtColor, TextureHandle rtDepth, float clear[4],
                    float clearDepth, uint8_t clearStencil) override {
-    @autoreleasepool {
-      // Get next drawable
-      current_drawable_ = [layer_ nextDrawable];
+    // Get next drawable (NO @autoreleasepool here!)
+    current_drawable_ = [layer_ nextDrawable];
 
-      if (!current_drawable_) {
-        std::cerr << "Failed to get next drawable" << std::endl;
-        return;
-      }
-
-      // Setup render pass descriptor
-      MTLRenderPassDescriptor *renderPassDesc = [MTLRenderPassDescriptor renderPassDescriptor];
-
-      // Color attachment
-      renderPassDesc.colorAttachments[0].texture = current_drawable_.texture;
-      renderPassDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
-      renderPassDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
-      renderPassDesc.colorAttachments[0].clearColor = MTLClearColorMake(
-          clear[0], clear[1], clear[2], clear[3]);
-
-      // Depth attachment
-      renderPassDesc.depthAttachment.texture = depth_texture_;
-      renderPassDesc.depthAttachment.loadAction = MTLLoadActionClear;
-      renderPassDesc.depthAttachment.storeAction = MTLStoreActionDontCare;
-      renderPassDesc.depthAttachment.clearDepth = clearDepth;
-
-      // Create render encoder
-      render_encoder_ = [command_buffer_ renderCommandEncoderWithDescriptor:renderPassDesc];
+    if (!current_drawable_) {
+      std::cerr << "Failed to get next drawable" << std::endl;
+      return;
     }
+
+    // Setup render pass descriptor
+    MTLRenderPassDescriptor *renderPassDesc =
+        [MTLRenderPassDescriptor renderPassDescriptor];
+
+    // Color attachment
+    renderPassDesc.colorAttachments[0].texture = current_drawable_.texture;
+    renderPassDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
+    renderPassDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
+    renderPassDesc.colorAttachments[0].clearColor =
+        MTLClearColorMake(clear[0], clear[1], clear[2], clear[3]);
+
+    // Depth attachment
+    renderPassDesc.depthAttachment.texture = depth_texture_;
+    renderPassDesc.depthAttachment.loadAction = MTLLoadActionClear;
+    renderPassDesc.depthAttachment.storeAction = MTLStoreActionDontCare;
+    renderPassDesc.depthAttachment.clearDepth = clearDepth;
+
+    // Create render encoder (will be retained by the command buffer)
+    render_encoder_ =
+        [command_buffer_ renderCommandEncoderWithDescriptor:renderPassDesc];
   }
 
   void setPipeline(PipelineHandle handle) override {
@@ -216,7 +217,7 @@ public:
   }
 
   void setInstanceBuffer(BufferHandle handle, size_t stride,
-                        size_t offset) override {
+                         size_t offset) override {
     auto it = buffers_->find(handle.id);
     if (it == buffers_->end())
       return;
@@ -302,8 +303,12 @@ public:
       return;
 
     // Bind to both vertex and fragment shaders at the specified binding point
-    [render_encoder_ setVertexBuffer:it->second.buffer offset:offset atIndex:binding];
-    [render_encoder_ setFragmentBuffer:it->second.buffer offset:offset atIndex:binding];
+    [render_encoder_ setVertexBuffer:it->second.buffer
+                              offset:offset
+                             atIndex:binding];
+    [render_encoder_ setFragmentBuffer:it->second.buffer
+                                offset:offset
+                               atIndex:binding];
   }
 
   void setTexture(const char *name, TextureHandle texture,
@@ -358,8 +363,8 @@ public:
     const MTLTextureResource &tex = it->second;
 
     if (layer >= static_cast<uint32_t>(tex.layers)) {
-      std::cerr << "Invalid layer index: " << layer << " (max: " << tex.layers - 1
-                << ")" << std::endl;
+      std::cerr << "Invalid layer index: " << layer
+                << " (max: " << tex.layers - 1 << ")" << std::endl;
       return;
     }
 
@@ -417,7 +422,7 @@ public:
   }
 
   void setStorageBuffer(uint32_t binding, BufferHandle buffer, size_t offset,
-                       size_t size) override {
+                        size_t size) override {
     auto it = buffers_->find(buffer.id);
     if (it == buffers_->end())
       return;
@@ -430,7 +435,7 @@ public:
   }
 
   void dispatch(uint32_t groupCountX, uint32_t groupCountY,
-               uint32_t groupCountZ) override {
+                uint32_t groupCountZ) override {
     if (!compute_encoder_)
       return;
 
@@ -439,8 +444,10 @@ public:
       return;
 
     // Get the thread group size from the pipeline
-    NSUInteger threadExecutionWidth = it->second.compute_pipeline_state.threadExecutionWidth;
-    NSUInteger maxThreads = it->second.compute_pipeline_state.maxTotalThreadsPerThreadgroup;
+    NSUInteger threadExecutionWidth =
+        it->second.compute_pipeline_state.threadExecutionWidth;
+    NSUInteger maxThreads =
+        it->second.compute_pipeline_state.maxTotalThreadsPerThreadgroup;
 
     // Use a reasonable thread group size (e.g., 256 threads per group)
     MTLSize threadsPerGroup = MTLSizeMake(MIN(256, maxThreads), 1, 1);
@@ -577,8 +584,8 @@ public:
 
     // Create command list
     cmd_list_ = std::make_unique<MetalCmdList>(
-        device_, command_queue_, metal_layer_, depth_texture_,
-        &buffers_, &textures_, &pipelines_);
+        device_, command_queue_, metal_layer_, depth_texture_, &buffers_,
+        &textures_, &pipelines_);
   }
 
   ~MetalDevice() override {
@@ -618,21 +625,24 @@ public:
     MTLTextureDescriptor *texDesc;
 
     if (desc.layers > 1) {
-      texDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:toMTLPixelFormat(desc.format)
-                                                                   width:desc.size.w
-                                                                  height:desc.size.h
-                                                               mipmapped:desc.mipLevels > 1];
+      texDesc = [MTLTextureDescriptor
+          texture2DDescriptorWithPixelFormat:toMTLPixelFormat(desc.format)
+                                       width:desc.size.w
+                                      height:desc.size.h
+                                   mipmapped:desc.mipLevels > 1];
       texDesc.textureType = MTLTextureType2DArray;
       texDesc.arrayLength = desc.layers;
     } else {
-      texDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:toMTLPixelFormat(desc.format)
-                                                                   width:desc.size.w
-                                                                  height:desc.size.h
-                                                               mipmapped:desc.mipLevels > 1];
+      texDesc = [MTLTextureDescriptor
+          texture2DDescriptorWithPixelFormat:toMTLPixelFormat(desc.format)
+                                       width:desc.size.w
+                                      height:desc.size.h
+                                   mipmapped:desc.mipLevels > 1];
     }
 
     texDesc.usage = MTLTextureUsageShaderRead;
-    texDesc.storageMode = MTLStorageModeShared; // Shared mode allows CPU access for uploads
+    texDesc.storageMode =
+        MTLStorageModeShared; // Shared mode allows CPU access for uploads
 
     texture.texture = [device_ newTextureWithDescriptor:texDesc];
     texture.width = desc.size.w;
@@ -654,11 +664,15 @@ public:
     MTLSamplerResource sampler;
 
     MTLSamplerDescriptor *samplerDesc = [[MTLSamplerDescriptor alloc] init];
-    samplerDesc.minFilter = desc.linear ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
-    samplerDesc.magFilter = desc.linear ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest;
+    samplerDesc.minFilter = desc.linear ? MTLSamplerMinMagFilterLinear
+                                        : MTLSamplerMinMagFilterNearest;
+    samplerDesc.magFilter = desc.linear ? MTLSamplerMinMagFilterLinear
+                                        : MTLSamplerMinMagFilterNearest;
     samplerDesc.mipFilter = MTLSamplerMipFilterLinear;
-    samplerDesc.sAddressMode = desc.repeat ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge;
-    samplerDesc.tAddressMode = desc.repeat ? MTLSamplerAddressModeRepeat : MTLSamplerAddressModeClampToEdge;
+    samplerDesc.sAddressMode = desc.repeat ? MTLSamplerAddressModeRepeat
+                                           : MTLSamplerAddressModeClampToEdge;
+    samplerDesc.tAddressMode = desc.repeat ? MTLSamplerAddressModeRepeat
+                                           : MTLSamplerAddressModeClampToEdge;
 
     sampler.sampler = [device_ newSamplerStateWithDescriptor:samplerDesc];
 
@@ -708,7 +722,8 @@ public:
     shader.stage = std::string(stage);
 
     if (!shader.function) {
-      std::cerr << "Failed to load shader function: " << [functionName UTF8String] << std::endl;
+      std::cerr << "Failed to load shader function: " <<
+          [functionName UTF8String] << std::endl;
       return ShaderHandle{0};
     }
 
@@ -729,12 +744,13 @@ public:
       }
 
       NSError *error = nil;
-      pipeline.compute_pipeline_state = [device_ newComputePipelineStateWithFunction:cs_it->second.function
-                                                                                error:&error];
+      pipeline.compute_pipeline_state =
+          [device_ newComputePipelineStateWithFunction:cs_it->second.function
+                                                 error:&error];
 
       if (!pipeline.compute_pipeline_state) {
-        std::cerr << "Failed to create compute pipeline state: "
-                  << [[error localizedDescription] UTF8String] << std::endl;
+        std::cerr << "Failed to create compute pipeline state: " <<
+            [[error localizedDescription] UTF8String] << std::endl;
         return PipelineHandle{0};
       }
 
@@ -755,7 +771,8 @@ public:
       return PipelineHandle{0};
     }
 
-    MTLRenderPipelineDescriptor *pipelineDesc = [[MTLRenderPipelineDescriptor alloc] init];
+    MTLRenderPipelineDescriptor *pipelineDesc =
+        [[MTLRenderPipelineDescriptor alloc] init];
     pipelineDesc.vertexFunction = vs_it->second.function;
     pipelineDesc.fragmentFunction = fs_it->second.function;
     pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
@@ -763,10 +780,13 @@ public:
 
     // Configure blending
     pipelineDesc.colorAttachments[0].blendingEnabled = YES;
-    pipelineDesc.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
-    pipelineDesc.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    pipelineDesc.colorAttachments[0].sourceRGBBlendFactor =
+        MTLBlendFactorSourceAlpha;
+    pipelineDesc.colorAttachments[0].destinationRGBBlendFactor =
+        MTLBlendFactorOneMinusSourceAlpha;
     pipelineDesc.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
-    pipelineDesc.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+    pipelineDesc.colorAttachments[0].destinationAlphaBlendFactor =
+        MTLBlendFactorOneMinusSourceAlpha;
 
     // Setup vertex descriptor to match renderer3d::Vertex
     MTLVertexDescriptor *vertexDesc = [[MTLVertexDescriptor alloc] init];
@@ -799,21 +819,24 @@ public:
     pipelineDesc.vertexDescriptor = vertexDesc;
 
     NSError *error = nil;
-    pipeline.pipeline_state = [device_ newRenderPipelineStateWithDescriptor:pipelineDesc
-                                                                       error:&error];
+    pipeline.pipeline_state =
+        [device_ newRenderPipelineStateWithDescriptor:pipelineDesc
+                                                error:&error];
 
     if (!pipeline.pipeline_state) {
-      std::cerr << "Failed to create pipeline state: "
-                << [[error localizedDescription] UTF8String] << std::endl;
+      std::cerr << "Failed to create pipeline state: " <<
+          [[error localizedDescription] UTF8String] << std::endl;
       return PipelineHandle{0};
     }
 
     // Create depth stencil state
-    MTLDepthStencilDescriptor *depthDesc = [[MTLDepthStencilDescriptor alloc] init];
+    MTLDepthStencilDescriptor *depthDesc =
+        [[MTLDepthStencilDescriptor alloc] init];
     depthDesc.depthCompareFunction = MTLCompareFunctionLess;
     depthDesc.depthWriteEnabled = YES;
 
-    pipeline.depth_stencil_state = [device_ newDepthStencilStateWithDescriptor:depthDesc];
+    pipeline.depth_stencil_state =
+        [device_ newDepthStencilStateWithDescriptor:depthDesc];
     pipeline.vs = desc.vs;
     pipeline.fs = desc.fs;
 
@@ -828,7 +851,8 @@ public:
   void present() override {
     // Update depth texture if window size changed
     CGSize viewSize = metal_layer_.bounds.size;
-    if (viewSize.width != viewport_width_ || viewSize.height != viewport_height_) {
+    if (viewSize.width != viewport_width_ ||
+        viewSize.height != viewport_height_) {
       viewport_width_ = viewSize.width;
       viewport_height_ = viewSize.height;
       metal_layer_.drawableSize = viewSize;
@@ -836,8 +860,8 @@ public:
 
       // Update command list's depth texture reference
       cmd_list_ = std::make_unique<MetalCmdList>(
-          device_, command_queue_, metal_layer_, depth_texture_,
-          &buffers_, &textures_, &pipelines_);
+          device_, command_queue_, metal_layer_, depth_texture_, &buffers_,
+          &textures_, &pipelines_);
     }
   }
 
@@ -888,7 +912,7 @@ private:
 namespace pixel::rhi {
 
 Device *create_metal_device(void *window) {
-  return new metal::MetalDevice(static_cast<GLFWwindow*>(window));
+  return new metal::MetalDevice(static_cast<GLFWwindow *>(window));
 }
 
 } // namespace pixel::rhi

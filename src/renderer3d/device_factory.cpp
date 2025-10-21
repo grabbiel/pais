@@ -44,41 +44,33 @@ static GLFWwindow *create_window_for_backend(const platform::WindowSpec &spec,
 DeviceCreationResult create_renderer_device(const platform::WindowSpec &spec) {
   DeviceCreationResult result;
 
-  // Determine preferred backend
-  bool prefer_metal = false;
-#ifdef __APPLE__
-  const char *backend_env = std::getenv("PIXEL_RENDERER_BACKEND");
-  // On macOS, default to Metal unless explicitly set to OPENGL
-  prefer_metal = !(backend_env && std::strcmp(backend_env, "OPENGL") == 0);
-#endif
+#ifdef PIXEL_USE_METAL
+  // ============================================================================
+  // Metal-only path (no OpenGL fallback)
+  // ============================================================================
+  std::cout << "Initializing Metal backend..." << std::endl;
 
-#ifdef __APPLE__
-  // Try Metal first if preferred
-  if (prefer_metal) {
-    result.window = create_window_for_backend(spec, true);
-    if (!result.window) {
-      throw std::runtime_error("Failed to create window for Metal backend");
-    }
-
-    try {
-      result.device = rhi::create_metal_device(result.window);
-      if (result.device) {
-        result.backend_name = "Metal";
-        return result;
-      }
-    } catch (const std::exception &e) {
-      std::cerr << "Metal initialization failed: " << e.what() << std::endl;
-    }
-
-    // Metal failed, clean up and try OpenGL
-    std::cout << "Falling back to OpenGL..." << std::endl;
-    glfwDestroyWindow(result.window);
-    result.window = nullptr;
-    result.device = nullptr;
+  result.window = create_window_for_backend(spec, true);
+  if (!result.window) {
+    throw std::runtime_error("Failed to create window for Metal backend");
   }
-#endif
 
-  // Create OpenGL device (either as fallback or primary choice)
+  result.device = rhi::create_metal_device(result.window);
+  if (!result.device) {
+    glfwDestroyWindow(result.window);
+    throw std::runtime_error("Failed to create Metal device. Metal is required "
+                             "but initialization failed.");
+  }
+
+  result.backend_name = "Metal";
+  std::cout << "Renderer Backend: Metal" << std::endl;
+
+#else
+  // ============================================================================
+  // OpenGL-only path (non-macOS or macOS without Metal)
+  // ============================================================================
+  std::cout << "Initializing OpenGL backend..." << std::endl;
+
   result.window = create_window_for_backend(spec, false);
   if (!result.window) {
     throw std::runtime_error("Failed to create window for OpenGL backend");
@@ -91,6 +83,10 @@ DeviceCreationResult create_renderer_device(const platform::WindowSpec &spec) {
   }
 
   result.backend_name = "OpenGL";
+  std::cout << "Renderer Backend: OpenGL" << std::endl;
+
+#endif
+
   return result;
 }
 
