@@ -10,6 +10,54 @@
 
 namespace pixel::renderer3d::metal {
 
+namespace {
+
+MTLCompareFunction to_mtl_compare(rhi::CompareOp op) {
+  switch (op) {
+  case rhi::CompareOp::Never:
+    return MTLCompareFunctionNever;
+  case rhi::CompareOp::Less:
+    return MTLCompareFunctionLess;
+  case rhi::CompareOp::Equal:
+    return MTLCompareFunctionEqual;
+  case rhi::CompareOp::LessEqual:
+    return MTLCompareFunctionLessEqual;
+  case rhi::CompareOp::Greater:
+    return MTLCompareFunctionGreater;
+  case rhi::CompareOp::NotEqual:
+    return MTLCompareFunctionNotEqual;
+  case rhi::CompareOp::GreaterEqual:
+    return MTLCompareFunctionGreaterEqual;
+  case rhi::CompareOp::Always:
+  default:
+    return MTLCompareFunctionAlways;
+  }
+}
+
+MTLStencilOperation to_mtl_stencil(rhi::StencilOp op) {
+  switch (op) {
+  case rhi::StencilOp::Zero:
+    return MTLStencilOperationZero;
+  case rhi::StencilOp::Replace:
+    return MTLStencilOperationReplace;
+  case rhi::StencilOp::IncrementClamp:
+    return MTLStencilOperationIncrementClamp;
+  case rhi::StencilOp::DecrementClamp:
+    return MTLStencilOperationDecrementClamp;
+  case rhi::StencilOp::Invert:
+    return MTLStencilOperationInvert;
+  case rhi::StencilOp::IncrementWrap:
+    return MTLStencilOperationIncrementWrap;
+  case rhi::StencilOp::DecrementWrap:
+    return MTLStencilOperationDecrementWrap;
+  case rhi::StencilOp::Keep:
+  default:
+    return MTLStencilOperationKeep;
+  }
+}
+
+} // namespace
+
 // ============================================================================
 // Uniforms structure (simplified)
 // ============================================================================
@@ -64,7 +112,10 @@ MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
   pipelineDesc.vertexFunction = shader->vertex_function_;
   pipelineDesc.fragmentFunction = shader->fragment_function_;
   pipelineDesc.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-  pipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+  pipelineDesc.depthAttachmentPixelFormat =
+      MTLPixelFormatDepth32Float_Stencil8;
+  pipelineDesc.stencilAttachmentPixelFormat =
+      MTLPixelFormatDepth32Float_Stencil8;
 
   // Configure blending
   pipelineDesc.colorAttachments[0].blendingEnabled = YES;
@@ -83,15 +134,6 @@ MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
     return nullptr;
   }
 
-  // Create depth stencil state
-  MTLDepthStencilDescriptor *depthDesc =
-      [[MTLDepthStencilDescriptor alloc] init];
-  depthDesc.depthCompareFunction = MTLCompareFunctionLess;
-  depthDesc.depthWriteEnabled = YES;
-
-  shader->depth_stencil_state_ =
-      [device newDepthStencilStateWithDescriptor:depthDesc];
-
   // Create uniform buffer
   shader->uniform_buffers_["uniforms"].buffer =
       [device newBufferWithLength:sizeof(Uniforms)
@@ -105,9 +147,12 @@ MetalShader::~MetalShader() {
   // ARC handles cleanup
 }
 
-void MetalShader::bind(id<MTLRenderCommandEncoder> encoder) {
+void MetalShader::bind(id<MTLRenderCommandEncoder> encoder,
+                       id<MTLDepthStencilState> depth_stencil_state) {
   [encoder setRenderPipelineState:pipeline_state_];
-  [encoder setDepthStencilState:depth_stencil_state_];
+  if (depth_stencil_state) {
+    [encoder setDepthStencilState:depth_stencil_state];
+  }
 
   // Bind uniform buffers
   for (const auto &[name, buffer] : uniform_buffers_) {
@@ -314,9 +359,9 @@ bool MetalBackend::initialize(GLFWwindow *window) {
   viewport_height_ = viewSize.height;
   metal_layer_.drawableSize = viewSize;
 
-  // Create depth texture
+  // Create depth-stencil texture
   MTLTextureDescriptor *depthDesc = [MTLTextureDescriptor
-      texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+      texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float_Stencil8
                                    width:viewport_width_
                                   height:viewport_height_
                                mipmapped:NO];
@@ -383,6 +428,13 @@ void MetalBackend::setup_render_pass_descriptor() {
   render_pass_descriptor_.depthAttachment.loadAction = MTLLoadActionClear;
   render_pass_descriptor_.depthAttachment.storeAction = MTLStoreActionDontCare;
   render_pass_descriptor_.depthAttachment.clearDepth = 1.0;
+
+  // Stencil attachment shares depth texture
+  render_pass_descriptor_.stencilAttachment.texture = depth_texture_;
+  render_pass_descriptor_.stencilAttachment.loadAction = MTLLoadActionClear;
+  render_pass_descriptor_.stencilAttachment.storeAction =
+      MTLStoreActionDontCare;
+  render_pass_descriptor_.stencilAttachment.clearStencil = 0;
 }
 
 void MetalBackend::create_default_shaders() {
@@ -401,21 +453,91 @@ MetalBackend::create_mesh(const std::vector<Vertex> &vertices,
   return MetalMesh::create(device_, vertices, indices);
 }
 
-std::unique_ptr<MetalTexture>
-MetalBackend::create_texture(int width, int height, const uint8_t *data) {
-  return MetalTexture::create(device_, width, height, data);
-}
+  std::unique_ptr<MetalTexture>
+  MetalBackend::create_texture(int width, int height, const uint8_t *data) {
+    return MetalTexture::create(device_, width, height, data);
+  }
 
-void MetalBackend::draw_mesh(const MetalMesh &mesh, const Vec3 &position,
-                             const Vec3 &rotation, const Vec3 &scale,
-                             MetalShader *shader, const Material &material) {
-  // Stub implementation - just draw the mesh
-  if (!shader || !render_encoder_)
-    return;
+  MetalBackend::DepthStencilStateKey
+  MetalBackend::make_depth_stencil_key(const Material &material) const {
+    DepthStencilStateKey key;
+    key.depth_test = material.depth_test;
+    key.depth_write = material.depth_write;
+    key.depth_compare = material.depth_compare;
+    key.stencil_enable = material.stencil_enable;
+    key.stencil_compare = material.stencil_compare;
+    key.stencil_fail_op = material.stencil_fail_op;
+    key.stencil_depth_fail_op = material.stencil_depth_fail_op;
+    key.stencil_pass_op = material.stencil_pass_op;
+    key.stencil_read_mask = material.stencil_read_mask;
+    key.stencil_write_mask = material.stencil_write_mask;
+    return key;
+  }
 
-  shader->bind(render_encoder_);
-  mesh.draw(render_encoder_);
-}
+  id<MTLDepthStencilState>
+  MetalBackend::get_depth_stencil_state(const DepthStencilStateKey &key) {
+    auto it = depth_stencil_states_.find(key);
+    if (it != depth_stencil_states_.end()) {
+      return it->second;
+    }
+
+    MTLDepthStencilDescriptor *descriptor =
+        [[MTLDepthStencilDescriptor alloc] init];
+
+    descriptor.depthCompareFunction =
+        key.depth_test ? to_mtl_compare(key.depth_compare)
+                        : MTLCompareFunctionAlways;
+    descriptor.depthWriteEnabled = key.depth_write ? YES : NO;
+
+    if (key.stencil_enable) {
+      MTLStencilDescriptor *front = [[MTLStencilDescriptor alloc] init];
+      front.stencilCompareFunction = to_mtl_compare(key.stencil_compare);
+      front.stencilFailureOperation = to_mtl_stencil(key.stencil_fail_op);
+      front.depthFailureOperation =
+          to_mtl_stencil(key.stencil_depth_fail_op);
+      front.depthStencilPassOperation = to_mtl_stencil(key.stencil_pass_op);
+      front.readMask = key.stencil_read_mask;
+      front.writeMask = key.stencil_write_mask;
+      descriptor.frontFaceStencil = front;
+
+      MTLStencilDescriptor *back = [[MTLStencilDescriptor alloc] init];
+      back.stencilCompareFunction = to_mtl_compare(key.stencil_compare);
+      back.stencilFailureOperation = to_mtl_stencil(key.stencil_fail_op);
+      back.depthFailureOperation =
+          to_mtl_stencil(key.stencil_depth_fail_op);
+      back.depthStencilPassOperation = to_mtl_stencil(key.stencil_pass_op);
+      back.readMask = key.stencil_read_mask;
+      back.writeMask = key.stencil_write_mask;
+      descriptor.backFaceStencil = back;
+    }
+
+    id<MTLDepthStencilState> state =
+        [device_ newDepthStencilStateWithDescriptor:descriptor];
+
+    if (state) {
+      depth_stencil_states_.emplace(key, state);
+    }
+    return state;
+  }
+
+  void MetalBackend::draw_mesh(const MetalMesh &mesh, const Vec3 &position,
+                               const Vec3 &rotation, const Vec3 &scale,
+                               MetalShader *shader, const Material &material) {
+    // Stub implementation - just draw the mesh
+    if (!shader || !render_encoder_)
+      return;
+
+    DepthStencilStateKey key = make_depth_stencil_key(material);
+    id<MTLDepthStencilState> depth_state = get_depth_stencil_state(key);
+
+    shader->bind(render_encoder_, depth_state);
+
+    if (material.stencil_enable) {
+      [render_encoder_ setStencilReferenceValue:material.stencil_reference];
+    }
+
+    mesh.draw(render_encoder_);
+  }
 
 } // namespace pixel::renderer3d::metal
 

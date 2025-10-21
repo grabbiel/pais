@@ -136,6 +136,17 @@ struct Material {
   Color color = Color::White();
   float roughness = 0.5f;
   float metallic = 0.0f;
+  bool depth_test = true;
+  bool depth_write = true;
+  rhi::CompareOp depth_compare = rhi::CompareOp::Less;
+  bool stencil_enable = false;
+  rhi::CompareOp stencil_compare = rhi::CompareOp::Always;
+  rhi::StencilOp stencil_fail_op = rhi::StencilOp::Keep;
+  rhi::StencilOp stencil_depth_fail_op = rhi::StencilOp::Keep;
+  rhi::StencilOp stencil_pass_op = rhi::StencilOp::Keep;
+  uint32_t stencil_read_mask = 0xFF;
+  uint32_t stencil_write_mask = 0xFF;
+  uint32_t stencil_reference = 0;
 };
 
 // ============================================================================
