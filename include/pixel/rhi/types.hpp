@@ -19,11 +19,13 @@ struct Extent2D {
 };
 
 enum class BufferUsage : uint32_t {
+  None = 0,
   Vertex = 1,
   Index = 2,
   Uniform = 4,
-  TransferSrc = 8,
-  TransferDst = 16
+  Storage = 8,      // For compute shader read/write
+  TransferSrc = 16,
+  TransferDst = 32
 };
 inline BufferUsage operator|(BufferUsage a, BufferUsage b) {
   return BufferUsage(uint32_t(a) | uint32_t(b));

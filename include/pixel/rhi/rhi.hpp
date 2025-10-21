@@ -22,7 +22,7 @@ struct SwapchainDesc {
 };
 
 struct PipelineDesc {
-  ShaderHandle vs, fs;
+  ShaderHandle vs, fs, cs;  // cs = compute shader
   // plus: blend, depth, cull, vertex layouts...
 };
 
@@ -55,6 +55,14 @@ struct CmdList {
   virtual void copyToTextureLayer(TextureHandle texture, uint32_t layer,
                                   uint32_t mipLevel,
                                   std::span<const std::byte> data) = 0;
+
+  // Compute shader support
+  virtual void setComputePipeline(PipelineHandle) = 0;
+  virtual void setStorageBuffer(uint32_t binding, BufferHandle buffer,
+                               size_t offset = 0, size_t size = 0) = 0;
+  virtual void dispatch(uint32_t groupCountX, uint32_t groupCountY = 1,
+                       uint32_t groupCountZ = 1) = 0;
+  virtual void memoryBarrier() = 0;
 
   virtual void drawIndexed(uint32_t indexCount, uint32_t firstIndex = 0,
                            uint32_t instanceCount = 1) = 0;
