@@ -255,6 +255,8 @@ TextureHandle MetalDevice::createTexture(const TextureDesc &desc) {
                                  mipmapped:(desc.mipLevels > 1)];
     texDesc.textureType = MTLTextureType2DArray;
     texDesc.arrayLength = desc.layers;
+    // Texture arrays currently store color data in RGBA8 format.
+    texDesc.pixelFormat = MTLPixelFormatRGBA8Unorm;
   } else {
     texDesc = [MTLTextureDescriptor
         texture2DDescriptorWithPixelFormat:mtlFormat
@@ -905,15 +907,18 @@ void MetalCmdList::copyToTexture(TextureHandle texture, uint32_t mipLevel,
     return;
 
   const MTLTextureResource &tex = it->second;
-  size_t bytesPerRow = tex.width * getBytesPerPixel(tex.format);
-  MTLRegion region = MTLRegionMake2D(0, 0, tex.width, tex.height);
+  int mipWidth = std::max(1, tex.width >> mipLevel);
+  int mipHeight = std::max(1, tex.height >> mipLevel);
+  size_t bytesPerRow = mipWidth * getBytesPerPixel(tex.format);
+  size_t bytesPerImage = bytesPerRow * mipHeight;
+  MTLRegion region = MTLRegionMake2D(0, 0, mipWidth, mipHeight);
 
   [tex.texture replaceRegion:region
                  mipmapLevel:mipLevel
                        slice:0
                    withBytes:data.data()
                  bytesPerRow:bytesPerRow
-               bytesPerImage:0];
+               bytesPerImage:bytesPerImage];
 }
 
 void MetalCmdList::copyToTextureLayer(TextureHandle texture, uint32_t layer,
@@ -931,15 +936,18 @@ void MetalCmdList::copyToTextureLayer(TextureHandle texture, uint32_t layer,
     return;
   }
 
-  size_t bytesPerRow = tex.width * getBytesPerPixel(tex.format);
-  MTLRegion region = MTLRegionMake2D(0, 0, tex.width, tex.height);
+  int mipWidth = std::max(1, tex.width >> mipLevel);
+  int mipHeight = std::max(1, tex.height >> mipLevel);
+  size_t bytesPerRow = mipWidth * getBytesPerPixel(tex.format);
+  size_t bytesPerImage = bytesPerRow * mipHeight;
+  MTLRegion region = MTLRegionMake2D(0, 0, mipWidth, mipHeight);
 
   [tex.texture replaceRegion:region
                  mipmapLevel:mipLevel
                        slice:layer
                    withBytes:data.data()
                  bytesPerRow:bytesPerRow
-               bytesPerImage:0];
+               bytesPerImage:bytesPerImage];
 }
 
 void MetalCmdList::drawIndexed(uint32_t indexCount, uint32_t firstIndex,

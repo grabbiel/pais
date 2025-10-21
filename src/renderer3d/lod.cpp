@@ -473,7 +473,7 @@ void RendererLOD::draw_lod(Renderer &renderer, LODMesh &mesh,
 
   // Set texture array if available
   if (base_material.texture_array.id != 0) {
-    cmd->setTexture("uTextureArray", base_material.texture_array, 0);
+    cmd->setTexture("uTextureArray", base_material.texture_array, 1);
     cmd->setUniformInt("useTextureArray", 1);
   } else {
     cmd->setUniformInt("useTextureArray", 0);
