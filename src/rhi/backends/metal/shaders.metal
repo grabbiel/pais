@@ -56,6 +56,7 @@ struct Uniforms {
     float4x4 model;
     float4x4 view;
     float4x4 projection;
+    float4x4 normalMatrix;  // ADDED: Inverse-transpose of model matrix for correct normal transformation
     float3 lightPos;
     float3 viewPos;
     float time;
@@ -76,7 +77,11 @@ vertex VertexOut vertex_main(
     
     float4 worldPos = uniforms.model * float4(in.position, 1.0);
     out.fragPos = worldPos.xyz;
-    out.normal = (uniforms.model * float4(in.normal, 0.0)).xyz;
+    
+    // FIXED: Use normalMatrix (inverse-transpose of model) for correct normal transformation
+    // This handles non-uniform scaling correctly
+    out.normal = (uniforms.normalMatrix * float4(in.normal, 0.0)).xyz;
+    
     out.texCoord = in.texCoord;
     out.color = in.color;
     out.position = uniforms.projection * uniforms.view * worldPos;
@@ -148,8 +153,17 @@ vertex VertexOutInstanced vertex_instanced(
     out.fragPos = worldPos.xyz;
     out.position = uniforms.projection * uniforms.view * worldPos;
 
-    // Transform normal using the same instance transform (but without translation component)
-    out.normal = (uniforms.model * instanceTransform * float4(in.normal, 0.0)).xyz;
+    // FIXED: Use normalMatrix for correct normal transformation
+    // Transform normal using normalMatrix combined with instance transform
+    // Note: For instances, we also need to account for the instance transform's rotation/scale
+    // Extract 3x3 from instanceTransform for normal (assuming uniform scaling per instance for now)
+    float3x3 instanceRotScale = float3x3(
+        instanceTransform[0].xyz,
+        instanceTransform[1].xyz,
+        instanceTransform[2].xyz
+    );
+    float3 transformedNormal = instanceRotScale * in.normal;
+    out.normal = (uniforms.normalMatrix * float4(transformedNormal, 0.0)).xyz;
 
     // Pass through texture coordinates
     out.texCoord = in.texCoord;

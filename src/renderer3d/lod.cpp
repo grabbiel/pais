@@ -434,6 +434,18 @@ void RendererLOD::draw_lod(Renderer &renderer, LODMesh &mesh,
   auto *cmd = renderer.device()->getImmediate();
   cmd->setPipeline(shader->pipeline());
 
+  // Build identity model matrix (instances handle their own transforms)
+  glm::mat4 model = glm::mat4(1.0f);
+
+  // Set model matrix
+  cmd->setUniformMat4("model", glm::value_ptr(model));
+
+  // Calculate and set normal matrix (identity in this case, but required by
+  // shader) For identity matrix, normal matrix is also identity
+  glm::mat3 normalMatrix3x3 = glm::mat3(1.0f);
+  glm::mat4 normalMatrix4x4 = glm::mat4(normalMatrix3x3);
+  cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
+
   // Set view and projection matrices
   float view[16], projection[16];
   renderer.camera().get_view_matrix(view);

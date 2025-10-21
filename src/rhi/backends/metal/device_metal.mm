@@ -23,6 +23,7 @@ struct Uniforms {
   float model[16];
   float view[16];
   float projection[16];
+  float normalMatrix[16];
   float lightPos[3];
   float _pad1;
   float viewPos[3];
@@ -39,7 +40,7 @@ struct Uniforms {
 // ============================================================================
 // Ring Buffer Constants
 // ============================================================================
-constexpr uint32_t kFramesInFlight = 3;        // Triple buffering
+constexpr uint32_t kFramesInFlight = 3;          // Triple buffering
 constexpr uint32_t kMaxDrawCallsPerFrame = 1024; // Maximum draws per frame
 constexpr uint32_t kTotalUniformSlots = kFramesInFlight * kMaxDrawCallsPerFrame;
 
@@ -146,7 +147,7 @@ struct MetalDevice::Impl {
   uint32_t next_shader_id_ = 1;
   uint32_t next_pipeline_id_ = 1;
 
-  uint32_t frame_index_ = 0;  // Current frame index for ring buffer
+  uint32_t frame_index_ = 0; // Current frame index for ring buffer
 
   std::unique_ptr<MetalCmdList> immediate_;
 
@@ -480,7 +481,8 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
     vertexDesc.attributes[10].bufferIndex = 2;
 
     // Instance buffer layout (stride = 96, step per instance)
-    // Layout: 16 floats (transform) + 4 floats (color) + 4 floats (texture_index, culling_radius, lod_alpha, padding)
+    // Layout: 16 floats (transform) + 4 floats (color) + 4 floats
+    // (texture_index, culling_radius, lod_alpha, padding)
     vertexDesc.layouts[2].stride = 96;
     vertexDesc.layouts[2].stepFunction = MTLVertexStepFunctionPerInstance;
     vertexDesc.layouts[2].stepRate = 1;
@@ -544,8 +546,8 @@ struct MetalCmdList::Impl {
   size_t current_ib_offset_ = 0;
 
   // Ring buffer tracking
-  uint32_t *frame_index_;          // Pointer to device's frame index
-  uint32_t draw_call_index_ = 0;   // Current draw call within frame
+  uint32_t *frame_index_;        // Pointer to device's frame index
+  uint32_t draw_call_index_ = 0; // Current draw call within frame
 
   Impl(MetalDevice::Impl *device_impl)
       : device_(device_impl->device_),
@@ -563,14 +565,15 @@ struct MetalCmdList::Impl {
 
   // Calculate uniform buffer offset for current frame and draw call
   size_t getCurrentUniformOffset() const {
-    uint32_t slot_index = (*frame_index_) * kMaxDrawCallsPerFrame + draw_call_index_;
+    uint32_t slot_index =
+        (*frame_index_) * kMaxDrawCallsPerFrame + draw_call_index_;
     return slot_index * sizeof(Uniforms);
   }
 
   // Get pointer to current uniform slot
-  Uniforms* getCurrentUniformSlot() {
+  Uniforms *getCurrentUniformSlot() {
     size_t offset = getCurrentUniformOffset();
-    return (Uniforms*)((uint8_t*)uniform_buffer_.contents + offset);
+    return (Uniforms *)((uint8_t *)uniform_buffer_.contents + offset);
   }
 };
 
@@ -680,9 +683,12 @@ void MetalCmdList::setUniformMat4(const char *name, const float *mat4x4) {
     memcpy(uniforms->view, mat4x4, sizeof(float) * 16);
   } else if (name_str == "projection") {
     memcpy(uniforms->projection, mat4x4, sizeof(float) * 16);
+  } else if (name_str == "normalMatrix") {
+    memcpy(uniforms->normalMatrix, mat4x4, sizeof(float) * 16);
   }
 
-  // Bind uniform buffer with offset to both vertex and fragment shaders (index 1)
+  // Bind uniform buffer with offset to both vertex and fragment shaders (index
+  // 1)
   size_t offset = impl_->getCurrentUniformOffset();
   [impl_->render_encoder_ setVertexBuffer:impl_->uniform_buffer_
                                    offset:offset

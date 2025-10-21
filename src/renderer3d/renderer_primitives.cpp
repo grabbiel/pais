@@ -171,6 +171,10 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
 
   // Set transformation uniforms
   cmd->setUniformMat4("model", glm::value_ptr(model));
+  // Calculate and set normal matrix
+  glm::mat3 normalMatrix3x3 = glm::transpose(glm::inverse(glm::mat3(model)));
+  glm::mat4 normalMatrix4x4 = glm::mat4(normalMatrix3x3);
+  cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
   cmd->setUniformMat4("view", view);
   cmd->setUniformMat4("projection", projection);
 

@@ -1,5 +1,6 @@
 #include "pixel/renderer3d/renderer_instanced.hpp"
 #include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cstring>
 #include <iostream>
@@ -28,7 +29,8 @@ InstanceGPUData InstanceData::to_gpu_data() const {
   // Apply scale
   mat = glm::scale(mat, glm::vec3(scale.x, scale.y, scale.z));
 
-  // Copy matrix data to GPU buffer (GLM is column-major, which matches Metal's expectation)
+  // Copy matrix data to GPU buffer (GLM is column-major, which matches Metal's
+  // expectation)
   memcpy(gpu_data.transform, &mat[0][0], sizeof(float) * 16);
 
   // Copy other instance data
@@ -70,7 +72,8 @@ std::unique_ptr<InstancedMesh> InstancedMesh::create(rhi::Device *device,
   instanced->instance_data_.reserve(max_instances);
 
   std::cout << "Created instanced mesh with capacity for " << max_instances
-            << " instances (GPU buffer: " << instance_desc.size << " bytes)" << std::endl;
+            << " instances (GPU buffer: " << instance_desc.size << " bytes)"
+            << std::endl;
 
   return instanced;
 }
@@ -103,11 +106,10 @@ void InstancedMesh::set_instances(const std::vector<InstanceData> &instances) {
 
     auto *cmd = device_->getImmediate();
     cmd->begin();
-    cmd->copyToBuffer(
-        instance_buffer_, 0,
-        std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(gpu_data.data()),
-            instance_count_ * sizeof(InstanceGPUData)));
+    cmd->copyToBuffer(instance_buffer_, 0,
+                      std::span<const std::byte>(
+                          reinterpret_cast<const std::byte *>(gpu_data.data()),
+                          instance_count_ * sizeof(InstanceGPUData)));
     cmd->end();
   }
 }
@@ -163,6 +165,18 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
 
   auto *cmd = renderer.device()->getImmediate();
   cmd->setPipeline(shader->pipeline());
+
+  // Build identity model matrix (instances handle their own transforms)
+  glm::mat4 model = glm::mat4(1.0f);
+
+  // Set model matrix
+  cmd->setUniformMat4("model", glm::value_ptr(model));
+
+  // Calculate and set normal matrix (identity in this case, but required by
+  // shader) For identity matrix, normal matrix is also identity
+  glm::mat3 normalMatrix3x3 = glm::mat3(1.0f);
+  glm::mat4 normalMatrix4x4 = glm::mat4(normalMatrix3x3);
+  cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
 
   // Set view and projection matrices
   float view[16], projection[16];

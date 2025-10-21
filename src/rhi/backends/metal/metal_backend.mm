@@ -18,6 +18,7 @@ struct Uniforms {
   float model[16];
   float view[16];
   float projection[16];
+  float normalMatrix[16];
   float lightPos[3];
   float _pad1;
   float viewPos[3];
