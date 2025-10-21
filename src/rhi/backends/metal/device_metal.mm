@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstring>
 #include <iostream>
+#include <unordered_map>
 
 namespace pixel::rhi {
 
@@ -75,6 +76,32 @@ struct MTLPipelineResource {
   id<MTLRenderPipelineState> pipeline_state = nil;
   id<MTLComputePipelineState> compute_pipeline_state = nil;
   id<MTLDepthStencilState> depth_stencil_state = nil;
+};
+
+struct PipelineCacheKey {
+  uint32_t vs_id{0};
+  uint32_t fs_id{0};
+  uint32_t cs_id{0};
+  bool instanced{false};
+
+  bool operator==(const PipelineCacheKey &other) const {
+    return vs_id == other.vs_id && fs_id == other.fs_id &&
+           cs_id == other.cs_id && instanced == other.instanced;
+  }
+};
+
+struct PipelineCacheKeyHash {
+  std::size_t operator()(const PipelineCacheKey &key) const noexcept {
+    std::size_t seed = 0;
+    auto hash_combine = [&seed](std::size_t value) {
+      seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    };
+    hash_combine(std::hash<uint32_t>{}(key.vs_id));
+    hash_combine(std::hash<uint32_t>{}(key.fs_id));
+    hash_combine(std::hash<uint32_t>{}(key.cs_id));
+    hash_combine(std::hash<bool>{}(key.instanced));
+    return seed;
+  }
 };
 
 // ============================================================================
@@ -141,6 +168,9 @@ struct MetalDevice::Impl {
   std::unordered_map<uint32_t, MTLSamplerResource> samplers_;
   std::unordered_map<uint32_t, MTLShaderResource> shaders_;
   std::unordered_map<uint32_t, MTLPipelineResource> pipelines_;
+  std::unordered_map<PipelineCacheKey, PipelineHandle, PipelineCacheKeyHash>
+      pipeline_cache_;
+  std::unordered_map<size_t, MTLVertexDescriptor *> vertex_descriptor_library_;
 
   uint32_t next_buffer_id_ = 1;
   uint32_t next_texture_id_ = 1;
@@ -175,6 +205,74 @@ struct MetalDevice::Impl {
     immediate_ = std::make_unique<MetalCmdList>(this);
   }
 
+  MTLVertexDescriptor *getOrCreateVertexDescriptor(bool instanced) {
+    size_t key = instanced ? 1u : 0u;
+    auto it = vertex_descriptor_library_.find(key);
+    if (it != vertex_descriptor_library_.end()) {
+      return it->second;
+    }
+
+    MTLVertexDescriptor *vertexDesc = [MTLVertexDescriptor vertexDescriptor];
+
+    // Per-vertex attributes (buffer 0, locations 0-3)
+    vertexDesc.attributes[0].format = MTLVertexFormatFloat3; // Position
+    vertexDesc.attributes[0].offset = 0;
+    vertexDesc.attributes[0].bufferIndex = 0;
+
+    vertexDesc.attributes[1].format = MTLVertexFormatFloat3; // Normal
+    vertexDesc.attributes[1].offset = 12;
+    vertexDesc.attributes[1].bufferIndex = 0;
+
+    vertexDesc.attributes[2].format = MTLVertexFormatFloat2; // TexCoord
+    vertexDesc.attributes[2].offset = 24;
+    vertexDesc.attributes[2].bufferIndex = 0;
+
+    vertexDesc.attributes[3].format = MTLVertexFormatFloat4; // Color
+    vertexDesc.attributes[3].offset = 32;
+    vertexDesc.attributes[3].bufferIndex = 0;
+
+    vertexDesc.layouts[0].stride = 48;
+    vertexDesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+
+    if (instanced) {
+      // Per-instance attributes (buffer 2, locations 4-10)
+      vertexDesc.attributes[4].format = MTLVertexFormatFloat4;
+      vertexDesc.attributes[4].offset = 0;
+      vertexDesc.attributes[4].bufferIndex = 2;
+
+      vertexDesc.attributes[5].format = MTLVertexFormatFloat4;
+      vertexDesc.attributes[5].offset = 16;
+      vertexDesc.attributes[5].bufferIndex = 2;
+
+      vertexDesc.attributes[6].format = MTLVertexFormatFloat4;
+      vertexDesc.attributes[6].offset = 32;
+      vertexDesc.attributes[6].bufferIndex = 2;
+
+      vertexDesc.attributes[7].format = MTLVertexFormatFloat4;
+      vertexDesc.attributes[7].offset = 48;
+      vertexDesc.attributes[7].bufferIndex = 2;
+
+      vertexDesc.attributes[8].format = MTLVertexFormatFloat4;
+      vertexDesc.attributes[8].offset = 64;
+      vertexDesc.attributes[8].bufferIndex = 2;
+
+      vertexDesc.attributes[9].format = MTLVertexFormatFloat;
+      vertexDesc.attributes[9].offset = 80;
+      vertexDesc.attributes[9].bufferIndex = 2;
+
+      vertexDesc.attributes[10].format = MTLVertexFormatFloat;
+      vertexDesc.attributes[10].offset = 88;
+      vertexDesc.attributes[10].bufferIndex = 2;
+
+      vertexDesc.layouts[2].stride = 96;
+      vertexDesc.layouts[2].stepFunction = MTLVertexStepFunctionPerInstance;
+      vertexDesc.layouts[2].stepRate = 1;
+    }
+
+    vertex_descriptor_library_[key] = vertexDesc;
+    return vertexDesc;
+  }
+
   ~Impl() {
     // ARC handles cleanup
     for (auto &pair : buffers_)
@@ -189,6 +287,9 @@ struct MetalDevice::Impl {
       pair.second.pipeline_state = nil;
       pair.second.compute_pipeline_state = nil;
       pair.second.depth_stencil_state = nil;
+    }
+    for (auto &pair : vertex_descriptor_library_) {
+      pair.second = nil;
     }
   }
 };
@@ -367,6 +468,13 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
 
   // Check if compute pipeline
   if (desc.cs.id != 0) {
+    PipelineCacheKey cacheKey{};
+    cacheKey.cs_id = desc.cs.id;
+    auto cached = impl_->pipeline_cache_.find(cacheKey);
+    if (cached != impl_->pipeline_cache_.end()) {
+      return cached->second;
+    }
+
     auto cs_it = impl_->shaders_.find(desc.cs.id);
     if (cs_it == impl_->shaders_.end()) {
       std::cerr << "Compute shader not found" << std::endl;
@@ -386,7 +494,10 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
 
     uint32_t handle_id = impl_->next_pipeline_id_++;
     impl_->pipelines_[handle_id] = pipeline;
-    return PipelineHandle{handle_id};
+
+    PipelineHandle handle{handle_id};
+    impl_->pipeline_cache_[cacheKey] = handle;
+    return handle;
   }
 
   // Render pipeline
@@ -396,6 +507,19 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
   if (vs_it == impl_->shaders_.end() || fs_it == impl_->shaders_.end()) {
     std::cerr << "Vertex or fragment shader not found" << std::endl;
     return PipelineHandle{0};
+  }
+
+  // Check if this is an instanced pipeline
+  bool isInstanced = (vs_it->second.stage == "vs_instanced");
+
+  PipelineCacheKey cacheKey{};
+  cacheKey.vs_id = desc.vs.id;
+  cacheKey.fs_id = desc.fs.id;
+  cacheKey.instanced = isInstanced;
+
+  auto cached = impl_->pipeline_cache_.find(cacheKey);
+  if (cached != impl_->pipeline_cache_.end()) {
+    return cached->second;
   }
 
   // Create pipeline descriptor
@@ -416,82 +540,8 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
   pipelineDesc.colorAttachments[0].destinationAlphaBlendFactor =
       MTLBlendFactorOneMinusSourceAlpha;
 
-  // Setup vertex descriptor for Vertex layout (48 bytes)
-  MTLVertexDescriptor *vertexDesc = [[MTLVertexDescriptor alloc] init];
-
-  // Per-vertex attributes (buffer 0, locations 0-3)
-  // Position (vec3, offset 0, location 0)
-  vertexDesc.attributes[0].format = MTLVertexFormatFloat3;
-  vertexDesc.attributes[0].offset = 0;
-  vertexDesc.attributes[0].bufferIndex = 0;
-
-  // Normal (vec3, offset 12, location 1)
-  vertexDesc.attributes[1].format = MTLVertexFormatFloat3;
-  vertexDesc.attributes[1].offset = 12;
-  vertexDesc.attributes[1].bufferIndex = 0;
-
-  // TexCoord (vec2, offset 24, location 2)
-  vertexDesc.attributes[2].format = MTLVertexFormatFloat2;
-  vertexDesc.attributes[2].offset = 24;
-  vertexDesc.attributes[2].bufferIndex = 0;
-
-  // Color (vec4, offset 32, location 3)
-  vertexDesc.attributes[3].format = MTLVertexFormatFloat4;
-  vertexDesc.attributes[3].offset = 32;
-  vertexDesc.attributes[3].bufferIndex = 0;
-
-  // Vertex buffer layout (stride = 48)
-  vertexDesc.layouts[0].stride = 48;
-  vertexDesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
-
-  // Check if this is an instanced pipeline
-  bool isInstanced = (vs_it->second.stage == "vs_instanced");
-
-  if (isInstanced) {
-    // Per-instance attributes (buffer 2, locations 4-10)
-    // Pre-calculated transformation matrix (4x4 matrix uses 4 attribute slots)
-    // Instance Transform Column 0 (vec4, offset 0, location 4)
-    vertexDesc.attributes[4].format = MTLVertexFormatFloat4;
-    vertexDesc.attributes[4].offset = 0;
-    vertexDesc.attributes[4].bufferIndex = 2;
-
-    // Instance Transform Column 1 (vec4, offset 16, location 5)
-    vertexDesc.attributes[5].format = MTLVertexFormatFloat4;
-    vertexDesc.attributes[5].offset = 16;
-    vertexDesc.attributes[5].bufferIndex = 2;
-
-    // Instance Transform Column 2 (vec4, offset 32, location 6)
-    vertexDesc.attributes[6].format = MTLVertexFormatFloat4;
-    vertexDesc.attributes[6].offset = 32;
-    vertexDesc.attributes[6].bufferIndex = 2;
-
-    // Instance Transform Column 3 (vec4, offset 48, location 7)
-    vertexDesc.attributes[7].format = MTLVertexFormatFloat4;
-    vertexDesc.attributes[7].offset = 48;
-    vertexDesc.attributes[7].bufferIndex = 2;
-
-    // Instance Color (vec4, offset 64, location 8)
-    vertexDesc.attributes[8].format = MTLVertexFormatFloat4;
-    vertexDesc.attributes[8].offset = 64;
-    vertexDesc.attributes[8].bufferIndex = 2;
-
-    // Instance Texture Index (float, offset 80, location 9)
-    vertexDesc.attributes[9].format = MTLVertexFormatFloat;
-    vertexDesc.attributes[9].offset = 80;
-    vertexDesc.attributes[9].bufferIndex = 2;
-
-    // Instance LOD Alpha (float, offset 88, location 10)
-    vertexDesc.attributes[10].format = MTLVertexFormatFloat;
-    vertexDesc.attributes[10].offset = 88;
-    vertexDesc.attributes[10].bufferIndex = 2;
-
-    // Instance buffer layout (stride = 96, step per instance)
-    // Layout: 16 floats (transform) + 4 floats (color) + 4 floats
-    // (texture_index, culling_radius, lod_alpha, padding)
-    vertexDesc.layouts[2].stride = 96;
-    vertexDesc.layouts[2].stepFunction = MTLVertexStepFunctionPerInstance;
-    vertexDesc.layouts[2].stepRate = 1;
-  }
+  MTLVertexDescriptor *vertexDesc =
+      impl_->getOrCreateVertexDescriptor(isInstanced);
 
   pipelineDesc.vertexDescriptor = vertexDesc;
 
@@ -511,7 +561,10 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
 
   uint32_t handle_id = impl_->next_pipeline_id_++;
   impl_->pipelines_[handle_id] = pipeline;
-  return PipelineHandle{handle_id};
+
+  PipelineHandle handle{handle_id};
+  impl_->pipeline_cache_[cacheKey] = handle;
+  return handle;
 }
 
 CmdList *MetalDevice::getImmediate() { return impl_->immediate_.get(); }
