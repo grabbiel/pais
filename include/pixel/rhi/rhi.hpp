@@ -86,6 +86,9 @@ struct Device {
 
   virtual CmdList *getImmediate() = 0;
   virtual void present() = 0;
+
+  virtual void readBuffer(BufferHandle handle, void *dst, size_t size,
+                          size_t offset = 0) = 0;
 };
 
 Device *create_gl_device(GLFWwindow *window);

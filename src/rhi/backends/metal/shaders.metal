@@ -259,7 +259,7 @@ kernel void lod_compute(
 ) {
     // LOD selection logic here
     LODData data = instances[gid];
-    
+
     // Calculate distance-based LOD (simplified)
     if (data.distance < 10.0) {
         data.lodLevel = 0;
@@ -268,6 +268,22 @@ kernel void lod_compute(
     } else {
         data.lodLevel = 2;
     }
-    
+
     instances[gid] = data;
+}
+
+kernel void test_compute(
+    device const uint* inputData [[buffer(0)]],
+    device uint* outputData [[buffer(1)]],
+    device uint* accumData [[buffer(2)]],
+    constant uint& elementCount [[buffer(3)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid >= elementCount) {
+        return;
+    }
+
+    uint value = inputData[gid];
+    accumData[gid] += value;
+    outputData[gid] = value * 2u;
 }

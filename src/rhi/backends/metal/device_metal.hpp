@@ -55,6 +55,8 @@ public:
 
   CmdList *getImmediate() override;
   void present() override;
+  void readBuffer(BufferHandle handle, void *dst, size_t size,
+                  size_t offset = 0) override;
 
 private:
   friend class MetalCmdList;

@@ -11,8 +11,9 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <Cocoa/Cocoa.h>
 
-#include <iostream>
+#include <algorithm>
 #include <cstring>
+#include <iostream>
 
 namespace pixel::rhi {
 
@@ -338,6 +339,8 @@ ShaderHandle MetalDevice::createShader(std::string_view stage,
     functionName = @"culling_compute";
   } else if (stage == "cs_lod") {
     functionName = @"lod_compute";
+  } else if (stage == "cs_test") {
+    functionName = @"test_compute";
   } else {
     std::cerr << "Unknown shader stage: " << stage << std::endl;
     return ShaderHandle{0};
@@ -515,6 +518,30 @@ void MetalDevice::present() {
   // Present is handled by the command list
 }
 
+void MetalDevice::readBuffer(BufferHandle handle, void *dst, size_t size,
+                             size_t offset) {
+  auto it = impl_->buffers_.find(handle.id);
+  if (it == impl_->buffers_.end()) {
+    std::cerr << "Attempted to read from invalid Metal buffer handle"
+              << std::endl;
+    return;
+  }
+
+  const MTLBufferResource &buffer = it->second;
+  if (!buffer.host_visible) {
+    std::cerr << "Metal buffer is not host-visible; cannot read back" << std::endl;
+    return;
+  }
+
+  if (offset + size > buffer.size) {
+    std::cerr << "Read range exceeds Metal buffer size" << std::endl;
+    return;
+  }
+
+  uint8_t *contents = (uint8_t *)buffer.buffer.contents;
+  memcpy(dst, contents + offset, size);
+}
+
 // Part 3: MetalCmdList Implementation - Core and Setup
 
 // ============================================================================
@@ -538,6 +565,8 @@ struct MetalCmdList::Impl {
   id<MTLSamplerState> default_sampler_ = nil;
 
   bool recording_ = false;
+  enum class EncoderState { None, Render, Compute };
+  EncoderState active_encoder_ = EncoderState::None;
   PipelineHandle current_pipeline_{0};
   PipelineHandle current_compute_pipeline_{0};
   BufferHandle current_vb_{0};
@@ -575,6 +604,42 @@ struct MetalCmdList::Impl {
     size_t offset = getCurrentUniformOffset();
     return (Uniforms *)((uint8_t *)uniform_buffer_.contents + offset);
   }
+
+  void endRenderEncoderIfNeeded() {
+    if (render_encoder_) {
+      [render_encoder_ endEncoding];
+      render_encoder_ = nil;
+    }
+    if (active_encoder_ == EncoderState::Render) {
+      active_encoder_ = EncoderState::None;
+    }
+  }
+
+  void endComputeEncoderIfNeeded() {
+    if (compute_encoder_) {
+      [compute_encoder_ endEncoding];
+      compute_encoder_ = nil;
+    }
+    if (active_encoder_ == EncoderState::Compute) {
+      active_encoder_ = EncoderState::None;
+    }
+  }
+
+  void transitionToComputeEncoder() {
+    if (active_encoder_ == EncoderState::Render) {
+      endRenderEncoderIfNeeded();
+    }
+    if (!compute_encoder_) {
+      compute_encoder_ = [command_buffer_ computeCommandEncoder];
+    }
+    active_encoder_ = EncoderState::Compute;
+  }
+
+  void resetEncoders() {
+    endRenderEncoderIfNeeded();
+    endComputeEncoderIfNeeded();
+    active_encoder_ = EncoderState::None;
+  }
 };
 
 // ============================================================================
@@ -588,6 +653,15 @@ MetalCmdList::~MetalCmdList() = default;
 void MetalCmdList::begin() {
   impl_->recording_ = true;
   impl_->command_buffer_ = [impl_->command_queue_ commandBuffer];
+  impl_->render_encoder_ = nil;
+  impl_->compute_encoder_ = nil;
+  impl_->current_pipeline_ = PipelineHandle{0};
+  impl_->current_compute_pipeline_ = PipelineHandle{0};
+  impl_->current_vb_ = BufferHandle{0};
+  impl_->current_ib_ = BufferHandle{0};
+  impl_->current_vb_offset_ = 0;
+  impl_->current_ib_offset_ = 0;
+  impl_->active_encoder_ = Impl::EncoderState::None;
 }
 
 void MetalCmdList::beginRender(TextureHandle rtColor, TextureHandle rtDepth,
@@ -595,6 +669,8 @@ void MetalCmdList::beginRender(TextureHandle rtColor, TextureHandle rtDepth,
                                uint8_t clearStencil) {
   // Reset draw call counter at the start of each frame
   impl_->draw_call_index_ = 0;
+
+  impl_->endComputeEncoderIfNeeded();
 
   impl_->current_drawable_ = [impl_->layer_ nextDrawable];
 
@@ -621,6 +697,7 @@ void MetalCmdList::beginRender(TextureHandle rtColor, TextureHandle rtDepth,
 
   impl_->render_encoder_ = [impl_->command_buffer_
       renderCommandEncoderWithDescriptor:renderPassDesc];
+  impl_->active_encoder_ = Impl::EncoderState::Render;
 }
 
 void MetalCmdList::setPipeline(PipelineHandle handle) {
@@ -631,10 +708,17 @@ void MetalCmdList::setPipeline(PipelineHandle handle) {
   impl_->current_pipeline_ = handle;
   const MTLPipelineResource &pipeline = it->second;
 
+  if (!impl_->render_encoder_) {
+    std::cerr << "Attempted to set render pipeline without an active render pass"
+              << std::endl;
+    return;
+  }
+
   [impl_->render_encoder_ setRenderPipelineState:pipeline.pipeline_state];
   [impl_->render_encoder_ setDepthStencilState:pipeline.depth_stencil_state];
   [impl_->render_encoder_ setCullMode:MTLCullModeBack];
   [impl_->render_encoder_ setFrontFacingWinding:MTLWindingCounterClockwise];
+  impl_->active_encoder_ = Impl::EncoderState::Render;
 }
 
 void MetalCmdList::setVertexBuffer(BufferHandle handle, size_t offset) {
@@ -893,22 +977,25 @@ void MetalCmdList::setComputePipeline(PipelineHandle handle) {
   if (it == impl_->pipelines_->end())
     return;
 
-  impl_->current_compute_pipeline_ = handle;
   const MTLPipelineResource &pipeline = it->second;
 
-  // End render encoder if active
-  if (impl_->render_encoder_) {
-    [impl_->render_encoder_ endEncoding];
-    impl_->render_encoder_ = nil;
+  if (!pipeline.compute_pipeline_state) {
+    std::cerr << "Pipeline handle does not reference a compute pipeline"
+              << std::endl;
+    return;
   }
 
-  // Create compute encoder if needed
-  if (!impl_->compute_encoder_) {
-    impl_->compute_encoder_ = [impl_->command_buffer_ computeCommandEncoder];
+  if (!impl_->command_buffer_) {
+    std::cerr << "Compute pipeline set without an active command buffer"
+              << std::endl;
+    return;
   }
 
+  impl_->transitionToComputeEncoder();
   [impl_->compute_encoder_
       setComputePipelineState:pipeline.compute_pipeline_state];
+  impl_->current_compute_pipeline_ = handle;
+  impl_->current_pipeline_ = PipelineHandle{0};
 }
 
 void MetalCmdList::setStorageBuffer(uint32_t binding, BufferHandle buffer,
@@ -919,11 +1006,13 @@ void MetalCmdList::setStorageBuffer(uint32_t binding, BufferHandle buffer,
 
   const MTLBufferResource &buf = it->second;
 
-  if (impl_->compute_encoder_) {
-    [impl_->compute_encoder_ setBuffer:buf.buffer
-                                offset:offset
-                               atIndex:binding];
+  if (!impl_->compute_encoder_) {
+    std::cerr << "Attempted to bind storage buffer without an active compute encoder"
+              << std::endl;
+    return;
   }
+
+  [impl_->compute_encoder_ setBuffer:buf.buffer offset:offset atIndex:binding];
 }
 
 void MetalCmdList::dispatch(uint32_t groupCountX, uint32_t groupCountY,
@@ -935,29 +1024,73 @@ void MetalCmdList::dispatch(uint32_t groupCountX, uint32_t groupCountY,
   if (it == impl_->pipelines_->end())
     return;
 
-  NSUInteger maxThreads =
-      it->second.compute_pipeline_state.maxTotalThreadsPerThreadgroup;
+  id<MTLComputePipelineState> state = it->second.compute_pipeline_state;
+  if (!state)
+    return;
 
-  MTLSize threadsPerGroup = MTLSizeMake(MIN(256, maxThreads), 1, 1);
-  MTLSize threadgroups = MTLSizeMake(groupCountX, groupCountY, groupCountZ);
+  if (groupCountX == 0 || groupCountY == 0 || groupCountZ == 0)
+    return;
+
+  NSUInteger maxThreads = state.maxTotalThreadsPerThreadgroup;
+  NSUInteger executionWidth = state.threadExecutionWidth;
+
+  NSUInteger threadsX = std::max<NSUInteger>(
+      1, std::min<NSUInteger>(executionWidth, static_cast<NSUInteger>(groupCountX)));
+  threadsX = std::min(threadsX, maxThreads);
+
+  NSUInteger remaining = std::max<NSUInteger>(1, maxThreads / threadsX);
+  NSUInteger threadsY = std::max<NSUInteger>(
+      1, std::min<NSUInteger>(static_cast<NSUInteger>(groupCountY), remaining));
+  threadsY = std::min(threadsY, remaining);
+  if (threadsY == 0)
+    threadsY = 1;
+
+  remaining = std::max<NSUInteger>(1, remaining / threadsY);
+  NSUInteger threadsZ = std::max<NSUInteger>(
+      1, std::min<NSUInteger>(static_cast<NSUInteger>(groupCountZ), remaining));
+  threadsZ = std::min(threadsZ, remaining);
+  if (threadsZ == 0)
+    threadsZ = 1;
+
+  MTLSize threadsPerGroup = MTLSizeMake(threadsX, threadsY, threadsZ);
+
+  auto ceilDiv = [](NSUInteger total, NSUInteger denom) -> NSUInteger {
+    return (total + denom - 1) / denom;
+  };
+
+  NSUInteger groupsX = ceilDiv(static_cast<NSUInteger>(groupCountX),
+                               threadsPerGroup.width);
+  NSUInteger groupsY = ceilDiv(static_cast<NSUInteger>(groupCountY),
+                               threadsPerGroup.height);
+  NSUInteger groupsZ = ceilDiv(static_cast<NSUInteger>(groupCountZ),
+                               threadsPerGroup.depth);
+
+  groupsX = std::max<NSUInteger>(groupsX, 1);
+  groupsY = std::max<NSUInteger>(groupsY, 1);
+  groupsZ = std::max<NSUInteger>(groupsZ, 1);
+
+  MTLSize threadgroups = MTLSizeMake(groupsX, groupsY, groupsZ);
 
   [impl_->compute_encoder_ dispatchThreadgroups:threadgroups
                           threadsPerThreadgroup:threadsPerGroup];
 }
 
 void MetalCmdList::memoryBarrier() {
-  // Metal handles memory barriers automatically between encoders
+  if (!impl_->compute_encoder_)
+    return;
+
+  if ([impl_->compute_encoder_ respondsToSelector:@selector(memoryBarrierWithScope:options:)]) {
+    [impl_->compute_encoder_ memoryBarrierWithScope:MTLBarrierScopeBuffers
+                                            options:0];
+  } else if ([impl_->compute_encoder_ respondsToSelector:@selector(memoryBarrierWithScope:)]) {
+    [impl_->compute_encoder_ memoryBarrierWithScope:MTLBarrierScopeBuffers];
+  }
 }
 
 void MetalCmdList::endRender() {
-  if (impl_->render_encoder_) {
-    [impl_->render_encoder_ endEncoding];
-    impl_->render_encoder_ = nil;
-  }
-  if (impl_->compute_encoder_) {
-    [impl_->compute_encoder_ endEncoding];
-    impl_->compute_encoder_ = nil;
-  }
+  impl_->resetEncoders();
+  impl_->current_pipeline_ = PipelineHandle{0};
+  impl_->current_compute_pipeline_ = PipelineHandle{0};
 }
 
 void MetalCmdList::copyToBuffer(BufferHandle handle, size_t dstOff,
@@ -983,14 +1116,21 @@ void MetalCmdList::copyToBuffer(BufferHandle handle, size_t dstOff,
 }
 
 void MetalCmdList::end() {
-  if (impl_->current_drawable_ && impl_->command_buffer_) {
-    [impl_->command_buffer_ presentDrawable:impl_->current_drawable_];
+  impl_->resetEncoders();
+
+  if (impl_->command_buffer_) {
+    if (impl_->current_drawable_) {
+      [impl_->command_buffer_ presentDrawable:impl_->current_drawable_];
+    }
+
     [impl_->command_buffer_ commit];
+    [impl_->command_buffer_ waitUntilCompleted];
   }
 
   impl_->command_buffer_ = nil;
   impl_->current_drawable_ = nil;
   impl_->recording_ = false;
+  impl_->active_encoder_ = Impl::EncoderState::None;
 
   // Advance to next frame in the ring buffer
   (*impl_->frame_index_) = ((*impl_->frame_index_) + 1) % kFramesInFlight;
