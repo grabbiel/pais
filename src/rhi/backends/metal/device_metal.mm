@@ -442,39 +442,46 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
   bool isInstanced = (vs_it->second.stage == "vs_instanced");
 
   if (isInstanced) {
-    // Per-instance attributes (buffer 2, locations 4-9)
-    // Instance Position (vec3, offset 0, location 4)
-    vertexDesc.attributes[4].format = MTLVertexFormatFloat3;
+    // Per-instance attributes (buffer 2, locations 4-10)
+    // Pre-calculated transformation matrix (4x4 matrix uses 4 attribute slots)
+    // Instance Transform Column 0 (vec4, offset 0, location 4)
+    vertexDesc.attributes[4].format = MTLVertexFormatFloat4;
     vertexDesc.attributes[4].offset = 0;
     vertexDesc.attributes[4].bufferIndex = 2;
 
-    // Instance Rotation (vec3, offset 12, location 5)
-    vertexDesc.attributes[5].format = MTLVertexFormatFloat3;
-    vertexDesc.attributes[5].offset = 12;
+    // Instance Transform Column 1 (vec4, offset 16, location 5)
+    vertexDesc.attributes[5].format = MTLVertexFormatFloat4;
+    vertexDesc.attributes[5].offset = 16;
     vertexDesc.attributes[5].bufferIndex = 2;
 
-    // Instance Scale (vec3, offset 24, location 6)
-    vertexDesc.attributes[6].format = MTLVertexFormatFloat3;
-    vertexDesc.attributes[6].offset = 24;
+    // Instance Transform Column 2 (vec4, offset 32, location 6)
+    vertexDesc.attributes[6].format = MTLVertexFormatFloat4;
+    vertexDesc.attributes[6].offset = 32;
     vertexDesc.attributes[6].bufferIndex = 2;
 
-    // Instance Color (vec4, offset 36, location 7)
+    // Instance Transform Column 3 (vec4, offset 48, location 7)
     vertexDesc.attributes[7].format = MTLVertexFormatFloat4;
-    vertexDesc.attributes[7].offset = 36;
+    vertexDesc.attributes[7].offset = 48;
     vertexDesc.attributes[7].bufferIndex = 2;
 
-    // Instance Texture Index (float, offset 52, location 8)
-    vertexDesc.attributes[8].format = MTLVertexFormatFloat;
-    vertexDesc.attributes[8].offset = 52;
+    // Instance Color (vec4, offset 64, location 8)
+    vertexDesc.attributes[8].format = MTLVertexFormatFloat4;
+    vertexDesc.attributes[8].offset = 64;
     vertexDesc.attributes[8].bufferIndex = 2;
 
-    // Instance LOD Alpha (float, offset 60, location 9)
+    // Instance Texture Index (float, offset 80, location 9)
     vertexDesc.attributes[9].format = MTLVertexFormatFloat;
-    vertexDesc.attributes[9].offset = 60;
+    vertexDesc.attributes[9].offset = 80;
     vertexDesc.attributes[9].bufferIndex = 2;
 
-    // Instance buffer layout (stride = 68, step per instance)
-    vertexDesc.layouts[2].stride = 68;
+    // Instance LOD Alpha (float, offset 88, location 10)
+    vertexDesc.attributes[10].format = MTLVertexFormatFloat;
+    vertexDesc.attributes[10].offset = 88;
+    vertexDesc.attributes[10].bufferIndex = 2;
+
+    // Instance buffer layout (stride = 96, step per instance)
+    // Layout: 16 floats (transform) + 4 floats (color) + 4 floats (texture_index, culling_radius, lod_alpha, padding)
+    vertexDesc.layouts[2].stride = 96;
     vertexDesc.layouts[2].stepFunction = MTLVertexStepFunctionPerInstance;
     vertexDesc.layouts[2].stepRate = 1;
   }
