@@ -53,7 +53,7 @@ Compute shaders are used for GPU-accelerated processing tasks.
 
 ## Loading Shaders
 
-### From Files
+Shaders are loaded from files using the `Renderer::load_shader()` method:
 
 ```cpp
 // Load shaders from disk
@@ -63,14 +63,7 @@ ShaderID shader = renderer.load_shader(
 );
 ```
 
-### From Source Strings
-
-```cpp
-// Load shaders from source code strings
-std::string vert_src = "...";
-std::string frag_src = "...";
-ShaderID shader = renderer.create_shader_from_source(vert_src, frag_src);
-```
+**Note:** Shaders must be loaded from file paths. The renderer does not support creating shaders from source code strings in memory.
 
 ## Shader Features
 

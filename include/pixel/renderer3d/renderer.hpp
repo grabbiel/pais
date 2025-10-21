@@ -188,8 +188,8 @@ constexpr ShaderID INVALID_SHADER = 0;
 class Shader {
 public:
   static std::unique_ptr<Shader> create(rhi::Device *device,
-                                        const std::string &vert_src,
-                                        const std::string &frag_src);
+                                        const std::string &vert_path,
+                                        const std::string &frag_path);
   ~Shader() = default;
 
   rhi::PipelineHandle pipeline() const { return pipeline_; }
@@ -219,8 +219,6 @@ public:
 
   ShaderID load_shader(const std::string &vert_path,
                        const std::string &frag_path);
-  ShaderID create_shader_from_source(const std::string &vert_src,
-                                     const std::string &frag_src);
   Shader *get_shader(ShaderID id);
 
   rhi::TextureHandle load_texture(const std::string &path);
