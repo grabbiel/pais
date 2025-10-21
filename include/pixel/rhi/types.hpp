@@ -1,6 +1,8 @@
 #pragma once
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
+#include <array>
+
 namespace pixel::rhi {
 
 enum class Format {
@@ -13,6 +15,28 @@ enum class Format {
   RGBA16F,
   D24S8,
   D32F
+};
+
+enum class BlendFactor : uint8_t {
+  Zero,
+  One,
+  SrcColor,
+  OneMinusSrcColor,
+  DstColor,
+  OneMinusDstColor,
+  SrcAlpha,
+  OneMinusSrcAlpha,
+  DstAlpha,
+  OneMinusDstAlpha,
+  SrcAlphaSaturated,
+};
+
+enum class BlendOp : uint8_t {
+  Add,
+  Subtract,
+  ReverseSubtract,
+  Min,
+  Max,
 };
 
 enum class CompareOp {
@@ -73,4 +97,62 @@ struct SamplerDesc {
   bool repeat{true};
   bool aniso{false};
 };
+
+struct BlendState {
+  bool enabled{false};
+  BlendFactor srcColor{BlendFactor::One};
+  BlendFactor dstColor{BlendFactor::Zero};
+  BlendOp colorOp{BlendOp::Add};
+  BlendFactor srcAlpha{BlendFactor::One};
+  BlendFactor dstAlpha{BlendFactor::Zero};
+  BlendOp alphaOp{BlendOp::Add};
+
+  bool operator==(const BlendState &) const = default;
+};
+
+struct ColorAttachmentDesc {
+  Format format{Format::BGRA8};
+  BlendState blend{};
+
+  bool operator==(const ColorAttachmentDesc &) const = default;
+};
+
+constexpr size_t kMaxColorAttachments = 4;
+
+inline BlendState make_disabled_blend_state() {
+  BlendState state;
+  state.enabled = false;
+  return state;
+}
+
+inline BlendState make_alpha_blend_state() {
+  BlendState state;
+  state.enabled = true;
+  state.srcColor = BlendFactor::SrcAlpha;
+  state.dstColor = BlendFactor::OneMinusSrcAlpha;
+  state.srcAlpha = BlendFactor::One;
+  state.dstAlpha = BlendFactor::OneMinusSrcAlpha;
+  return state;
+}
+
+inline BlendState make_additive_blend_state() {
+  BlendState state;
+  state.enabled = true;
+  state.srcColor = BlendFactor::SrcAlpha;
+  state.dstColor = BlendFactor::One;
+  state.srcAlpha = BlendFactor::One;
+  state.dstAlpha = BlendFactor::One;
+  return state;
+}
+
+inline BlendState make_multiply_blend_state() {
+  BlendState state;
+  state.enabled = true;
+  state.srcColor = BlendFactor::DstColor;
+  state.dstColor = BlendFactor::Zero;
+  state.srcAlpha = BlendFactor::One;
+  state.dstAlpha = BlendFactor::OneMinusSrcAlpha;
+  return state;
+}
+
 } // namespace pixel::rhi

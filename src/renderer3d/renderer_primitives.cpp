@@ -152,7 +152,7 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
     return;
 
   auto *cmd = device_->getImmediate();
-  cmd->setPipeline(shader->pipeline());
+  cmd->setPipeline(shader->pipeline(material.blend_mode));
   cmd->setVertexBuffer(mesh.vertex_buffer());
   cmd->setIndexBuffer(mesh.index_buffer());
 
@@ -209,7 +209,7 @@ void Renderer::draw_sprite(rhi::TextureHandle texture, const Vec3 &position,
     return;
 
   auto *cmd = device_->getImmediate();
-  cmd->setPipeline(shader->pipeline());
+  cmd->setPipeline(shader->pipeline(Material::BlendMode::Alpha));
 
   if (sprite_mesh_) {
     cmd->setVertexBuffer(sprite_mesh_->vertex_buffer());

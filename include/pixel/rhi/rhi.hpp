@@ -1,6 +1,7 @@
 #pragma once
 #include "handles.hpp"
 #include "types.hpp"
+#include <array>
 #include <span>
 #include <string_view>
 #include <functional>
@@ -23,7 +24,8 @@ struct SwapchainDesc {
 
 struct PipelineDesc {
   ShaderHandle vs, fs, cs; // cs = compute shader
-  // plus: blend, depth, cull, vertex layouts...
+  uint32_t colorAttachmentCount{0};
+  std::array<ColorAttachmentDesc, kMaxColorAttachments> colorAttachments{};
 };
 
 struct CmdList {
