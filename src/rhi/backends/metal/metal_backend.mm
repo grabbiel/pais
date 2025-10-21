@@ -104,6 +104,8 @@ struct Uniforms {
 std::unique_ptr<MetalShader>
 MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
                     const std::string &fragment_src) {
+  (void)vertex_src;
+  (void)fragment_src;
   auto shader = std::unique_ptr<MetalShader>(new MetalShader());
   shader->device_ = device;
 
@@ -166,7 +168,9 @@ MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
     return nullptr;
   }
 
-  shader->pipeline_state_.label = @"Pipeline_Default_Opaque";
+  if ([shader->pipeline_state_ respondsToSelector:@selector(setLabel:)]) {
+    [shader->pipeline_state_ setLabel:@"Pipeline_Default_Opaque"];
+  }
 
   // Create uniform buffer
   shader->uniform_buffers_["uniforms"].buffer =
@@ -364,7 +368,9 @@ std::unique_ptr<MetalTexture> MetalTexture::create(id<MTLDevice> device,
     return nullptr;
   }
 
-  texture->sampler_.label = @"Sampler_Default";
+  if ([texture->sampler_ respondsToSelector:@selector(setLabel:)]) {
+    [texture->sampler_ setLabel:@"Sampler_Default"];
+  }
 
   return texture;
 }
@@ -657,15 +663,37 @@ void MetalBackend::log_nserror(const std::string &context, NSError *error) const
       std::cerr << "[Metal]   userInfo: " << details << std::endl;
     }
 
-    NSArray *encoderInfos = userInfo[MTLCommandBufferEncoderInfoErrorKey];
-    if ([encoderInfos isKindOfClass:[NSArray class]]) {
-      for (id entry in (NSArray *)encoderInfos) {
-        if ([entry respondsToSelector:@selector(label)] &&
-            [entry respondsToSelector:@selector(errorDescription)]) {
-          NSString *label = [entry label];
-          NSString *errorText = [entry errorDescription];
-          std::cerr << "[Metal]   Encoder '" << to_std_string(label)
-                    << "': " << to_std_string(errorText) << std::endl;
+    if (@available(macOS 11.0, *)) {
+      id encoderInfosObj = userInfo[MTLCommandBufferEncoderInfoErrorKey];
+      if ([encoderInfosObj isKindOfClass:[NSArray class]]) {
+        NSArray *encoderInfos = (NSArray *)encoderInfosObj;
+        for (id entry in encoderInfos) {
+          NSString *label = nil;
+          if ([entry respondsToSelector:@selector(label)]) {
+            label = [entry label];
+          }
+
+          NSString *errorText = nil;
+          if ([entry respondsToSelector:@selector(valueForKey:)]) {
+            id entryError = [entry valueForKey:@"error"];
+            if ([entryError isKindOfClass:[NSError class]]) {
+              errorText = [entryError localizedDescription];
+            }
+          }
+
+          if (!errorText && [entry respondsToSelector:@selector(description)]) {
+            errorText = [entry description];
+          }
+
+          std::string labelStr = to_std_string(label);
+          std::string errorStr = to_std_string(errorText);
+          if (!labelStr.empty() || !errorStr.empty()) {
+            std::cerr << "[Metal]   Encoder '"
+                      << (labelStr.empty() ? "<unnamed>" : labelStr)
+                      << "': "
+                      << (errorStr.empty() ? "<no description>" : errorStr)
+                      << std::endl;
+          }
         }
       }
     }
@@ -812,26 +840,26 @@ MetalBackend::create_mesh(const std::vector<Vertex> &vertices,
     descriptor.depthWriteEnabled = key.depth_write ? YES : NO;
 
     if (key.stencil_enable) {
-      MTLStencilDescriptor *front = [[MTLStencilDescriptor alloc] init];
-      front.stencilCompareFunction = to_mtl_compare(key.stencil_compare);
-      front.stencilFailureOperation = to_mtl_stencil(key.stencil_fail_op);
-      front.depthFailureOperation =
-          to_mtl_stencil(key.stencil_depth_fail_op);
-      front.depthStencilPassOperation = to_mtl_stencil(key.stencil_pass_op);
-      front.readMask = key.stencil_read_mask;
-      front.writeMask = key.stencil_write_mask;
-      descriptor.frontFaceStencil = front;
+    MTLStencilDescriptor *front = [[MTLStencilDescriptor alloc] init];
+    front.stencilCompareFunction = to_mtl_compare(key.stencil_compare);
+    front.stencilFailureOperation = to_mtl_stencil(key.stencil_fail_op);
+    front.depthFailureOperation =
+        to_mtl_stencil(key.stencil_depth_fail_op);
+    front.depthStencilPassOperation = to_mtl_stencil(key.stencil_pass_op);
+    front.readMask = key.stencil_read_mask;
+    front.writeMask = key.stencil_write_mask;
+    descriptor.frontFaceStencil = front;
 
-      MTLStencilDescriptor *back = [[MTLStencilDescriptor alloc] init];
-      back.stencilCompareFunction = to_mtl_compare(key.stencil_compare);
-      back.stencilFailureOperation = to_mtl_stencil(key.stencil_fail_op);
-      back.depthFailureOperation =
-          to_mtl_stencil(key.stencil_depth_fail_op);
-      back.depthStencilPassOperation = to_mtl_stencil(key.stencil_pass_op);
-      back.readMask = key.stencil_read_mask;
-      back.writeMask = key.stencil_write_mask;
-      descriptor.backFaceStencil = back;
-    }
+    MTLStencilDescriptor *back = [[MTLStencilDescriptor alloc] init];
+    back.stencilCompareFunction = to_mtl_compare(key.stencil_compare);
+    back.stencilFailureOperation = to_mtl_stencil(key.stencil_fail_op);
+    back.depthFailureOperation =
+        to_mtl_stencil(key.stencil_depth_fail_op);
+    back.depthStencilPassOperation = to_mtl_stencil(key.stencil_pass_op);
+    back.readMask = key.stencil_read_mask;
+    back.writeMask = key.stencil_write_mask;
+    descriptor.backFaceStencil = back;
+  }
 
   id<MTLDepthStencilState> state =
       [device_ newDepthStencilStateWithDescriptor:descriptor];
@@ -844,12 +872,16 @@ MetalBackend::create_mesh(const std::vector<Vertex> &vertices,
   return state;
 }
 
-  void MetalBackend::draw_mesh(const MetalMesh &mesh, const Vec3 &position,
-                               const Vec3 &rotation, const Vec3 &scale,
-                               MetalShader *shader, const Material &material) {
-    // Stub implementation - just draw the mesh
-    if (!shader || !render_encoder_)
-      return;
+void MetalBackend::draw_mesh(const MetalMesh &mesh, const Vec3 &position,
+                             const Vec3 &rotation, const Vec3 &scale,
+                             MetalShader *shader, const Material &material) {
+  (void)position;
+  (void)rotation;
+  (void)scale;
+
+  if (!shader || !render_encoder_) {
+    return;
+  }
 
   DepthStencilStateKey key = make_depth_stencil_key(material);
   id<MTLDepthStencilState> depth_state = get_depth_stencil_state(key);
@@ -860,12 +892,12 @@ MetalBackend::create_mesh(const std::vector<Vertex> &vertices,
 
   shader->bind(render_encoder_, depth_state);
 
-    if (material.stencil_enable) {
-      [render_encoder_ setStencilReferenceValue:material.stencil_reference];
-    }
-
-    mesh.draw(render_encoder_);
+  if (material.stencil_enable) {
+    [render_encoder_ setStencilReferenceValue:material.stencil_reference];
   }
+
+  mesh.draw(render_encoder_);
+}
 
 } // namespace pixel::renderer3d::metal
 
