@@ -1,4 +1,5 @@
 #include "pixel/renderer3d/renderer.hpp"
+#include "pixel/platform/shader_loader.hpp"
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
@@ -6,13 +7,12 @@
 namespace pixel::renderer3d {
 
 std::unique_ptr<Shader> Shader::create(rhi::Device *device,
-                                       const std::string &vert_src,
-                                       const std::string &frag_src) {
+                                       const std::string &vert_path,
+                                       const std::string &frag_path) {
   auto shader = std::unique_ptr<Shader>(new Shader());
 
-  // In a real implementation, you would compile GLSL to SPIR-V or
-  // the appropriate format for your backend. For now, we'll pass
-  // the source as bytes (this is placeholder logic)
+  // Load shader source files from disk
+  auto [vert_src, frag_src] = platform::load_shader_pair(vert_path, frag_path);
 
   // Create vertex shader
   std::span<const uint8_t> vs_bytes(
