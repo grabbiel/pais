@@ -413,6 +413,7 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
   // Setup vertex descriptor for Vertex layout (48 bytes)
   MTLVertexDescriptor *vertexDesc = [[MTLVertexDescriptor alloc] init];
 
+  // Per-vertex attributes (buffer 0, locations 0-3)
   // Position (vec3, offset 0, location 0)
   vertexDesc.attributes[0].format = MTLVertexFormatFloat3;
   vertexDesc.attributes[0].offset = 0;
@@ -436,6 +437,47 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
   // Vertex buffer layout (stride = 48)
   vertexDesc.layouts[0].stride = 48;
   vertexDesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
+
+  // Check if this is an instanced pipeline
+  bool isInstanced = (vs_it->second.stage == "vs_instanced");
+
+  if (isInstanced) {
+    // Per-instance attributes (buffer 2, locations 4-9)
+    // Instance Position (vec3, offset 0, location 4)
+    vertexDesc.attributes[4].format = MTLVertexFormatFloat3;
+    vertexDesc.attributes[4].offset = 0;
+    vertexDesc.attributes[4].bufferIndex = 2;
+
+    // Instance Rotation (vec3, offset 12, location 5)
+    vertexDesc.attributes[5].format = MTLVertexFormatFloat3;
+    vertexDesc.attributes[5].offset = 12;
+    vertexDesc.attributes[5].bufferIndex = 2;
+
+    // Instance Scale (vec3, offset 24, location 6)
+    vertexDesc.attributes[6].format = MTLVertexFormatFloat3;
+    vertexDesc.attributes[6].offset = 24;
+    vertexDesc.attributes[6].bufferIndex = 2;
+
+    // Instance Color (vec4, offset 36, location 7)
+    vertexDesc.attributes[7].format = MTLVertexFormatFloat4;
+    vertexDesc.attributes[7].offset = 36;
+    vertexDesc.attributes[7].bufferIndex = 2;
+
+    // Instance Texture Index (float, offset 52, location 8)
+    vertexDesc.attributes[8].format = MTLVertexFormatFloat;
+    vertexDesc.attributes[8].offset = 52;
+    vertexDesc.attributes[8].bufferIndex = 2;
+
+    // Instance LOD Alpha (float, offset 60, location 9)
+    vertexDesc.attributes[9].format = MTLVertexFormatFloat;
+    vertexDesc.attributes[9].offset = 60;
+    vertexDesc.attributes[9].bufferIndex = 2;
+
+    // Instance buffer layout (stride = 68, step per instance)
+    vertexDesc.layouts[2].stride = 68;
+    vertexDesc.layouts[2].stepFunction = MTLVertexStepFunctionPerInstance;
+    vertexDesc.layouts[2].stepRate = 1;
+  }
 
   pipelineDesc.vertexDescriptor = vertexDesc;
 
