@@ -9,6 +9,7 @@
 #include <MetalKit/MetalKit.h>
 #include <QuartzCore/CAMetalLayer.h>
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -46,7 +47,8 @@ public:
 
   ~MetalShader();
 
-  void bind(id<MTLRenderCommandEncoder> encoder);
+  void bind(id<MTLRenderCommandEncoder> encoder,
+            id<MTLDepthStencilState> depth_stencil_state);
 
   void set_int(const std::string &name, int value);
   void set_float(const std::string &name, float value);
@@ -63,8 +65,6 @@ private:
   id<MTLFunction> vertex_function_ = nil;
   id<MTLFunction> fragment_function_ = nil;
   id<MTLRenderPipelineState> pipeline_state_ = nil;
-  id<MTLDepthStencilState> depth_stencil_state_ = nil;
-
   struct UniformBuffer {
     id<MTLBuffer> buffer = nil;
     size_t size = 0;
@@ -177,6 +177,61 @@ private:
 
   int viewport_width_ = 0;
   int viewport_height_ = 0;
+
+  struct DepthStencilStateKey {
+    bool depth_test{true};
+    bool depth_write{true};
+    rhi::CompareOp depth_compare{rhi::CompareOp::Less};
+    bool stencil_enable{false};
+    rhi::CompareOp stencil_compare{rhi::CompareOp::Always};
+    rhi::StencilOp stencil_fail_op{rhi::StencilOp::Keep};
+    rhi::StencilOp stencil_depth_fail_op{rhi::StencilOp::Keep};
+    rhi::StencilOp stencil_pass_op{rhi::StencilOp::Keep};
+    uint32_t stencil_read_mask{0xFF};
+    uint32_t stencil_write_mask{0xFF};
+
+    bool operator==(const DepthStencilStateKey &other) const {
+      return depth_test == other.depth_test &&
+             depth_write == other.depth_write &&
+             depth_compare == other.depth_compare &&
+             stencil_enable == other.stencil_enable &&
+             stencil_compare == other.stencil_compare &&
+             stencil_fail_op == other.stencil_fail_op &&
+             stencil_depth_fail_op == other.stencil_depth_fail_op &&
+             stencil_pass_op == other.stencil_pass_op &&
+             stencil_read_mask == other.stencil_read_mask &&
+             stencil_write_mask == other.stencil_write_mask;
+    }
+  };
+
+  struct DepthStencilStateKeyHash {
+    std::size_t operator()(const DepthStencilStateKey &key) const noexcept {
+      std::size_t seed = 0;
+      auto hash_combine = [&seed](std::size_t value) {
+        seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+      };
+      hash_combine(std::hash<bool>{}(key.depth_test));
+      hash_combine(std::hash<bool>{}(key.depth_write));
+      hash_combine(std::hash<int>{}(static_cast<int>(key.depth_compare)));
+      hash_combine(std::hash<bool>{}(key.stencil_enable));
+      hash_combine(std::hash<int>{}(static_cast<int>(key.stencil_compare)));
+      hash_combine(std::hash<int>{}(static_cast<int>(key.stencil_fail_op)));
+      hash_combine(
+          std::hash<int>{}(static_cast<int>(key.stencil_depth_fail_op)));
+      hash_combine(std::hash<int>{}(static_cast<int>(key.stencil_pass_op)));
+      hash_combine(std::hash<uint32_t>{}(key.stencil_read_mask));
+      hash_combine(std::hash<uint32_t>{}(key.stencil_write_mask));
+      return seed;
+    }
+  };
+
+  DepthStencilStateKey make_depth_stencil_key(const Material &material) const;
+  id<MTLDepthStencilState>
+  get_depth_stencil_state(const DepthStencilStateKey &key);
+
+  std::unordered_map<DepthStencilStateKey, id<MTLDepthStencilState>,
+                     DepthStencilStateKeyHash>
+      depth_stencil_states_;
 
   std::unique_ptr<MetalShader> default_shader_;
   std::vector<std::unique_ptr<MetalResource>> resources_;

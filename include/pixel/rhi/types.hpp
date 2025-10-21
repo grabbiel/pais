@@ -14,6 +14,28 @@ enum class Format {
   D24S8,
   D32F
 };
+
+enum class CompareOp {
+  Never,
+  Less,
+  Equal,
+  LessEqual,
+  Greater,
+  NotEqual,
+  GreaterEqual,
+  Always
+};
+
+enum class StencilOp {
+  Keep,
+  Zero,
+  Replace,
+  IncrementClamp,
+  DecrementClamp,
+  Invert,
+  IncrementWrap,
+  DecrementWrap
+};
 struct Extent2D {
   uint32_t w{0}, h{0};
 };
