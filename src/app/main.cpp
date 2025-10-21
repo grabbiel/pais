@@ -102,8 +102,9 @@ int main(int, char **) {
   r->camera().fov = 60.0f;
   r->camera().far_clip = 200.0f;
 
-  std::cout << "Textured Demo - Controls: LMB drag = orbit, Mouse wheel = zoom, "
-               "A/D = pan, ESC = quit\n";
+  std::cout
+      << "Textured Demo - Controls: LMB drag = orbit, Mouse wheel = zoom, "
+         "A/D = pan, ESC = quit\n";
   std::cout << "Scene: Brick sphere, stone cube, grass ground\n";
 
   // Main loop

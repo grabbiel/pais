@@ -11,11 +11,4 @@ struct SwapchainDesc;
 struct PipelineDesc;
 class CmdList;
 
-// Forward declare factory functions
-Device *create_gl_device(GLFWwindow *window);
-
-#ifdef __APPLE__
-Device *create_metal_device(GLFWwindow *window);
-#endif
-
 } // namespace pixel::rhi

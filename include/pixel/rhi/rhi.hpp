@@ -22,7 +22,7 @@ struct SwapchainDesc {
 };
 
 struct PipelineDesc {
-  ShaderHandle vs, fs, cs;  // cs = compute shader
+  ShaderHandle vs, fs, cs; // cs = compute shader
   // plus: blend, depth, cull, vertex layouts...
 };
 
@@ -59,9 +59,9 @@ struct CmdList {
   // Compute shader support
   virtual void setComputePipeline(PipelineHandle) = 0;
   virtual void setStorageBuffer(uint32_t binding, BufferHandle buffer,
-                               size_t offset = 0, size_t size = 0) = 0;
+                                size_t offset = 0, size_t size = 0) = 0;
   virtual void dispatch(uint32_t groupCountX, uint32_t groupCountY = 1,
-                       uint32_t groupCountZ = 1) = 0;
+                        uint32_t groupCountZ = 1) = 0;
   virtual void memoryBarrier() = 0;
 
   virtual void drawIndexed(uint32_t indexCount, uint32_t firstIndex = 0,
@@ -88,6 +88,9 @@ struct Device {
   virtual void present() = 0;
 };
 
-/// Factory (implemented in rhi_dispatch.cpp)
-Device *create_device_from_config(bool preferMetalIfAvailable);
+Device *create_gl_device(GLFWwindow *window);
+#ifdef __APPLE__
+// Metal backend (macOS/iOS only)
+Device *create_metal_device(void *window);
+#endif
 } // namespace pixel::rhi

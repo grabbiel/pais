@@ -16,6 +16,13 @@ struct GLFWwindow;
 
 namespace pixel::renderer3d {
 
+struct DeviceCreationResult {
+  rhi::Device *device = nullptr;
+  GLFWwindow *window = nullptr;
+  std::string backend_name;
+};
+DeviceCreationResult create_renderer_device(const platform::WindowSpec &spec);
+
 static void glfw_error_callback(int error, const char *description) {
   std::cerr << "GLFW Error " << error << ": " << description << std::endl;
 }
@@ -240,37 +247,20 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
 
   auto renderer = std::unique_ptr<Renderer>(new Renderer());
 
-  // Request OpenGL 3.3 Core
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  try {
+    // Use the device factory helper - it handles all backend selection logic
+    auto result = create_renderer_device(spec);
 
-#ifdef __APPLE__
-  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-#endif
+    renderer->window_ = result.window;
+    renderer->device_ = result.device;
 
-  renderer->window_ =
-      glfwCreateWindow(spec.w, spec.h, spec.title.c_str(), nullptr, nullptr);
-  if (!renderer->window_) {
+    std::cout << "Renderer Backend: " << result.backend_name << std::endl;
+
+  } catch (const std::exception &e) {
     glfwTerminate();
-    throw std::runtime_error("Failed to create GLFW window");
+    throw std::runtime_error(std::string("Failed to initialize renderer: ") +
+                             e.what());
   }
-
-  // Create RHI device
-  bool prefer_metal = false;
-#ifdef __APPLE__
-  const char *backend_env = std::getenv("PIXEL_RENDERER_BACKEND");
-  prefer_metal = !(backend_env && std::strcmp(backend_env, "OPENGL") == 0);
-#endif
-
-  renderer->device_ = rhi::create_gl_device(renderer->window_);
-  if (!renderer->device_) {
-    glfwDestroyWindow(renderer->window_);
-    glfwTerminate();
-    throw std::runtime_error("Failed to create RHI device");
-  }
-
-  std::cout << "Renderer Backend: OpenGL" << std::endl;
 
   renderer->setup_default_shaders();
   renderer->sprite_mesh_ = renderer->create_sprite_quad();
@@ -360,7 +350,7 @@ ShaderID Renderer::create_shader_from_source(const std::string &vert_src,
 }
 
 ShaderID Renderer::load_shader(const std::string &vert_path,
-                                const std::string &frag_path) {
+                               const std::string &frag_path) {
   // Load shader source files from disk
   auto [vert_src, frag_src] = platform::load_shader_pair(vert_path, frag_path);
 
