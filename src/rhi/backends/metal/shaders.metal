@@ -15,13 +15,21 @@ struct VertexIn {
     float4 color    [[attribute(3)]];
 };
 
-struct InstanceData {
-    float3 position      [[attribute(4)]];
-    float3 rotation      [[attribute(5)]];
-    float3 scale         [[attribute(6)]];
-    float4 color         [[attribute(7)]];
-    float textureIndex   [[attribute(8)]];
-    float lodAlpha       [[attribute(9)]];
+// Combined struct for instanced rendering - all stage_in data in ONE struct
+struct VertexInInstanced {
+    // Per-vertex attributes (buffer 0)
+    float3 position [[attribute(0)]];
+    float3 normal   [[attribute(1)]];
+    float2 texCoord [[attribute(2)]];
+    float4 color    [[attribute(3)]];
+    
+    // Per-instance attributes (buffer 2)
+    float3 instancePosition [[attribute(4)]];
+    float3 instanceRotation [[attribute(5)]];
+    float3 instanceScale    [[attribute(6)]];
+    float4 instanceColor    [[attribute(7)]];
+    float instanceTextureIndex [[attribute(8)]];
+    float instanceLodAlpha     [[attribute(9)]];
 };
 
 struct VertexOut {
@@ -147,28 +155,28 @@ float4x4 createRotationMatrix(float3 rotation) {
     return rotZ * rotY * rotX;
 }
 
+// FIXED: Single stage_in parameter with all vertex and instance data combined
 vertex VertexOutInstanced vertex_instanced(
-    VertexIn in [[stage_in]],
-    InstanceData instance [[stage_in]],
+    VertexInInstanced in [[stage_in]],
     constant Uniforms& uniforms [[buffer(1)]]
 ) {
     VertexOutInstanced out;
 
-    // Create instance transform matrix
+    // Create instance transform matrix using instance attributes
     float4x4 scaleMatrix = float4x4(
-        float4(instance.scale.x, 0.0, 0.0, 0.0),
-        float4(0.0, instance.scale.y, 0.0, 0.0),
-        float4(0.0, 0.0, instance.scale.z, 0.0),
+        float4(in.instanceScale.x, 0.0, 0.0, 0.0),
+        float4(0.0, in.instanceScale.y, 0.0, 0.0),
+        float4(0.0, 0.0, in.instanceScale.z, 0.0),
         float4(0.0, 0.0, 0.0, 1.0)
     );
 
-    float4x4 rotationMatrix = createRotationMatrix(instance.rotation);
+    float4x4 rotationMatrix = createRotationMatrix(in.instanceRotation);
 
     float4x4 translationMatrix = float4x4(
         float4(1.0, 0.0, 0.0, 0.0),
         float4(0.0, 1.0, 0.0, 0.0),
         float4(0.0, 0.0, 1.0, 0.0),
-        float4(instance.position.x, instance.position.y, instance.position.z, 1.0)
+        float4(in.instancePosition.x, in.instancePosition.y, in.instancePosition.z, 1.0)
     );
 
     // Combine transformations: Translation * Rotation * Scale
@@ -191,11 +199,11 @@ vertex VertexOutInstanced vertex_instanced(
     out.texCoord = in.texCoord;
 
     // Mix vertex color with instance color
-    out.color = in.color * instance.color;
+    out.color = in.color * in.instanceColor;
 
     // Pass instance-specific data
-    out.textureIndex = instance.textureIndex;
-    out.lodAlpha = instance.lodAlpha;
+    out.textureIndex = in.instanceTextureIndex;
+    out.lodAlpha = in.instanceLodAlpha;
 
     return out;
 }
@@ -240,4 +248,56 @@ fragment float4 fragment_instanced(
     finalColor.a *= in.lodAlpha;
 
     return finalColor;
+}
+
+// ============================================================================
+// Compute Shaders
+// ============================================================================
+
+struct CullingData {
+    float4 position;
+    float radius;
+};
+
+kernel void culling_compute(
+    device CullingData* instances [[buffer(0)]],
+    constant float4x4& viewProj [[buffer(1)]],
+    device atomic_uint* visibleCount [[buffer(2)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    // Frustum culling logic here
+    CullingData data = instances[gid];
+    
+    // Simple sphere frustum culling (simplified)
+    float4 viewPos = viewProj * data.position;
+    
+    // Check if in frustum (simplified - just check against near/far planes)
+    if (viewPos.z > -data.radius && viewPos.z < 1000.0) {
+        atomic_fetch_add_explicit(visibleCount, 1, memory_order_relaxed);
+    }
+}
+
+struct LODData {
+    float distance;
+    uint lodLevel;
+};
+
+kernel void lod_compute(
+    device LODData* instances [[buffer(0)]],
+    constant float3& cameraPos [[buffer(1)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    // LOD selection logic here
+    LODData data = instances[gid];
+    
+    // Calculate distance-based LOD (simplified)
+    if (data.distance < 10.0) {
+        data.lodLevel = 0;
+    } else if (data.distance < 50.0) {
+        data.lodLevel = 1;
+    } else {
+        data.lodLevel = 2;
+    }
+    
+    instances[gid] = data;
 }
