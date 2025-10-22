@@ -68,7 +68,9 @@ LODMesh::create(rhi::Device *device, const Mesh &high_detail,
   lod_mesh->lod_meshes_[2] =
       InstancedMesh::create(device, low_detail, max_instances_per_lod);
 
-  lod_mesh->use_gpu_lod_ = lod_mesh->initialize_gpu_resources(max_instances_per_lod);
+  lod_mesh->use_gpu_lod_ =
+      config.gpu.enabled &&
+      lod_mesh->initialize_gpu_resources(max_instances_per_lod);
 
   std::cout << "Created LOD mesh system:" << std::endl;
   std::cout << "  Mode: ";
@@ -91,7 +93,10 @@ LODMesh::create(rhi::Device *device, const Mesh &high_detail,
   std::cout << "  Low detail: " << low_detail.vertex_count() << " verts"
             << std::endl;
   std::cout << "  GPU LOD: "
-            << (lod_mesh->use_gpu_lod_ ? "Enabled" : "Disabled (CPU fallback)")
+            << (config.gpu.enabled
+                    ? (lod_mesh->use_gpu_lod_ ? "Enabled"
+                                               : "Disabled (resource init failed)")
+                    : "Disabled (config)")
             << std::endl;
 
   return lod_mesh;
