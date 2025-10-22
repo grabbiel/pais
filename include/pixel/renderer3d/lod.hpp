@@ -58,6 +58,13 @@ struct LODConfig {
     float dither_pattern_scale = 1.0f;
     bool temporal_jitter = true;
   } dither;
+
+  struct GPUSettings {
+    // When true we attempt to keep per-frame LOD selection on the GPU.  The
+    // current implementation requires CPU readbacks which stall rendering, so
+    // we default this to false until an async path is implemented.
+    bool enabled = false;
+  } gpu;
 };
 
 // ============================================================================
