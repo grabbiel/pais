@@ -175,7 +175,8 @@ MetalShader::create(id<MTLDevice> device, const std::string &vertex_src,
   // Create uniform buffer
   shader->uniform_buffers_["uniforms"].buffer =
       [device newBufferWithLength:sizeof(Uniforms)
-                          options:MTLResourceCPUCacheModeWriteCombined];
+                          options:(MTLResourceStorageModeShared |
+                                   MTLResourceCPUCacheModeWriteCombined)];
   shader->uniform_buffers_["uniforms"].size = sizeof(Uniforms);
 
   if (!shader->uniform_buffers_["uniforms"].buffer) {
@@ -266,39 +267,104 @@ void MetalShader::set_float(const std::string &name, float value) {
 // Metal Mesh Implementation (Stub)
 // ============================================================================
 
+namespace {
+static id<MTLBuffer> create_gpu_buffer(id<MTLDevice> device,
+                                       id<MTLCommandQueue> command_queue,
+                                       const void *data, size_t length,
+                                       NSString *label) {
+  if (length == 0) {
+    return nil;
+  }
+
+  if (!command_queue) {
+    std::cerr << "Metal command queue is unavailable for buffer upload"
+              << std::endl;
+    return nil;
+  }
+
+  id<MTLBuffer> gpu_buffer = [device newBufferWithLength:length
+                                                  options:MTLResourceStorageModePrivate];
+
+  if (!gpu_buffer) {
+    std::cerr << "Failed to allocate Metal GPU buffer" << std::endl;
+    return nil;
+  }
+
+  if (label) {
+    gpu_buffer.label = label;
+  }
+
+  if (!data) {
+    return gpu_buffer;
+  }
+
+  id<MTLBuffer> staging_buffer =
+      [device newBufferWithLength:length
+                           options:(MTLResourceStorageModeShared |
+                                    MTLResourceCPUCacheModeWriteCombined)];
+
+  if (!staging_buffer) {
+    std::cerr << "Failed to allocate Metal staging buffer" << std::endl;
+    return nil;
+  }
+
+  memcpy(staging_buffer.contents, data, length);
+  if ([staging_buffer respondsToSelector:@selector(didModifyRange:)]) {
+    [staging_buffer didModifyRange:NSMakeRange(0, length)];
+  }
+
+  id<MTLCommandBuffer> command_buffer = [command_queue commandBuffer];
+  if (!command_buffer) {
+    std::cerr << "Failed to create Metal command buffer for buffer upload"
+              << std::endl;
+    return nil;
+  }
+  id<MTLBlitCommandEncoder> blit = [command_buffer blitCommandEncoder];
+  if (!blit) {
+    std::cerr << "Failed to create Metal blit encoder for buffer upload"
+              << std::endl;
+    return nil;
+  }
+  [blit copyFromBuffer:staging_buffer
+          sourceOffset:0
+              toBuffer:gpu_buffer
+     destinationOffset:0
+                  size:length];
+  [blit endEncoding];
+  [command_buffer commit];
+  [command_buffer waitUntilCompleted];
+
+  return gpu_buffer;
+}
+} // namespace
+
 std::unique_ptr<MetalMesh>
-MetalMesh::create(id<MTLDevice> device, const std::vector<Vertex> &vertices,
+MetalMesh::create(id<MTLDevice> device, id<MTLCommandQueue> command_queue,
+                  const std::vector<Vertex> &vertices,
                   const std::vector<uint32_t> &indices) {
   auto mesh = std::unique_ptr<MetalMesh>(new MetalMesh());
   mesh->device_ = device;
   mesh->vertex_count_ = vertices.size();
   mesh->index_count_ = indices.size();
 
-  // Create vertex buffer
-  mesh->vertex_buffer_ =
-      [device newBufferWithBytes:vertices.data()
-                          length:vertices.size() * sizeof(Vertex)
-                         options:MTLResourceCPUCacheModeWriteCombined];
+  size_t vertex_buffer_size = vertices.size() * sizeof(Vertex);
+  mesh->vertex_buffer_ = create_gpu_buffer(device, command_queue, vertices.data(),
+                                           vertex_buffer_size,
+                                           @"VertexBuffer_Sphere");
 
   if (!mesh->vertex_buffer_) {
     std::cerr << "Failed to create Metal vertex buffer for mesh" << std::endl;
     return nullptr;
   }
 
-  mesh->vertex_buffer_.label = @"VertexBuffer_Sphere";
+  size_t index_buffer_size = indices.size() * sizeof(uint32_t);
+  mesh->index_buffer_ = create_gpu_buffer(device, command_queue, indices.data(),
+                                          index_buffer_size, @"IndexBuffer_Sphere");
 
-  // Create index buffer
-  mesh->index_buffer_ =
-      [device newBufferWithBytes:indices.data()
-                          length:indices.size() * sizeof(uint32_t)
-                         options:MTLResourceCPUCacheModeWriteCombined];
-
-  if (!mesh->index_buffer_) {
+  if (!mesh->index_buffer_ && !indices.empty()) {
     std::cerr << "Failed to create Metal index buffer for mesh" << std::endl;
     return nullptr;
   }
-
-  mesh->index_buffer_.label = @"IndexBuffer_Sphere";
 
   return mesh;
 }
@@ -800,7 +866,7 @@ MetalBackend::create_shader(const std::string &vertex_src,
 std::unique_ptr<MetalMesh>
 MetalBackend::create_mesh(const std::vector<Vertex> &vertices,
                           const std::vector<uint32_t> &indices) {
-  return MetalMesh::create(device_, vertices, indices);
+  return MetalMesh::create(device_, command_queue_, vertices, indices);
 }
 
   std::unique_ptr<MetalTexture>
