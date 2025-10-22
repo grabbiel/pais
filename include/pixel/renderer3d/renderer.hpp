@@ -189,6 +189,9 @@ public:
   size_t vertex_count() const { return vertex_count_; }
   size_t index_count() const { return index_count_; }
 
+  const std::vector<Vertex> &vertices() const { return vertices_; }
+  const std::vector<uint32_t> &indices() const { return indices_; }
+
 private:
   Mesh() = default;
 
