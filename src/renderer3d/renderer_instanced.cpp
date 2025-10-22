@@ -95,12 +95,10 @@ void InstancedMesh::set_instances(const std::vector<InstanceData> &instances) {
     }
 
     auto *cmd = device_->getImmediate();
-    cmd->begin();
     cmd->copyToBuffer(instance_buffer_, 0,
                       std::span<const std::byte>(
                           reinterpret_cast<const std::byte *>(gpu_data.data()),
                           instance_count_ * sizeof(InstanceGPUData)));
-    cmd->end();
   }
 }
 
@@ -118,12 +116,10 @@ void InstancedMesh::update_instance(size_t index, const InstanceData &data) {
   InstanceGPUData gpu_data = data.to_gpu_data();
 
   auto *cmd = device_->getImmediate();
-  cmd->begin();
   cmd->copyToBuffer(
       instance_buffer_, index * sizeof(InstanceGPUData),
       std::span<const std::byte>(reinterpret_cast<const std::byte *>(&gpu_data),
                                  sizeof(InstanceGPUData)));
-  cmd->end();
 }
 
 void InstancedMesh::draw(rhi::CmdList *cmd) const {
