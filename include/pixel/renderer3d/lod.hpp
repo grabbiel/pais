@@ -108,7 +108,7 @@ public:
   void update_instance(size_t index, const InstanceData &data);
 
   // Update LOD selection based on camera
-  void update_lod_selection(const Renderer &renderer, double current_time);
+  void update_lod_selection(Renderer &renderer, double current_time);
 
   // Draw all LOD levels
   void draw_all_lods(rhi::CmdList *cmd) const;
@@ -133,6 +133,26 @@ public:
 private:
   LODMesh() = default;
 
+  struct GPUResources {
+    bool initialized = false;
+    rhi::ShaderHandle compute_shader{};
+    rhi::PipelineHandle compute_pipeline{};
+    rhi::BufferHandle source_instances{};
+    rhi::BufferHandle lod_assignments{};
+    rhi::BufferHandle lod_counters{};
+    rhi::BufferHandle lod_instance_indices{};
+    rhi::BufferHandle uniform_buffer{};
+  };
+
+  void update_lod_selection_cpu(Renderer &renderer, float delta_time,
+                                bool detailed_log);
+  void update_lod_selection_gpu(Renderer &renderer, float delta_time,
+                                bool detailed_log);
+
+  void apply_lod_results(const std::vector<uint32_t> &desired_lods,
+                         float delta_time, bool detailed_log,
+                         Renderer &renderer);
+
   uint32_t compute_lod_direct(const InstanceData &inst, float distance,
                               float screen_size,
                               const Renderer &renderer) const;
@@ -141,6 +161,8 @@ private:
                                        const InstanceLODState &state,
                                        float distance, float screen_size,
                                        const Renderer &renderer) const;
+
+  bool initialize_gpu_resources(size_t max_instances);
 
   rhi::Device *device_ = nullptr;
 
@@ -153,6 +175,11 @@ private:
   LODConfig config_;
   std::vector<InstanceLODState> instance_lod_states_;
   double last_update_time_ = 0.0;
+
+  bool use_gpu_lod_ = false;
+  GPUResources gpu_{};
+  std::vector<uint32_t> gpu_lod_assignments_;
+  std::array<uint32_t, 4> gpu_lod_counters_{0, 0, 0, 0};
 
   mutable LODStats last_stats_;
 };

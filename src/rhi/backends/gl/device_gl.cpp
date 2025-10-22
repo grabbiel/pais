@@ -676,7 +676,7 @@ public:
       shader_type = GL_VERTEX_SHADER;
     } else if (stage == "fs") {
       shader_type = GL_FRAGMENT_SHADER;
-    } else if (stage == "cs") {
+    } else if (stage == "cs" || stage.rfind("cs_", 0) == 0) {
       shader_type = GL_COMPUTE_SHADER;
     } else {
       std::cerr << "Unknown shader stage: " << stage << std::endl;
