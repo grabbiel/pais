@@ -567,6 +567,10 @@ bool MetalBackend::initialize(GLFWwindow *window) {
   last_completed_frame_id_ = 0;
   current_frame_context_ = nullptr;
 
+  profiling_enabled_ = false;
+  latest_stats_ = {};
+  setup_profiling();
+
   return true;
 }
 
@@ -627,6 +631,142 @@ MetalBackend::~MetalBackend() {
     inflight_semaphore_ = nullptr;
   }
 #endif
+
+#if PIXEL_METAL_COUNTERS_AVAILABLE
+  counter_sample_buffer_ = nil;
+  counter_resolve_buffer_ = nil;
+#endif
+}
+
+void MetalBackend::setup_profiling() {
+#if PIXEL_METAL_COUNTERS_AVAILABLE
+  profiling_enabled_ = false;
+  counter_sample_buffer_ = nil;
+  counter_resolve_buffer_ = nil;
+  counter_sample_range_ = NSMakeRange(0, 0);
+
+  if (!device_) {
+    return;
+  }
+
+  if (@available(macOS 11.0, iOS 14.0, *)) {
+    NSArray<id<MTLCounterSet>> *counterSets = device_.counterSets;
+    if (!counterSets || counterSets.count == 0) {
+      return;
+    }
+
+#ifdef MTLCounterSetStatistic
+    NSString *statisticName = MTLCounterSetStatistic;
+#else
+    NSString *statisticName = @"Statistic";
+#endif
+
+    id<MTLCounterSet> statisticSet = nil;
+    for (id<MTLCounterSet> set in counterSets) {
+      if ([[set name] isEqualToString:statisticName]) {
+        statisticSet = set;
+        break;
+      }
+    }
+
+    if (!statisticSet) {
+      std::cerr << "Metal GPU statistics counter set not available" << std::endl;
+      return;
+    }
+
+    MTLCounterSampleBufferDescriptor *descriptor =
+        [[MTLCounterSampleBufferDescriptor alloc] init];
+    descriptor.counterSet = statisticSet;
+    descriptor.sampleCount = kCounterSampleCount;
+    descriptor.storageMode = MTLStorageModeShared;
+
+    NSError *error = nil;
+    counter_sample_buffer_ =
+        [device_ newCounterSampleBufferWithDescriptor:descriptor error:&error];
+    if (!counter_sample_buffer_) {
+      std::cerr << "Failed to create Metal counter sample buffer" << std::endl;
+      if (error) {
+        std::cerr << "  Reason: "
+                  << to_std_string([error localizedDescription]) << std::endl;
+      }
+      return;
+    }
+
+    counter_resolve_buffer_ =
+        [device_ newBufferWithLength:sizeof(MTLCounterResultStatistic) *
+                                      kCounterSampleCount
+                                options:MTLResourceStorageModeShared];
+    if (!counter_resolve_buffer_) {
+      std::cerr << "Failed to allocate Metal counter resolve buffer" << std::endl;
+      counter_sample_buffer_ = nil;
+      return;
+    }
+
+    counter_sample_range_ = NSMakeRange(0, kCounterSampleCount);
+    profiling_enabled_ = true;
+  }
+#else
+  profiling_enabled_ = false;
+#endif
+}
+
+void MetalBackend::resolve_profiler_data(id<MTLCommandBuffer> command_buffer) {
+  latest_stats_ = {};
+#if PIXEL_METAL_COUNTERS_AVAILABLE
+  latest_stats_.valid = false;
+
+  if (!profiling_enabled_ || !counter_resolve_buffer_ || !counter_sample_buffer_) {
+    return;
+  }
+
+  if (!command_buffer) {
+    return;
+  }
+
+  if (@available(macOS 11.0, iOS 14.0, *)) {
+    void *contents = [counter_resolve_buffer_ contents];
+    if (!contents) {
+      return;
+    }
+
+    if (counter_sample_range_.length < 2) {
+      return;
+    }
+
+    const auto *results =
+        static_cast<const MTLCounterResultStatistic *>(contents);
+    NSUInteger startIndex = counter_sample_range_.location;
+    NSUInteger endIndex = startIndex + 1;
+    const MTLCounterResultStatistic &start = results[startIndex];
+    const MTLCounterResultStatistic &end = results[endIndex];
+
+    GPUFrameStats stats{};
+    stats.vertexInvocations =
+        end.vertexInvocations - start.vertexInvocations;
+    stats.fragmentInvocations =
+        end.fragmentInvocations - start.fragmentInvocations;
+    stats.totalCycles = end.totalCycles - start.totalCycles;
+    stats.renderTargetWriteCycles =
+        end.renderTargetWriteCycles - start.renderTargetWriteCycles;
+
+    if (command_buffer.GPUEndTime > command_buffer.GPUStartTime) {
+      double delta = command_buffer.GPUEndTime - command_buffer.GPUStartTime;
+      stats.shaderTimeMS = delta * 1000.0;
+      if (delta > 0.0) {
+        // Approximate bandwidth assuming each render-target write cycle commits
+        // 16 bytes of data. This provides a coarse estimate suitable for
+        // real-time HUDs during GPU capture.
+        const double estimatedBytes =
+            static_cast<double>(stats.renderTargetWriteCycles) * 16.0;
+        stats.estimatedBandwidthGBs =
+            (estimatedBytes / delta) / (1024.0 * 1024.0 * 1024.0);
+      }
+    }
+
+    stats.valid = true;
+    latest_stats_ = stats;
+  }
+#endif
 }
 
 void MetalBackend::begin_frame(const Color &clear_color) {
@@ -639,6 +779,8 @@ void MetalBackend::begin_frame(const Color &clear_color) {
     std::cerr << "Metal inflight semaphore not initialized" << std::endl;
     return;
   }
+
+  latest_stats_ = {};
 
   dispatch_semaphore_wait(inflight_semaphore_, DISPATCH_TIME_FOREVER);
 
@@ -677,6 +819,19 @@ void MetalBackend::begin_frame(const Color &clear_color) {
       [NSString stringWithFormat:@"Frame_%llu", current_frame_id_];
   command_buffer_.label = frameLabel;
 
+#if PIXEL_METAL_COUNTERS_AVAILABLE
+  if (profiling_enabled_ && counter_sample_buffer_) {
+    if (@available(macOS 11.0, iOS 14.0, *)) {
+      [counter_sample_buffer_ resetWithRange:counter_sample_range_];
+      [command_buffer_ sampleCountersInBuffer:counter_sample_buffer_
+                                atSampleIndex:0
+                                   withBarrier:YES];
+    }
+  }
+#endif
+
+  [command_buffer_ pushDebugGroup:frameLabel];
+
   FrameContext *captured_context = current_frame_context_;
   MetalBackend *backend = this;
   [command_buffer_ addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
@@ -685,6 +840,7 @@ void MetalBackend::begin_frame(const Color &clear_color) {
 
   if (!setup_render_pass_descriptor()) {
     std::cerr << "Failed to configure Metal render pass descriptor" << std::endl;
+    [command_buffer_ popDebugGroup];
     command_buffer_ = nil;
     current_drawable_ = nil;
     abort_frame(frame_context);
@@ -699,6 +855,7 @@ void MetalBackend::begin_frame(const Color &clear_color) {
 
   if (!render_encoder_) {
     std::cerr << "Failed to create Metal render command encoder" << std::endl;
+    [command_buffer_ popDebugGroup];
     command_buffer_ = nil;
     current_drawable_ = nil;
     abort_frame(frame_context);
@@ -706,6 +863,7 @@ void MetalBackend::begin_frame(const Color &clear_color) {
   }
 
   render_encoder_.label = @"MainPass";
+  [render_encoder_ pushDebugGroup:@"MainRenderPass"];
 }
 
 void MetalBackend::end_frame() {
@@ -722,7 +880,22 @@ void MetalBackend::end_frame() {
     return;
   }
 
+  [render_encoder_ popDebugGroup];
   [render_encoder_ endEncoding];
+
+#if PIXEL_METAL_COUNTERS_AVAILABLE
+  if (profiling_enabled_ && counter_sample_buffer_ && counter_resolve_buffer_) {
+    if (@available(macOS 11.0, iOS 14.0, *)) {
+      [command_buffer_ sampleCountersInBuffer:counter_sample_buffer_
+                                atSampleIndex:1
+                                   withBarrier:YES];
+      [command_buffer_ resolveCounters:counter_sample_buffer_
+                                inRange:counter_sample_range_
+                       destinationBuffer:counter_resolve_buffer_
+                      destinationOffset:0];
+    }
+  }
+#endif
 
   [command_buffer_ presentDrawable:current_drawable_];
 
@@ -733,6 +906,7 @@ void MetalBackend::end_frame() {
 
   track_inflight_command_buffer(command_buffer_);
 
+  [command_buffer_ popDebugGroup];
   [command_buffer_ commit];
 
   render_encoder_ = nil;
@@ -930,6 +1104,8 @@ std::string MetalBackend::describe_command_buffer(
 
 void MetalBackend::on_command_buffer_complete(
     id<MTLCommandBuffer> command_buffer, FrameContext *frame_context) {
+  resolve_profiler_data(command_buffer);
+
   if (command_buffer && command_buffer.status == MTLCommandBufferStatusError) {
     std::string context = "command buffer " + describe_command_buffer(command_buffer);
     log_nserror(context, command_buffer.error);
@@ -1133,6 +1309,8 @@ void MetalBackend::draw_mesh(const MetalMesh &mesh, const Vec3 &position,
   mark_resource_in_use(&mesh);
   mark_resource_in_use(shader);
 
+  [render_encoder_ pushDebugGroup:@"DrawMesh"];
+
   DepthStencilStateKey key = make_depth_stencil_key(material);
   id<MTLDepthStencilState> depth_state = get_depth_stencil_state(key);
 
@@ -1147,6 +1325,8 @@ void MetalBackend::draw_mesh(const MetalMesh &mesh, const Vec3 &position,
   }
 
   mesh.draw(render_encoder_);
+
+  [render_encoder_ popDebugGroup];
 }
 
 } // namespace pixel::renderer3d::metal
