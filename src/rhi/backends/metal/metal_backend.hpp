@@ -9,6 +9,13 @@
 #include <MetalKit/MetalKit.h>
 #include <QuartzCore/CAMetalLayer.h>
 
+#if __has_include(<Metal/MTLCounter.h>)
+#import <Metal/MTLCounter.h>
+#define PIXEL_METAL_COUNTERS_AVAILABLE 1
+#else
+#define PIXEL_METAL_COUNTERS_AVAILABLE 0
+#endif
+
 #include <array>
 #include <cstdint>
 #include <condition_variable>
@@ -176,6 +183,18 @@ public:
   int viewport_width() const { return viewport_width_; }
   int viewport_height() const { return viewport_height_; }
 
+  struct GPUFrameStats {
+    bool valid{false};
+    uint64_t vertexInvocations{0};
+    uint64_t fragmentInvocations{0};
+    uint64_t totalCycles{0};
+    uint64_t renderTargetWriteCycles{0};
+    double shaderTimeMS{0.0};
+    double estimatedBandwidthGBs{0.0};
+  };
+
+  const GPUFrameStats &latest_gpu_stats() const { return latest_stats_; }
+
 private:
   struct FrameContext;
   MetalBackend() = default;
@@ -191,6 +210,8 @@ private:
   void mark_resource_in_use(const MetalResource *resource);
   void enqueue_completion_task(std::function<void()> callback);
   void abort_frame(struct FrameContext &context);
+  void setup_profiling();
+  void resolve_profiler_data(id<MTLCommandBuffer> command_buffer);
 
   static constexpr size_t kMaxFramesInFlight = 3;
 
@@ -290,6 +311,15 @@ private:
   std::unordered_map<DepthStencilStateKey, id<MTLDepthStencilState>,
                      DepthStencilStateKeyHash>
       depth_stencil_states_;
+
+#if PIXEL_METAL_COUNTERS_AVAILABLE
+  static constexpr NSUInteger kCounterSampleCount = 2;
+  id<MTLCounterSampleBuffer> counter_sample_buffer_ = nil;
+  id<MTLBuffer> counter_resolve_buffer_ = nil;
+  NSRange counter_sample_range_ = {0, 0};
+#endif
+  bool profiling_enabled_{false};
+  GPUFrameStats latest_stats_;
 
   std::unique_ptr<MetalShader> default_shader_;
   std::vector<std::unique_ptr<MetalResource>> resources_;
