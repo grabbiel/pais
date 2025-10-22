@@ -4,7 +4,10 @@
 #if PIXEL_USE_METAL && __APPLE__
 
 #include "pixel/renderer3d/renderer.hpp"
+#include "pixel/rhi/backends/metal/metal_renderer.hpp"
+
 #include <iostream>
+#include <memory>
 
 namespace pixel::renderer3d {
 
@@ -13,12 +16,13 @@ namespace pixel::renderer3d {
 // For now, this is a stub that always returns nullptr to fall back to OpenGL
 std::unique_ptr<Renderer>
 create_metal_renderer(const pixel::platform::WindowSpec &spec) {
-  std::cout << "Metal backend not yet implemented, using OpenGL fallback"
-            << std::endl;
-  return nullptr;
+  auto metal_renderer = metal::MetalRenderer::create(spec);
+  if (!metal_renderer) {
+    std::cerr << "Failed to create Metal renderer" << std::endl;
+    return nullptr;
+  }
 
-  // When Metal implementation is ready, this would call:
-  // return metal::MetalRenderer::create(spec);
+  return std::unique_ptr<Renderer>(metal_renderer.release());
 }
 
 } // namespace pixel::renderer3d
