@@ -23,15 +23,13 @@ struct VertexInInstanced {
     float2 texCoord [[attribute(2)]];
     float4 color    [[attribute(3)]];
 
-    // Per-instance attributes (buffer 2)
-    // Pre-calculated transformation matrix (4x4 matrix uses 4 attribute slots)
-    float4 instanceTransformCol0 [[attribute(4)]];
-    float4 instanceTransformCol1 [[attribute(5)]];
-    float4 instanceTransformCol2 [[attribute(6)]];
-    float4 instanceTransformCol3 [[attribute(7)]];
-    float4 instanceColor         [[attribute(8)]];
-    float instanceTextureIndex   [[attribute(9)]];
-    float instanceLodAlpha       [[attribute(10)]];
+    // Per-instance attributes (buffer 2) - matches InstanceGPUData layout
+    float3 instancePosition    [[attribute(4)]];
+    float3 instanceRotation    [[attribute(5)]];
+    float3 instanceScale       [[attribute(6)]];
+    float4 instanceColor       [[attribute(7)]];
+    float instanceTextureIndex [[attribute(8)]];
+    float instanceLodAlpha     [[attribute(9)]];
 };
 
 struct VertexOut {
@@ -129,40 +127,51 @@ fragment float4 fragment_main(
 // Instanced Rendering Shaders
 // ============================================================================
 
-// OPTIMIZED: Uses pre-calculated transformation matrix from CPU
 vertex VertexOutInstanced vertex_instanced(
     VertexInInstanced in [[stage_in]],
     constant Uniforms& uniforms [[buffer(1)]]
 ) {
     VertexOutInstanced out;
 
-    // Reconstruct the pre-calculated transformation matrix from the 4 column vectors
-    float4x4 instanceTransform = float4x4(
-        in.instanceTransformCol0,
-        in.instanceTransformCol1,
-        in.instanceTransformCol2,
-        in.instanceTransformCol3
+    // Apply scale, rotation (XYZ Euler), and translation using per-instance data
+    float3 scaledPos = in.position * in.instanceScale;
+
+    float sx = sin(in.instanceRotation.x);
+    float cx = cos(in.instanceRotation.x);
+    float sy = sin(in.instanceRotation.y);
+    float cy = cos(in.instanceRotation.y);
+    float sz = sin(in.instanceRotation.z);
+    float cz = cos(in.instanceRotation.z);
+
+    float3x3 rotX = float3x3(
+        float3(1.0, 0.0, 0.0),
+        float3(0.0,  cx, -sx),
+        float3(0.0,  sx,  cx)
     );
 
-    // Apply instance transform to vertex position (calculated once on CPU)
-    float4 localPos = float4(in.position, 1.0);
-    float4 instancedPos = instanceTransform * localPos;
+    float3x3 rotY = float3x3(
+        float3( cy, 0.0, sy),
+        float3(0.0, 1.0, 0.0),
+        float3(-sy, 0.0, cy)
+    );
 
-    // Apply model, view, projection transforms
-    float4 worldPos = uniforms.model * instancedPos;
+    float3x3 rotZ = float3x3(
+        float3( cz, -sz, 0.0),
+        float3( sz,  cz, 0.0),
+        float3(0.0, 0.0, 1.0)
+    );
+
+    float3x3 rotation = rotZ * rotY * rotX;
+
+    float3 rotatedPos = rotation * scaledPos;
+    float3 worldPosition = rotatedPos + in.instancePosition;
+
+    float4 worldPos = uniforms.model * float4(worldPosition, 1.0);
     out.fragPos = worldPos.xyz;
     out.position = uniforms.projection * uniforms.view * worldPos;
 
-    // FIXED: Use normalMatrix for correct normal transformation
-    // Transform normal using normalMatrix combined with instance transform
-    // Note: For instances, we also need to account for the instance transform's rotation/scale
-    // Extract 3x3 from instanceTransform for normal (assuming uniform scaling per instance for now)
-    float3x3 instanceRotScale = float3x3(
-        instanceTransform[0].xyz,
-        instanceTransform[1].xyz,
-        instanceTransform[2].xyz
-    );
-    float3 transformedNormal = instanceRotScale * in.normal;
+    // Transform normal using instance rotation and the uniform normal matrix
+    float3 transformedNormal = rotation * in.normal;
     out.normal = (uniforms.normalMatrix * float4(transformedNormal, 0.0)).xyz;
 
     // Pass through texture coordinates

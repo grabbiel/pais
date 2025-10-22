@@ -405,36 +405,37 @@ struct MetalDevice::Impl {
     vertexDesc.layouts[0].stepFunction = MTLVertexStepFunctionPerVertex;
 
     if (instanced) {
-      // Per-instance attributes (buffer 2, locations 4-10)
-      vertexDesc.attributes[4].format = MTLVertexFormatFloat4;
+      // Per-instance attributes (buffer 2, locations 4-9)
+      // Matches pixel::renderer3d::InstanceGPUData layout used by the GL backend
+      vertexDesc.attributes[4].format = MTLVertexFormatFloat3; // position
       vertexDesc.attributes[4].offset = 0;
       vertexDesc.attributes[4].bufferIndex = 2;
 
-      vertexDesc.attributes[5].format = MTLVertexFormatFloat4;
-      vertexDesc.attributes[5].offset = 16;
+      vertexDesc.attributes[5].format = MTLVertexFormatFloat3; // rotation
+      vertexDesc.attributes[5].offset = 12;
       vertexDesc.attributes[5].bufferIndex = 2;
 
-      vertexDesc.attributes[6].format = MTLVertexFormatFloat4;
-      vertexDesc.attributes[6].offset = 32;
+      vertexDesc.attributes[6].format = MTLVertexFormatFloat3; // scale
+      vertexDesc.attributes[6].offset = 24;
       vertexDesc.attributes[6].bufferIndex = 2;
 
-      vertexDesc.attributes[7].format = MTLVertexFormatFloat4;
-      vertexDesc.attributes[7].offset = 48;
+      vertexDesc.attributes[7].format = MTLVertexFormatFloat4; // color
+      vertexDesc.attributes[7].offset = 36;
       vertexDesc.attributes[7].bufferIndex = 2;
 
-      vertexDesc.attributes[8].format = MTLVertexFormatFloat4;
-      vertexDesc.attributes[8].offset = 64;
+      vertexDesc.attributes[8].format = MTLVertexFormatFloat; // texture index
+      vertexDesc.attributes[8].offset = 52;
       vertexDesc.attributes[8].bufferIndex = 2;
 
-      vertexDesc.attributes[9].format = MTLVertexFormatFloat;
-      vertexDesc.attributes[9].offset = 80;
+      // Skip culling radius at offset 56 (CPU side only)
+
+      vertexDesc.attributes[9].format = MTLVertexFormatFloat; // LOD alpha
+      vertexDesc.attributes[9].offset = 60;
       vertexDesc.attributes[9].bufferIndex = 2;
 
-      vertexDesc.attributes[10].format = MTLVertexFormatFloat;
-      vertexDesc.attributes[10].offset = 88;
-      vertexDesc.attributes[10].bufferIndex = 2;
+      vertexDesc.attributes[10].format = MTLVertexFormatInvalid;
 
-      vertexDesc.layouts[2].stride = 96;
+      vertexDesc.layouts[2].stride = sizeof(float) * 17; // 68 bytes
       vertexDesc.layouts[2].stepFunction = MTLVertexStepFunctionPerInstance;
       vertexDesc.layouts[2].stepRate = 1;
     }
