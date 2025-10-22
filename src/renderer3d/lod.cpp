@@ -829,6 +829,18 @@ void LODMesh::draw_all_lods(rhi::CmdList *cmd) const {
   }
 }
 
+InstancedMesh *LODMesh::lod_mesh(size_t lod_index) {
+  if (lod_index >= lod_meshes_.size())
+    return nullptr;
+  return lod_meshes_[lod_index].get();
+}
+
+const InstancedMesh *LODMesh::lod_mesh(size_t lod_index) const {
+  if (lod_index >= lod_meshes_.size())
+    return nullptr;
+  return lod_meshes_[lod_index].get();
+}
+
 LODMesh::LODStats LODMesh::get_stats() const {
   for (int i = 0; i < 3; i++) {
     if (lod_meshes_[i]) {
@@ -852,14 +864,44 @@ void RendererLOD::draw_lod(Renderer &renderer, LODMesh &mesh,
   if (!shader)
     return;
 
-  renderer.use_shader(*shader);
+  auto *cmd = renderer.device()->getImmediate();
+  cmd->setPipeline(shader->pipeline(base_material.blend_mode));
 
-  // Draw each LOD level
-  for (int lod = 0; lod < 3; lod++) {
-    auto *instanced_mesh = mesh.lod_mesh(lod);
+  glm::mat4 model = glm::mat4(1.0f);
+  cmd->setUniformMat4("model", glm::value_ptr(model));
+
+  glm::mat3 normalMatrix3x3 = glm::mat3(1.0f);
+  glm::mat4 normalMatrix4x4 = glm::mat4(normalMatrix3x3);
+  cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
+
+  float view[16], projection[16];
+  renderer.camera().get_view_matrix(view);
+  renderer.camera().get_projection_matrix(projection, renderer.window_width(),
+                                          renderer.window_height());
+  cmd->setUniformMat4("view", view);
+  cmd->setUniformMat4("projection", projection);
+
+  float light_pos[3] = {10.0f, 10.0f, 10.0f};
+  float view_pos[3] = {renderer.camera().position.x,
+                       renderer.camera().position.y,
+                       renderer.camera().position.z};
+  cmd->setUniformVec3("lightPos", light_pos);
+  cmd->setUniformVec3("viewPos", view_pos);
+
+  cmd->setUniformFloat("uTime", static_cast<float>(renderer.time()));
+  cmd->setUniformInt("uDitherEnabled", 1);
+
+  if (base_material.texture_array.id != 0) {
+    cmd->setTexture("uTextureArray", base_material.texture_array, 1);
+    cmd->setUniformInt("useTextureArray", 1);
+  } else {
+    cmd->setUniformInt("useTextureArray", 0);
+  }
+
+  for (size_t lod = 0; lod < 3; ++lod) {
+    const InstancedMesh *instanced_mesh = mesh.lod_mesh(lod);
     if (instanced_mesh && instanced_mesh->instance_count() > 0) {
-      renderer.use_material(base_material);
-      instanced_mesh->draw(renderer.cmd());
+      instanced_mesh->draw(cmd);
     }
   }
 }

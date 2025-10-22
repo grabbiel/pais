@@ -113,6 +113,9 @@ public:
   // Draw all LOD levels
   void draw_all_lods(rhi::CmdList *cmd) const;
 
+  InstancedMesh *lod_mesh(size_t lod_index);
+  const InstancedMesh *lod_mesh(size_t lod_index) const;
+
   // Get statistics
   struct LODStats {
     uint32_t total_instances = 0;
