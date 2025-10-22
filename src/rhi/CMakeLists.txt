@@ -13,16 +13,13 @@ if(APPLE)
   message(STATUS "RHI: Configuring for macOS/ARM64")
 
   if(PIXEL_HAS_METAL)
-    # Metal backend sources
+    # Metal backend sources (RHI implementation only)
     set(RHI_BACKEND_SOURCES
       backends/metal/device_metal.mm
       backends/metal/cmd_metal.mm
       backends/metal/pipeline_metal.mm
-      backends/metal/metal_backend.mm
-      backends/metal/metal_renderer.mm
-      backends/metal/metal_factory.cpp
     )
-    message(STATUS "RHI: Using Metal backend (primary)")
+    message(STATUS "RHI: Using Metal backend (RHI implementation)")
 
     # Optional: Add OpenGL 3.3 Core fallback if available
     # Only include GL sources that are compatible with OpenGL 3.3
@@ -141,8 +138,6 @@ if(APPLE)
   # Enable Objective-C++ for Metal sources
   if(PIXEL_HAS_METAL)
     set_source_files_properties(
-      backends/metal/metal_backend.mm
-      backends/metal/metal_renderer.mm
       backends/metal/device_metal.mm
       backends/metal/cmd_metal.mm
       backends/metal/pipeline_metal.mm
@@ -161,7 +156,6 @@ elseif(WIN32)
   )
 
 elseif(UNIX)
-  target_link_libraries(pixel_rhi PUBLIC ${CMAKE_DL_LIBS})
   target_compile_definitions(pixel_rhi PUBLIC
     PIXEL_RHI_BACKEND_GL43=1
   )
@@ -173,6 +167,17 @@ endif()
 
 target_compile_options(pixel_rhi PRIVATE ${PIXEL_WARN_CXX})
 
+if(MSVC)
+  target_compile_options(pixel_rhi PRIVATE
+    /wd4201  # nonstandard extension used: nameless struct/union
+  )
+else()
+  target_compile_options(pixel_rhi PRIVATE
+    -Wno-gnu-anonymous-struct
+    -Wno-nested-anon-types
+  )
+endif()
+
 # ============================================================================
 # Create alias (only if not already exists)
 # ============================================================================
@@ -183,21 +188,15 @@ if(NOT TARGET pixel::rhi)
 endif()
 
 # ============================================================================
-# Configuration messages
+# Configuration summary
 # ============================================================================
 
 message(STATUS "RHI Configuration:")
-message(STATUS "  Platform:          ${CMAKE_SYSTEM_NAME}")
-message(STATUS "  Architecture:      ${CMAKE_SYSTEM_PROCESSOR}")
 if(APPLE AND PIXEL_HAS_METAL)
-  message(STATUS "  Primary Backend:   Metal")
-  message(STATUS "  Fallback Backend:  OpenGL 3.3 Core (if available)")
-  message(STATUS "  OpenGL 4.3+:       DISABLED (deprecated on macOS)")
+  message(STATUS "  Backend:     Metal (via RHI abstraction)")
+  message(STATUS "  API Version: Metal 2.0+")
 elseif(APPLE)
-  message(STATUS "  Backend:           OpenGL 3.3 Core")
-  message(STATUS "  OpenGL 4.3+:       DISABLED (deprecated on macOS)")
-else()
-  message(STATUS "  Backend:           OpenGL 4.3+")
+  message(STATUS "  Backend:     OpenGL 3.3 Core")
+elseif(WIN32 OR UNIX)
+  message(STATUS "  Backend:     OpenGL 4.3+")
 endif()
-message(STATUS "  Device Abstraction: ENABLED")
-message(STATUS "  Command Lists:     ENABLED")
