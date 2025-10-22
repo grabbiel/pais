@@ -672,9 +672,9 @@ public:
                        bytes.size());
 
     GLenum shader_type;
-    if (stage == "vs") {
+    if (stage == "vs" || stage.rfind("vs_", 0) == 0) {
       shader_type = GL_VERTEX_SHADER;
-    } else if (stage == "fs") {
+    } else if (stage == "fs" || stage.rfind("fs_", 0) == 0) {
       shader_type = GL_FRAGMENT_SHADER;
     } else if (stage == "cs" || stage.rfind("cs_", 0) == 0) {
       shader_type = GL_COMPUTE_SHADER;
