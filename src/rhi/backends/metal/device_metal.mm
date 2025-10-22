@@ -13,10 +13,13 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <optional>
 #include <type_traits>
 #include <unordered_map>
+#include <vector>
 
 namespace pixel::rhi {
 
@@ -51,6 +54,67 @@ constexpr uint32_t kTotalUniformSlots = kFramesInFlight * kMaxDrawCallsPerFrame;
 // ============================================================================
 // Metal Resource Structures
 // ============================================================================
+
+struct UniformAllocator {
+  struct Allocation {
+    id<MTLBuffer> buffer = nil;
+    size_t offset = 0;
+    void *cpu_ptr = nullptr;
+  };
+
+  id<MTLBuffer> buffer = nil;
+  size_t total_size = 0;
+  size_t frame_size = 0;
+  size_t cursor = 0;
+  uint32_t frame_index = 0;
+
+  bool initialize(id<MTLDevice> device, size_t size) {
+    total_size = size;
+    frame_size = size / kFramesInFlight;
+    if (frame_size == 0) {
+      frame_size = size;
+    }
+    buffer = [device newBufferWithLength:size
+                                  options:(MTLResourceStorageModeShared |
+                                           MTLResourceCPUCacheModeWriteCombined)];
+    if (!buffer) {
+      return false;
+    }
+
+    memset(buffer.contents, 0, size);
+    cursor = 0;
+    frame_index = 0;
+    return true;
+  }
+
+  void reset(uint32_t new_frame_index) {
+    frame_index = new_frame_index % kFramesInFlight;
+    cursor = std::min(frame_index * frame_size, total_size);
+  }
+
+  std::optional<Allocation> allocate(size_t size, size_t alignment) {
+    if (!buffer || !buffer.contents) {
+      return std::nullopt;
+    }
+
+    size_t frame_start = frame_index * frame_size;
+    size_t frame_end = std::min(frame_start + frame_size, total_size);
+    size_t aligned = (cursor + (alignment - 1)) & ~(alignment - 1);
+
+    if (aligned + size > frame_end) {
+      return std::nullopt;
+    }
+
+    cursor = aligned + size;
+
+    Allocation alloc;
+    alloc.buffer = buffer;
+    alloc.offset = aligned;
+    alloc.cpu_ptr = (uint8_t *)buffer.contents + aligned;
+    return alloc;
+  }
+};
+
 struct MTLBufferResource {
   id<MTLBuffer> buffer = nil;
   size_t size = 0;
@@ -267,7 +331,7 @@ struct MetalDevice::Impl {
   id<MTLTexture> depth_texture_ = nil;
   id<MTLDepthStencilState> default_depth_stencil_ = nil;
   id<MTLLibrary> library_ = nil;
-  id<MTLBuffer> uniform_buffer_ = nil;
+  UniformAllocator uniform_allocator_;
 
   std::unordered_map<uint32_t, MTLBufferResource> buffers_;
   std::unordered_map<uint32_t, MTLTextureResource> textures_;
@@ -300,13 +364,11 @@ struct MetalDevice::Impl {
     default_depth_stencil_ =
         [device_ newDepthStencilStateWithDescriptor:depthDesc];
 
-    // Initialize ring buffer for uniforms
-    // Allocate space for all frames and all draw calls per frame
+    // Initialize ring buffer allocator for frequently changing uniform data
     size_t ringBufferSize = sizeof(Uniforms) * kTotalUniformSlots;
-    uniform_buffer_ =
-        [device_ newBufferWithLength:ringBufferSize
-                             options:MTLResourceStorageModeShared];
-    memset(uniform_buffer_.contents, 0, ringBufferSize);
+    if (!uniform_allocator_.initialize(device_, ringBufferSize)) {
+      std::cerr << "Failed to create Metal uniform allocator buffer" << std::endl;
+    }
 
     immediate_ = std::make_unique<MetalCmdList>(this);
   }
@@ -425,7 +487,8 @@ BufferHandle MetalDevice::createBuffer(const BufferDesc &desc) {
   buffer.host_visible = desc.hostVisible;
 
   MTLResourceOptions options = buffer.host_visible
-                                   ? MTLResourceStorageModeShared
+                                   ? (MTLResourceStorageModeShared |
+                                      MTLResourceCPUCacheModeWriteCombined)
                                    : MTLResourceStorageModePrivate;
 
   buffer.buffer = [impl_->device_ newBufferWithLength:desc.size
@@ -760,7 +823,8 @@ struct MetalCmdList::Impl {
   id<MTLCommandQueue> command_queue_;
   CAMetalLayer *layer_;
   id<MTLTexture> depth_texture_;
-  id<MTLBuffer> uniform_buffer_;
+  UniformAllocator *uniform_allocator_ = nullptr;
+  UniformAllocator::Allocation current_uniform_{};
 
   std::unordered_map<uint32_t, MTLBufferResource> *buffers_;
   std::unordered_map<uint32_t, MTLTextureResource> *textures_;
@@ -783,15 +847,16 @@ struct MetalCmdList::Impl {
   size_t current_ib_offset_ = 0;
 
   // Ring buffer tracking
-  uint32_t *frame_index_;        // Pointer to device's frame index
-  uint32_t draw_call_index_ = 0; // Current draw call within frame
+  uint32_t *frame_index_; // Pointer to device's frame index
+  bool uniform_block_active_ = false;
+  std::vector<id<MTLBuffer>> staging_uploads_;
 
   Impl(MetalDevice::Impl *device_impl)
       : device_(device_impl->device_),
         command_queue_(device_impl->command_queue_),
         layer_(device_impl->layer_),
         depth_texture_(device_impl->depth_texture_),
-        uniform_buffer_(device_impl->uniform_buffer_),
+        uniform_allocator_(&device_impl->uniform_allocator_),
         buffers_(&device_impl->buffers_), textures_(&device_impl->textures_),
         pipelines_(&device_impl->pipelines_),
         frame_index_(&device_impl->frame_index_) {}
@@ -800,17 +865,52 @@ struct MetalCmdList::Impl {
     // ARC handles cleanup
   }
 
-  // Calculate uniform buffer offset for current frame and draw call
-  size_t getCurrentUniformOffset() const {
-    uint32_t slot_index =
-        (*frame_index_) * kMaxDrawCallsPerFrame + draw_call_index_;
-    return slot_index * sizeof(Uniforms);
+  bool ensureUniformBlock() {
+    if (uniform_block_active_) {
+      return current_uniform_.cpu_ptr != nullptr;
+    }
+
+    if (!uniform_allocator_) {
+      return false;
+    }
+
+    auto allocation =
+        uniform_allocator_->allocate(sizeof(Uniforms), alignof(Uniforms));
+    if (!allocation) {
+      std::cerr << "Metal uniform allocator exhausted for frame" << std::endl;
+      return false;
+    }
+
+    current_uniform_ = *allocation;
+    memset(current_uniform_.cpu_ptr, 0, sizeof(Uniforms));
+    uniform_block_active_ = true;
+    return true;
   }
 
-  // Get pointer to current uniform slot
+  void resetUniformBlock() {
+    uniform_block_active_ = false;
+    current_uniform_ = {};
+  }
+
+  size_t getCurrentUniformOffset() const { return current_uniform_.offset; }
+
   Uniforms *getCurrentUniformSlot() {
-    size_t offset = getCurrentUniformOffset();
-    return (Uniforms *)((uint8_t *)uniform_buffer_.contents + offset);
+    if (!ensureUniformBlock()) {
+      return nullptr;
+    }
+    return reinterpret_cast<Uniforms *>(current_uniform_.cpu_ptr);
+  }
+
+  void bindCurrentUniformBlock(id<MTLRenderCommandEncoder> encoder) {
+    if (!uniform_block_active_ || !current_uniform_.buffer || !encoder) {
+      return;
+    }
+    [encoder setVertexBuffer:current_uniform_.buffer
+                       offset:current_uniform_.offset
+                      atIndex:1];
+    [encoder setFragmentBuffer:current_uniform_.buffer
+                         offset:current_uniform_.offset
+                        atIndex:1];
   }
 
   void endRenderEncoderIfNeeded() {
@@ -859,6 +959,12 @@ MetalCmdList::MetalCmdList(MetalDevice::Impl *device_impl)
 MetalCmdList::~MetalCmdList() = default;
 
 void MetalCmdList::begin() {
+  if (impl_->uniform_allocator_) {
+    impl_->uniform_allocator_->reset(*impl_->frame_index_);
+  }
+  impl_->resetUniformBlock();
+  impl_->staging_uploads_.clear();
+
   impl_->recording_ = true;
   impl_->command_buffer_ = [impl_->command_queue_ commandBuffer];
   impl_->render_encoder_ = nil;
@@ -874,8 +980,7 @@ void MetalCmdList::begin() {
 }
 
 void MetalCmdList::beginRender(const RenderPassDesc &desc) {
-  // Reset draw call counter at the start of each frame
-  impl_->draw_call_index_ = 0;
+  impl_->resetUniformBlock();
 
   impl_->endComputeEncoderIfNeeded();
 
@@ -1119,6 +1224,9 @@ void MetalCmdList::setInstanceBuffer(BufferHandle handle, size_t stride,
 
 void MetalCmdList::setUniformMat4(const char *name, const float *mat4x4) {
   Uniforms *uniforms = impl_->getCurrentUniformSlot();
+  if (!uniforms) {
+    return;
+  }
   std::string name_str(name);
 
   if (name_str == "model") {
@@ -1131,19 +1239,14 @@ void MetalCmdList::setUniformMat4(const char *name, const float *mat4x4) {
     memcpy(uniforms->normalMatrix, mat4x4, sizeof(float) * 16);
   }
 
-  // Bind uniform buffer with offset to both vertex and fragment shaders (index
-  // 1)
-  size_t offset = impl_->getCurrentUniformOffset();
-  [impl_->render_encoder_ setVertexBuffer:impl_->uniform_buffer_
-                                   offset:offset
-                                  atIndex:1];
-  [impl_->render_encoder_ setFragmentBuffer:impl_->uniform_buffer_
-                                     offset:offset
-                                    atIndex:1];
+  impl_->bindCurrentUniformBlock(impl_->render_encoder_);
 }
 
 void MetalCmdList::setUniformVec3(const char *name, const float *vec3) {
   Uniforms *uniforms = impl_->getCurrentUniformSlot();
+  if (!uniforms) {
+    return;
+  }
   std::string name_str(name);
 
   if (name_str == "lightPos") {
@@ -1156,28 +1259,24 @@ void MetalCmdList::setUniformVec3(const char *name, const float *vec3) {
     uniforms->viewPos[2] = vec3[2];
   }
 
-  size_t offset = impl_->getCurrentUniformOffset();
-  [impl_->render_encoder_ setVertexBuffer:impl_->uniform_buffer_
-                                   offset:offset
-                                  atIndex:1];
-  [impl_->render_encoder_ setFragmentBuffer:impl_->uniform_buffer_
-                                     offset:offset
-                                    atIndex:1];
+  impl_->bindCurrentUniformBlock(impl_->render_encoder_);
 }
 
 void MetalCmdList::setUniformVec4(const char *name, const float *vec4) {
-  // Currently not used in shaders, but available for future use
-  size_t offset = impl_->getCurrentUniformOffset();
-  [impl_->render_encoder_ setVertexBuffer:impl_->uniform_buffer_
-                                   offset:offset
-                                  atIndex:1];
-  [impl_->render_encoder_ setFragmentBuffer:impl_->uniform_buffer_
-                                     offset:offset
-                                    atIndex:1];
+  (void)name;
+  (void)vec4;
+  if (!impl_->getCurrentUniformSlot()) {
+    return;
+  }
+  // Currently not used in shaders, but ensure buffer is bound
+  impl_->bindCurrentUniformBlock(impl_->render_encoder_);
 }
 
 void MetalCmdList::setUniformInt(const char *name, int value) {
   Uniforms *uniforms = impl_->getCurrentUniformSlot();
+  if (!uniforms) {
+    return;
+  }
   std::string name_str(name);
 
   if (name_str == "useTexture") {
@@ -1188,17 +1287,14 @@ void MetalCmdList::setUniformInt(const char *name, int value) {
     uniforms->ditherEnabled = value;
   }
 
-  size_t offset = impl_->getCurrentUniformOffset();
-  [impl_->render_encoder_ setVertexBuffer:impl_->uniform_buffer_
-                                   offset:offset
-                                  atIndex:1];
-  [impl_->render_encoder_ setFragmentBuffer:impl_->uniform_buffer_
-                                     offset:offset
-                                    atIndex:1];
+  impl_->bindCurrentUniformBlock(impl_->render_encoder_);
 }
 
 void MetalCmdList::setUniformFloat(const char *name, float value) {
   Uniforms *uniforms = impl_->getCurrentUniformSlot();
+  if (!uniforms) {
+    return;
+  }
   std::string name_str(name);
 
   if (name_str == "time" || name_str == "uTime") {
@@ -1209,13 +1305,7 @@ void MetalCmdList::setUniformFloat(const char *name, float value) {
     uniforms->crossfadeDuration = value;
   }
 
-  size_t offset = impl_->getCurrentUniformOffset();
-  [impl_->render_encoder_ setVertexBuffer:impl_->uniform_buffer_
-                                   offset:offset
-                                  atIndex:1];
-  [impl_->render_encoder_ setFragmentBuffer:impl_->uniform_buffer_
-                                     offset:offset
-                                    atIndex:1];
+  impl_->bindCurrentUniformBlock(impl_->render_encoder_);
 }
 
 void MetalCmdList::setUniformBuffer(uint32_t binding, BufferHandle buffer,
@@ -1327,15 +1417,7 @@ void MetalCmdList::drawIndexed(uint32_t indexCount, uint32_t firstIndex,
                               indexBufferOffset:indexOffset
                                   instanceCount:instanceCount];
 
-  // Increment draw call counter for next draw
-  impl_->draw_call_index_++;
-
-  // Safety check: warn if we exceed maximum draws per frame
-  if (impl_->draw_call_index_ >= kMaxDrawCallsPerFrame) {
-    std::cerr << "Warning: Exceeded maximum draw calls per frame ("
-              << kMaxDrawCallsPerFrame << ")" << std::endl;
-    impl_->draw_call_index_ = kMaxDrawCallsPerFrame - 1;
-  }
+  impl_->resetUniformBlock();
 }
 
 void MetalCmdList::setComputePipeline(PipelineHandle handle) {
@@ -1457,28 +1539,74 @@ void MetalCmdList::endRender() {
   impl_->resetEncoders();
   impl_->current_pipeline_ = PipelineHandle{0};
   impl_->current_compute_pipeline_ = PipelineHandle{0};
+  impl_->resetUniformBlock();
 }
 
 void MetalCmdList::copyToBuffer(BufferHandle handle, size_t dstOff,
                                 std::span<const std::byte> src) {
+  if (src.empty()) {
+    return;
+  }
+
   auto it = impl_->buffers_->find(handle.id);
   if (it == impl_->buffers_->end())
     return;
 
   MTLBufferResource &buffer = it->second;
 
-  if (!buffer.host_visible) {
-    std::cerr << "Cannot copy to non-host-visible buffer" << std::endl;
-    return;
-  }
-
   if (dstOff + src.size() > buffer.size) {
     std::cerr << "Buffer copy out of bounds" << std::endl;
     return;
   }
 
-  uint8_t *contents = (uint8_t *)buffer.buffer.contents;
-  memcpy(contents + dstOff, src.data(), src.size());
+  if (buffer.host_visible) {
+    uint8_t *contents = (uint8_t *)buffer.buffer.contents;
+    memcpy(contents + dstOff, src.data(), src.size());
+    if ([buffer.buffer respondsToSelector:@selector(didModifyRange:)]) {
+      [buffer.buffer didModifyRange:NSMakeRange(dstOff, src.size())];
+    }
+    return;
+  }
+
+  if (!impl_->command_buffer_) {
+    std::cerr << "Metal command buffer not initialized before buffer upload"
+              << std::endl;
+    return;
+  }
+
+  id<MTLBuffer> staging =
+      [impl_->device_ newBufferWithLength:src.size()
+                                   options:(MTLResourceStorageModeShared |
+                                            MTLResourceCPUCacheModeWriteCombined)];
+
+  if (!staging) {
+    std::cerr << "Failed to allocate Metal staging buffer for upload"
+              << std::endl;
+    return;
+  }
+
+  memcpy(staging.contents, src.data(), src.size());
+  if ([staging respondsToSelector:@selector(didModifyRange:)]) {
+    [staging didModifyRange:NSMakeRange(0, src.size())];
+  }
+
+  impl_->endRenderEncoderIfNeeded();
+  impl_->endComputeEncoderIfNeeded();
+
+  id<MTLBlitCommandEncoder> blit = [impl_->command_buffer_ blitCommandEncoder];
+  if (!blit) {
+    std::cerr << "Failed to create Metal blit encoder for buffer upload"
+              << std::endl;
+    return;
+  }
+  [blit copyFromBuffer:staging
+          sourceOffset:0
+              toBuffer:buffer.buffer
+     destinationOffset:dstOff
+                  size:src.size()];
+  [blit endEncoding];
+
+  impl_->staging_uploads_.push_back(staging);
 }
 
 void MetalCmdList::end() {
@@ -1493,6 +1621,8 @@ void MetalCmdList::end() {
     [impl_->command_buffer_ waitUntilCompleted];
   }
 
+  impl_->staging_uploads_.clear();
+  impl_->resetUniformBlock();
   impl_->command_buffer_ = nil;
   impl_->current_drawable_ = nil;
   impl_->recording_ = false;
