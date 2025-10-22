@@ -64,7 +64,26 @@ cmd->copyToBuffer(
 
 ```cpp
 cmd->begin();
-cmd->beginRender(colorTarget, depthTarget, clearColor, 1.0f, 0);
+rhi::RenderPassDesc pass{};
+pass.colorAttachmentCount = 1;
+pass.colorAttachments[0].texture = colorTarget;
+pass.colorAttachments[0].loadOp = rhi::LoadOp::Clear;
+pass.colorAttachments[0].storeOp = rhi::StoreOp::Store;
+pass.colorAttachments[0].clearColor[0] = clearColor[0];
+pass.colorAttachments[0].clearColor[1] = clearColor[1];
+pass.colorAttachments[0].clearColor[2] = clearColor[2];
+pass.colorAttachments[0].clearColor[3] = clearColor[3];
+pass.hasDepthAttachment = true;
+pass.depthAttachment.texture = depthTarget;
+pass.depthAttachment.depthLoadOp = rhi::LoadOp::Clear;
+pass.depthAttachment.depthStoreOp = rhi::StoreOp::Store;
+pass.depthAttachment.clearDepth = 1.0f;
+pass.depthAttachment.hasStencil = true;
+pass.depthAttachment.stencilLoadOp = rhi::LoadOp::Clear;
+pass.depthAttachment.stencilStoreOp = rhi::StoreOp::Store;
+pass.depthAttachment.clearStencil = 0;
+
+cmd->beginRender(pass);
 cmd->setPipeline(pipeline);
 cmd->setVertexBuffer(vertexBuffer);
 cmd->setIndexBuffer(indexBuffer);

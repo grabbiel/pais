@@ -74,12 +74,40 @@ public:
 
   void begin() override { recording_ = true; }
 
-  void beginRender(TextureHandle rtColor, TextureHandle rtDepth, float clear[4],
-                   float clearDepth, uint8_t clearStencil) override {
+  void beginRender(const RenderPassDesc &desc) override {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glClearColor(clear[0], clear[1], clear[2], clear[3]);
-    glClearDepth(clearDepth);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    if (desc.colorAttachmentCount > 1) {
+      std::cerr << "OpenGL backend currently supports only one color attachment"
+                << std::endl;
+    }
+
+    GLbitfield clearMask = 0;
+
+    if (desc.colorAttachmentCount > 0) {
+      const auto &color = desc.colorAttachments[0];
+      if (color.loadOp == LoadOp::Clear) {
+        glClearColor(color.clearColor[0], color.clearColor[1], color.clearColor[2],
+                     color.clearColor[3]);
+        clearMask |= GL_COLOR_BUFFER_BIT;
+      }
+    }
+
+    if (desc.hasDepthAttachment) {
+      const auto &depth = desc.depthAttachment;
+      if (depth.depthLoadOp == LoadOp::Clear) {
+        glClearDepth(depth.clearDepth);
+        clearMask |= GL_DEPTH_BUFFER_BIT;
+      }
+      if (depth.hasStencil && depth.stencilLoadOp == LoadOp::Clear) {
+        glClearStencil(depth.clearStencil);
+        clearMask |= GL_STENCIL_BUFFER_BIT;
+      }
+    }
+
+    if (clearMask != 0) {
+      glClear(clearMask);
+    }
 
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);

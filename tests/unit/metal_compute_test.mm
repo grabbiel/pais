@@ -60,7 +60,17 @@ int main() {
   cmd->copyToBuffer(countBuffer, 0, std::as_bytes(countSpan));
 
   float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-  cmd->beginRender(TextureHandle{}, TextureHandle{}, clearColor, 1.0f, 0);
+  RenderPassDesc pass{};
+  pass.colorAttachmentCount = 1;
+  pass.colorAttachments[0].texture = TextureHandle{};
+  pass.colorAttachments[0].loadOp = LoadOp::Clear;
+  pass.colorAttachments[0].storeOp = StoreOp::Store;
+  pass.colorAttachments[0].clearColor[0] = clearColor[0];
+  pass.colorAttachments[0].clearColor[1] = clearColor[1];
+  pass.colorAttachments[0].clearColor[2] = clearColor[2];
+  pass.colorAttachments[0].clearColor[3] = clearColor[3];
+
+  cmd->beginRender(pass);
   cmd->setComputePipeline(pipeline);
   cmd->setStorageBuffer(0, inputBuffer);
   cmd->setStorageBuffer(1, outputBuffer);
@@ -90,7 +100,7 @@ int main() {
 
   // Verify we can return to a render pass after compute work
   cmd->begin();
-  cmd->beginRender(TextureHandle{}, TextureHandle{}, clearColor, 1.0f, 0);
+  cmd->beginRender(pass);
   cmd->endRender();
   cmd->end();
 
