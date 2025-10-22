@@ -1,8 +1,4 @@
 #include "pixel/renderer3d/renderer_instanced.hpp"
-#include <glm/glm.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <cstring>
 #include <iostream>
 
 namespace pixel::renderer3d {
@@ -12,32 +8,25 @@ namespace pixel::renderer3d {
 // ============================================================================
 
 InstanceGPUData InstanceData::to_gpu_data() const {
-  InstanceGPUData gpu_data;
+  InstanceGPUData gpu_data{};
 
-  // Build transformation matrix using GLM
-  // Order: Translation * Rotation * Scale
-  glm::mat4 mat(1.0f);
+  gpu_data.position[0] = position.x;
+  gpu_data.position[1] = position.y;
+  gpu_data.position[2] = position.z;
 
-  // Apply translation
-  mat = glm::translate(mat, glm::vec3(position.x, position.y, position.z));
+  gpu_data.rotation[0] = rotation.x;
+  gpu_data.rotation[1] = rotation.y;
+  gpu_data.rotation[2] = rotation.z;
 
-  // Apply rotation (Euler angles in XYZ order)
-  mat = glm::rotate(mat, rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
-  mat = glm::rotate(mat, rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
-  mat = glm::rotate(mat, rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
+  gpu_data.scale[0] = scale.x;
+  gpu_data.scale[1] = scale.y;
+  gpu_data.scale[2] = scale.z;
 
-  // Apply scale
-  mat = glm::scale(mat, glm::vec3(scale.x, scale.y, scale.z));
-
-  // Copy matrix data to GPU buffer (GLM is column-major, which matches Metal's
-  // expectation)
-  memcpy(gpu_data.transform, &mat[0][0], sizeof(float) * 16);
-
-  // Copy other instance data
   gpu_data.color[0] = color.r;
   gpu_data.color[1] = color.g;
   gpu_data.color[2] = color.b;
   gpu_data.color[3] = color.a;
+
   gpu_data.texture_index = texture_index;
   gpu_data.culling_radius = culling_radius;
   gpu_data.lod_transition_alpha = lod_transition_alpha;

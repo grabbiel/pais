@@ -10,14 +10,16 @@ namespace pixel::renderer3d {
 // Instance Data
 // ============================================================================
 
-// GPU instance data layout (96 bytes) - this is what gets uploaded to the GPU
+// GPU instance data layout (64 bytes + padding) - matches instanced shader
 struct InstanceGPUData {
-  float transform[16];           // 64 bytes: Pre-calculated transformation matrix
-  float color[4];                // 16 bytes: Instance color (RGBA)
-  float texture_index;           //  4 bytes: Texture array index
-  float culling_radius;          //  4 bytes: Culling radius (not used by shader)
-  float lod_transition_alpha;    //  4 bytes: LOD crossfade alpha
-  float _padding;                //  4 bytes: Padding for alignment
+  float position[3];             // World position
+  float rotation[3];             // Euler rotation (XYZ)
+  float scale[3];                // Non-uniform scale
+  float color[4];                // Per-instance color (RGBA)
+  float texture_index;           // Texture array index
+  float culling_radius;          // Bounding sphere radius for LOD/culling
+  float lod_transition_alpha;    // LOD crossfade alpha
+  float _padding;                // Padding to keep 16-byte alignment
 };
 
 // CPU instance data - includes convenience fields for LOD and culling calculations

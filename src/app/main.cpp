@@ -1,150 +1,227 @@
-// main.cpp — Minimal demo: red sphere on brown plane, blue background
+// Grass Field LOD + Instancing demo
 #include "pixel/platform/platform.hpp"
+#include "pixel/renderer3d/lod.hpp"
 #include "pixel/renderer3d/renderer.hpp"
-#include <vector>
+#include "pixel/renderer3d/renderer_instanced.hpp"
+
+#include <array>
 #include <cmath>
 #include <iostream>
+#include <random>
+#include <vector>
 
 using namespace pixel::renderer3d;
 
-// --- Build a UV sphere that matches your Vertex layout (pos, normal, uv,
-// color) ---
-static std::unique_ptr<Mesh> make_uv_sphere(Renderer &r, float radius = 1.0f,
-                                            int slices = 32, int stacks = 16) {
-  std::vector<Vertex> verts;
-  std::vector<uint32_t> idx;
-  verts.reserve((stacks + 1) * (slices + 1));
-  idx.reserve(stacks * slices * 6);
+namespace {
+constexpr float kPi = 3.1415926535f;
 
-  for (int i = 0; i <= stacks; ++i) {
-    float v = float(i) / float(stacks);
-    float phi = v * 3.1415926535f; // [0..pi]
-    float y = std::cos(phi);
-    float rxy = std::sin(phi);
+std::unique_ptr<Mesh> make_grass_mesh(Renderer &renderer,
+                                      const std::vector<float> &angles_rad,
+                                      float width, float height,
+                                      float tip_offset) {
+  std::vector<Vertex> vertices;
+  std::vector<uint32_t> indices;
 
-    for (int j = 0; j <= slices; ++j) {
-      float u = float(j) / float(slices);
-      float theta = u * 2.0f * 3.1415926535f; // [0..2pi]
-      float x = rxy * std::cos(theta);
-      float z = rxy * std::sin(theta);
+  auto add_card = [&](float angle_rad) {
+    float c = std::cos(angle_rad);
+    float s = std::sin(angle_rad);
+    float half_width = width * 0.5f;
 
-      glm::vec3 n = glm::normalize(glm::vec3{x, y, z});
-      glm::vec3 p = n * radius;
-      verts.push_back({p, n, {u, v}, Color(1, 1, 1, 1)});
-    }
+    auto rotate = [&](float x, float y, float z) {
+      float rx = x * c - z * s;
+      float rz = x * s + z * c;
+      return Vec3{rx, y, rz};
+    };
+
+    Vec3 bottom_left = rotate(-half_width, 0.0f, 0.0f);
+    Vec3 bottom_right = rotate(half_width, 0.0f, 0.0f);
+    Vec3 top_left = rotate(-half_width, height, -tip_offset);
+    Vec3 top_right = rotate(half_width, height, -tip_offset);
+
+    Vec3 front_normal{-s, 0.0f, c};
+    Vec3 back_normal{s, 0.0f, -c};
+
+    size_t base = vertices.size();
+
+    // Front face
+    vertices.push_back({bottom_left, front_normal, {0.0f, 0.0f}, Color::White()});
+    vertices.push_back({bottom_right, front_normal, {1.0f, 0.0f}, Color::White()});
+    vertices.push_back({top_left, front_normal, {0.0f, 1.0f}, Color::White()});
+    vertices.push_back({top_right, front_normal, {1.0f, 1.0f}, Color::White()});
+
+    // Back face (duplicate to avoid back-face culling)
+    vertices.push_back({bottom_right, back_normal, {0.0f, 0.0f}, Color::White()});
+    vertices.push_back({bottom_left, back_normal, {1.0f, 0.0f}, Color::White()});
+    vertices.push_back({top_right, back_normal, {0.0f, 1.0f}, Color::White()});
+    vertices.push_back({top_left, back_normal, {1.0f, 1.0f}, Color::White()});
+
+    std::array<uint32_t, 6> front = {0, 1, 2, 2, 1, 3};
+    std::array<uint32_t, 6> back = {4, 5, 6, 6, 5, 7};
+
+    for (auto idx : front)
+      indices.push_back(static_cast<uint32_t>(base + idx));
+    for (auto idx : back)
+      indices.push_back(static_cast<uint32_t>(base + idx));
+  };
+
+  for (float angle : angles_rad) {
+    add_card(angle);
   }
 
-  auto idxAt = [&](int i, int j) { return uint32_t(i * (slices + 1) + j); };
-  for (int i = 0; i < stacks; ++i) {
-    for (int j = 0; j < slices; ++j) {
-      uint32_t a = idxAt(i, j);
-      uint32_t b = idxAt(i + 1, j);
-      uint32_t c = idxAt(i, j + 1);
-      uint32_t d = idxAt(i + 1, j + 1);
-      // two tris per quad (counter-clockwise)
-      idx.push_back(a);
-      idx.push_back(b);
-      idx.push_back(c);
-      idx.push_back(b);
-      idx.push_back(d);
-      idx.push_back(c);
-    }
-  }
-
-  return Mesh::create(r.device(), verts, idx);
+  return Mesh::create(renderer.device(), vertices, indices);
 }
 
+float deg_to_rad(float deg) { return deg * (kPi / 180.0f); }
+
+std::vector<InstanceData> generate_grass_instances(size_t count, float half_extent,
+                                                   float min_scale,
+                                                   float max_scale,
+                                                   uint32_t seed) {
+  std::vector<InstanceData> instances;
+  instances.reserve(count);
+
+  std::mt19937 rng(seed);
+  std::uniform_real_distribution<float> pos_dist(-half_extent, half_extent);
+  std::uniform_real_distribution<float> rot_dist(0.0f, 2.0f * kPi);
+  std::uniform_real_distribution<float> scale_dist(min_scale, max_scale);
+  std::uniform_real_distribution<float> hue_dist(0.85f, 1.05f);
+
+  for (size_t i = 0; i < count; ++i) {
+    InstanceData inst;
+    inst.position = {pos_dist(rng), 0.0f, pos_dist(rng)};
+    inst.rotation = {0.0f, rot_dist(rng), 0.0f};
+
+    float scale = scale_dist(rng);
+    inst.scale = {scale, scale * 1.4f, scale};
+
+    float hue = hue_dist(rng);
+    inst.color = Color(0.6f * hue, 0.9f * hue, 0.5f * hue, 1.0f);
+
+    inst.texture_index = 0.0f;
+    inst.culling_radius = 0.6f * scale;
+    inst.lod_transition_alpha = 1.0f;
+
+    instances.push_back(inst);
+  }
+
+  return instances;
+}
+
+} // namespace
+
 int main(int, char **) {
-  // Window & renderer
-  pixel::platform::WindowSpec ws;
-  ws.w = 1280;
-  ws.h = 720;
-  ws.title = "Textured Sphere Demo";
-  auto r = Renderer::create(ws);
+  pixel::platform::WindowSpec spec;
+  spec.w = 1280;
+  spec.h = 720;
+  spec.title = "Grass Field LOD Demo";
 
-  // Load textures
-  auto brick_tex = r->load_texture("assets/textures/brick.png");
-  auto grass_tex = r->load_texture("assets/textures/grass.png");
-  auto stone_tex = r->load_texture("assets/textures/stone.png");
+  auto renderer = Renderer::create(spec);
 
-  // Geometry
-  auto sphere =
-      make_uv_sphere(*r, /*radius*/ 1.0f, /*slices*/ 36, /*stacks*/ 18);
-  auto cube = r->create_cube(1.5f);
+  const float field_size = 40.0f;
+  const size_t grass_count = 6000;
 
-  // If your renderer has a plane helper, use it; otherwise, keep your existing
-  // ground creation
-  auto ground = r->create_plane(40.0f, 40.0f, 1);
+  auto ground_mesh = renderer->create_plane(field_size, field_size, 4);
 
-  // Materials
-  Material brick{};
-  brick.texture = brick_tex;
-  brick.color = Color(1.0f, 1.0f, 1.0f, 1.0f); // white tint
-  brick.roughness = 0.8f;
-  brick.metallic = 0.0f;
-  brick.blend_mode = Material::BlendMode::Opaque;
+  auto grass_high =
+      make_grass_mesh(*renderer, {deg_to_rad(0.0f), deg_to_rad(60.0f),
+                                  deg_to_rad(-60.0f)},
+                      0.30f, 1.0f, 0.20f);
+  auto grass_medium =
+      make_grass_mesh(*renderer, {deg_to_rad(0.0f), deg_to_rad(90.0f)},
+                      0.26f, 0.9f, 0.18f);
+  auto grass_low =
+      make_grass_mesh(*renderer, {deg_to_rad(0.0f)}, 0.22f, 0.8f, 0.15f);
 
-  Material grass{};
-  grass.texture = grass_tex;
-  grass.color = Color(1.0f, 1.0f, 1.0f, 1.0f); // white tint
-  grass.roughness = 0.9f;
-  grass.metallic = 0.0f;
-  grass.blend_mode = Material::BlendMode::Opaque;
+  LODConfig lod_config;
+  lod_config.mode = LODMode::Hybrid;
+  lod_config.distance_high = 12.0f;
+  lod_config.distance_medium = 28.0f;
+  lod_config.distance_cull = 80.0f;
+  lod_config.screenspace_high = 120.0f;
+  lod_config.screenspace_medium = 40.0f;
+  lod_config.screenspace_cull = 6.0f;
+  lod_config.dither.enabled = true;
+  lod_config.dither.crossfade_duration = 0.35f;
+  lod_config.dither.dither_pattern_scale = 1.5f;
 
-  Material stone{};
-  stone.texture = stone_tex;
-  stone.color = Color(1.0f, 1.0f, 1.0f, 1.0f); // white tint
-  stone.roughness = 0.7f;
-  stone.metallic = 0.0f;
-  stone.blend_mode = Material::BlendMode::Opaque;
+  auto grass_instances = generate_grass_instances(grass_count, field_size * 0.45f,
+                                                  0.7f, 1.25f, 1337);
 
-  // Camera setup
-  r->camera().mode = Camera::ProjectionMode::Perspective;
-  r->camera().position = {0.0f, 2.5f, 6.0f};
-  r->camera().target = {0.0f, 1.0f, 0.0f}; // look at sphere center height
-  r->camera().fov = 60.0f;
-  r->camera().far_clip = 200.0f;
+  auto grass_lod = LODMesh::create(renderer->device(), *grass_high, *grass_medium,
+                                   *grass_low, grass_instances.size(), lod_config);
+  grass_lod->set_instances(grass_instances);
 
-  std::cout
-      << "Textured Demo - Controls: LMB drag = orbit, Mouse wheel = zoom, "
-         "A/D = pan, ESC = quit\n";
-  std::cout << "Scene: Brick sphere, stone cube, grass ground\n";
+  auto ground_texture = renderer->load_texture("assets/textures/dirt.png");
+  auto grass_array =
+      renderer->load_texture_array({"assets/textures/grass.png"});
 
-  // Main loop
-  while (r->process_events()) {
-    const auto &in = r->input();
+  Material ground_material{};
+  ground_material.texture = ground_texture;
+  ground_material.blend_mode = Material::BlendMode::Opaque;
+  ground_material.color = Color(1.0f, 1.0f, 1.0f, 1.0f);
+  ground_material.roughness = 0.9f;
+  ground_material.metallic = 0.0f;
 
-    // Quit
-    if (in.keys[256])
+  Material grass_material{};
+  grass_material.texture_array = grass_array;
+  grass_material.blend_mode = Material::BlendMode::Alpha;
+  grass_material.color = Color(1.0f, 1.0f, 1.0f, 1.0f);
+  grass_material.roughness = 0.8f;
+  grass_material.metallic = 0.0f;
+  grass_material.depth_write = false;
+
+  renderer->camera().mode = Camera::ProjectionMode::Perspective;
+  renderer->camera().position = {0.0f, 5.0f, 12.0f};
+  renderer->camera().target = {0.0f, 0.5f, 0.0f};
+  renderer->camera().fov = 55.0f;
+  renderer->camera().far_clip = 200.0f;
+
+  std::cout << "Grass Field Demo\n";
+  std::cout << "Controls: LMB drag = orbit, RMB drag = pan, scroll = zoom, "
+               "ESC = quit\n";
+
+  double last_stats_time = 0.0;
+
+  while (renderer->process_events()) {
+    const auto &input = renderer->input();
+
+    if (input.keys[256])
       break; // ESC
 
-    // Camera controls (use your built-in helpers)
-    if (in.mouse_buttons[0]) {
-      float dx = float(in.mouse_x - in.prev_mouse_x);
-      float dy = float(in.mouse_y - in.prev_mouse_y);
-      r->camera().orbit(dx, dy);
+    if (input.mouse_buttons[0]) {
+      float dx = static_cast<float>(input.mouse_x - input.prev_mouse_x);
+      float dy = static_cast<float>(input.mouse_y - input.prev_mouse_y);
+      renderer->camera().orbit(dx, dy);
     }
-    if (in.scroll_delta != 0.0) {
-      r->camera().zoom(static_cast<float>(in.scroll_delta) * 0.5f);
+
+    if (input.mouse_buttons[1]) {
+      float dx = static_cast<float>(input.mouse_x - input.prev_mouse_x) * 0.01f;
+      float dy = static_cast<float>(input.mouse_y - input.prev_mouse_y) * 0.01f;
+      renderer->camera().pan(-dx, dy);
     }
-    if (in.keys['A'])
-      r->camera().pan(-0.05f, 0.0f);
-    if (in.keys['D'])
-      r->camera().pan(+0.05f, 0.0f);
 
-    // Frame
-    r->begin_frame(Color(0.50f, 0.70f, 0.90f, 1.0f)); // sky blue background
+    if (input.scroll_delta != 0.0) {
+      renderer->camera().zoom(static_cast<float>(input.scroll_delta) * 0.5f);
+    }
 
-    // Draw grass ground at y=0
-    r->draw_mesh(*ground, {0.0f, 0.0f, 0.0f}, {0, 0, 0}, {1, 1, 1}, grass);
+    renderer->begin_frame(Color(0.45f, 0.65f, 0.85f, 1.0f));
 
-    // Draw brick sphere centered at (0,1,0) so it rests on the plane
-    r->draw_mesh(*sphere, {0.0f, 1.0f, 0.0f}, {0, 0, 0}, {1, 1, 1}, brick);
+    renderer->draw_mesh(*ground_mesh, {0.0f, -0.02f, 0.0f}, {0.0f, 0.0f, 0.0f},
+                        {1.0f, 1.0f, 1.0f}, ground_material);
 
-    // Draw stone cube to the right at (3, 0.75, 0)
-    r->draw_mesh(*cube, {3.0f, 0.75f, 0.0f}, {0, 0, 0}, {1, 1, 1}, stone);
+    RendererLOD::draw_lod(*renderer, *grass_lod, grass_material);
 
-    r->end_frame();
+    renderer->end_frame();
+
+    double now = renderer->time();
+    if (now - last_stats_time > 1.5) {
+      auto stats = grass_lod->get_stats();
+      std::cout << "Grass instances: " << stats.total_instances
+                << " | visible high/med/low: " << stats.visible_per_lod[0] << "/"
+                << stats.visible_per_lod[1] << "/" << stats.visible_per_lod[2]
+                << " | culled: " << stats.culled << std::endl;
+      last_stats_time = now;
+    }
   }
 
   return 0;
