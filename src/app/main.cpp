@@ -12,6 +12,31 @@
 using namespace pixel::renderer3d;
 
 namespace {
+std::vector<InstanceData> create_grid_instances(int rows, int cols, float spacing) {
+  std::vector<InstanceData> instances;
+  instances.reserve(static_cast<size_t>(rows * cols));
+
+  float start_x = -0.5f * static_cast<float>(cols - 1) * spacing;
+  float start_z = -0.5f * static_cast<float>(rows - 1) * spacing;
+
+  for (int row = 0; row < rows; ++row) {
+    for (int col = 0; col < cols; ++col) {
+      InstanceData data;
+      data.position = {start_x + static_cast<float>(col) * spacing, 0.5f,
+                       start_z + static_cast<float>(row) * spacing};
+      data.rotation = {0.0f, 0.0f, 0.0f};
+      data.scale = {1.0f, 1.0f, 1.0f};
+      data.color = Color(0.8f, 0.8f, 0.8f, 1.0f);
+      data.texture_index = 0.0f;
+      data.culling_radius = 0.75f;
+      data.lod_transition_alpha = 1.0f;
+      instances.push_back(data);
+    }
+  }
+
+  return instances;
+}
+
 std::vector<InstanceData> create_demo_instances() {
   struct RowSpec {
     int count;

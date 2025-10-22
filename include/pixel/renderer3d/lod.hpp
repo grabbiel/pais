@@ -160,11 +160,6 @@ private:
                               float screen_size,
                               const Renderer &renderer) const;
 
-  uint32_t compute_lod_with_hysteresis(const InstanceData &inst,
-                                       const InstanceLODState &state,
-                                       float distance, float screen_size,
-                                       const Renderer &renderer) const;
-
   bool initialize_gpu_resources(size_t max_instances);
 
   rhi::Device *device_ = nullptr;
