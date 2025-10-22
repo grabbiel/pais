@@ -983,7 +983,8 @@ void MetalCmdList::begin() {
 }
 
 void MetalCmdList::beginRender(const RenderPassDesc &desc) {
-  impl_->endRenderEncoderIfNeeded();
+  std::cerr << "DEBUG: beginRender() called on frame " << *impl_->frame_index_
+            << std::endl;
   impl_->endComputeEncoderIfNeeded();
 
   impl_->resetUniformBlock();
@@ -1016,12 +1017,15 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
   }
 
   if (requiresDrawable) {
+    std::cerr << "DEBUG: Attempting to acquire drawable..." << std::endl;
     impl_->current_drawable_ = [impl_->layer_ nextDrawable];
 
     if (!impl_->current_drawable_) {
-      std::cerr << "Failed to get next drawable" << std::endl;
+      std::cerr << "DEBUG: *** FAILED TO ACQUIRE DRAWABLE *** on frame "
+                << *impl_->frame_index_ << std::endl;
       return;
     }
+    std::cerr << "DEBUG: Successfully acquired drawable" << std::endl;
   } else {
     impl_->current_drawable_ = nil;
   }
@@ -1030,7 +1034,9 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
       [MTLRenderPassDescriptor renderPassDescriptor];
 
   if (!renderPassDesc) {
-    std::cerr << "Failed to allocate Metal render pass descriptor" << std::endl;
+    std::cerr
+        << "DEBUG: EARLY RETURN - failed to allocate render pass descriptor"
+        << std::endl;
     return;
   }
 
@@ -1054,8 +1060,9 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     } else {
       auto it = impl_->textures_->find(attachment.texture.id);
       if (it == impl_->textures_->end() || !it->second.texture) {
-        std::cerr << "Invalid Metal color attachment texture handle"
-                  << std::endl;
+        std::cerr << "DEBUG: EARLY RETURN - invalid color attachment texture "
+                     "at index "
+                  << i << std::endl;
         return;
       }
       texture = it->second.texture;
@@ -1172,9 +1179,20 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     renderPassDesc.renderTargetArrayLength = 1;
   }
 
+  impl_->endRenderEncoderIfNeeded();
+  std::cerr
+      << "DEBUG: All validations passed, creating render encoder on frame "
+      << *impl_->frame_index_ << std::endl;
   impl_->render_encoder_ = [impl_->command_buffer_
       renderCommandEncoderWithDescriptor:renderPassDesc];
+  if (!impl_->render_encoder_) {
+    std::cerr << "DEBUG: *** ENCODER CREATION FAILED *** on frame "
+              << *impl_->frame_index_ << std::endl;
+
+    return;
+  }
   impl_->active_encoder_ = Impl::EncoderState::Render;
+  std::cerr << "DEBUG: Render encoder successfully created" << std::endl;
 }
 
 void MetalCmdList::setPipeline(PipelineHandle handle) {
