@@ -45,109 +45,6 @@ float calculate_sphere_screen_size(const Vec3 &world_pos, float world_radius,
   return size_fraction;
 }
 
-LODLevel determine_lod_with_hysteresis(float distance, float screen_size,
-                                       LODLevel current_lod,
-                                       const LODConfig &config) {
-  // Calculate base LOD without hysteresis
-  LODLevel target_lod;
-
-  if (config.mode == LODMode::Distance) {
-    if (distance < config.distance_high) {
-      target_lod = LODLevel::High;
-    } else if (distance < config.distance_medium) {
-      target_lod = LODLevel::Medium;
-    } else if (distance < config.distance_cull) {
-      target_lod = LODLevel::Low;
-    } else {
-      target_lod = LODLevel::Culled;
-    }
-  } else if (config.mode == LODMode::ScreenSpace) {
-    if (screen_size >= config.screenspace_high) {
-      target_lod = LODLevel::High;
-    } else if (screen_size >= config.screenspace_medium) {
-      target_lod = LODLevel::Medium;
-    } else if (screen_size >= config.screenspace_cull) {
-      target_lod = LODLevel::Low;
-    } else {
-      target_lod = LODLevel::Culled;
-    }
-  } else {
-    // Hybrid mode - blend both metrics
-    float dist_score, screen_score;
-
-    if (distance < config.distance_high) {
-      dist_score = 0.0f;
-    } else if (distance < config.distance_medium) {
-      dist_score = 1.0f + (distance - config.distance_high) /
-                              (config.distance_medium - config.distance_high);
-    } else if (distance < config.distance_cull) {
-      dist_score = 2.0f + (distance - config.distance_medium) /
-                              (config.distance_cull - config.distance_medium);
-    } else {
-      dist_score = 3.0f;
-    }
-
-    if (screen_size >= config.screenspace_high) {
-      screen_score = 0.0f;
-    } else if (screen_size >= config.screenspace_medium) {
-      screen_score =
-          1.0f + (config.screenspace_high - screen_size) /
-                     (config.screenspace_high - config.screenspace_medium);
-    } else if (screen_size >= config.screenspace_cull) {
-      screen_score =
-          2.0f + (config.screenspace_medium - screen_size) /
-                     (config.screenspace_medium - config.screenspace_cull);
-    } else {
-      screen_score = 3.0f;
-    }
-
-    float final_score = dist_score * (1.0f - config.hybrid_screenspace_weight) +
-                        screen_score * config.hybrid_screenspace_weight;
-
-    if (final_score < 0.5f) {
-      target_lod = LODLevel::High;
-    } else if (final_score < 1.5f) {
-      target_lod = LODLevel::Medium;
-    } else if (final_score < 2.5f) {
-      target_lod = LODLevel::Low;
-    } else {
-      target_lod = LODLevel::Culled;
-    }
-  }
-
-  // Apply hysteresis if enabled
-  if (!config.temporal.enabled) {
-    return target_lod;
-  }
-
-  // If switching to a different LOD, apply hysteresis
-  if (target_lod != current_lod) {
-    float hysteresis = config.temporal.hysteresis_factor;
-
-    // Check if we're within the hysteresis zone
-    if (config.mode == LODMode::Distance || config.mode == LODMode::Hybrid) {
-      float threshold_high = config.distance_high * (1.0f + hysteresis);
-      float threshold_medium = config.distance_medium * (1.0f + hysteresis);
-
-      // Upgrading (getting closer)
-      if (static_cast<int>(target_lod) < static_cast<int>(current_lod)) {
-        threshold_high = config.distance_high * (1.0f - hysteresis);
-        threshold_medium = config.distance_medium * (1.0f - hysteresis);
-      }
-
-      // Stay at current LOD if within hysteresis zone
-      if (current_lod == LODLevel::High && distance < threshold_high) {
-        return LODLevel::High;
-      }
-      if (current_lod == LODLevel::Medium && distance < threshold_medium) {
-        return LODLevel::Medium;
-      }
-    }
-  }
-
-  return target_lod;
-}
-
 } // namespace screen_space
 
 // ============================================================================
@@ -591,6 +488,19 @@ void LODMesh::update_lod_selection_gpu(Renderer &renderer, float delta_time,
   uint32_t total_instances = static_cast<uint32_t>(source_instances_.size());
   if (total_instances > 0) {
     uint32_t group_count = (total_instances + 255u) / 256u;
+
+    // Check for GPU dispatch limits (typically 65536 per dimension)
+    constexpr uint32_t max_dispatch_groups = 65536;
+    if (group_count > max_dispatch_groups) {
+      std::cerr << "Warning: Instance count (" << total_instances
+                << ") exceeds GPU dispatch limit. Requires " << group_count
+                << " workgroups but maximum is " << max_dispatch_groups
+                << ". Falling back to CPU LOD calculation." << std::endl;
+      renderer.resume_render_pass();
+      update_lod_selection_cpu(renderer, delta_time, do_detailed_log);
+      return;
+    }
+
     cmd->dispatch(group_count, 1, 1);
     cmd->memoryBarrier();
   }
