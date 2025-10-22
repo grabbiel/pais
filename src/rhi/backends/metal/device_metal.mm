@@ -983,9 +983,10 @@ void MetalCmdList::begin() {
 }
 
 void MetalCmdList::beginRender(const RenderPassDesc &desc) {
-  impl_->resetUniformBlock();
-
+  impl_->endRenderEncoderIfNeeded();
   impl_->endComputeEncoderIfNeeded();
+
+  impl_->resetUniformBlock();
 
   if (desc.colorAttachmentCount > kMaxColorAttachments) {
     std::cerr << "Metal render pass exceeds maximum color attachments"
@@ -1191,6 +1192,13 @@ void MetalCmdList::setPipeline(PipelineHandle handle) {
     return;
   }
 
+  if (impl_->active_encoder_ != Impl::EncoderState::Render) {
+    std::cerr << "Attempted to set render pipeline when encoder is not in "
+                 "render state"
+              << std::endl;
+    return;
+  }
+
   [impl_->render_encoder_ setRenderPipelineState:pipeline.pipeline_state];
   [impl_->render_encoder_ setDepthStencilState:pipeline.depth_stencil_state];
   [impl_->render_encoder_ setCullMode:MTLCullModeBack];
@@ -1202,6 +1210,12 @@ void MetalCmdList::setVertexBuffer(BufferHandle handle, size_t offset) {
   auto it = impl_->buffers_->find(handle.id);
   if (it == impl_->buffers_->end())
     return;
+
+  if (!impl_->render_encoder_) {
+    std::cerr << "Attempted to set vertex buffer without an active render pass"
+              << std::endl;
+    return;
+  }
 
   impl_->current_vb_ = handle;
   impl_->current_vb_offset_ = offset;
@@ -1215,6 +1229,12 @@ void MetalCmdList::setIndexBuffer(BufferHandle handle, size_t offset) {
   auto it = impl_->buffers_->find(handle.id);
   if (it == impl_->buffers_->end())
     return;
+
+  if (!impl_->render_encoder_) {
+    std::cerr << "Attempted to set index buffer without an active render pass"
+              << std::endl;
+    return;
+  }
 
   impl_->current_ib_ = handle;
   impl_->current_ib_offset_ = offset;
@@ -1414,6 +1434,17 @@ void MetalCmdList::drawIndexed(uint32_t indexCount, uint32_t firstIndex,
                                uint32_t instanceCount) {
   if (impl_->current_pipeline_.id == 0 || impl_->current_ib_.id == 0)
     return;
+
+  if (!impl_->render_encoder_) {
+    std::cerr << "Attempted to draw without an active render pass" << std::endl;
+    return;
+  }
+
+  if (impl_->active_encoder_ != Impl::EncoderState::Render) {
+    std::cerr << "Attempted to draw when encoder is not in render state"
+              << std::endl;
+    return;
+  }
 
   auto ib_it = impl_->buffers_->find(impl_->current_ib_.id);
   if (ib_it == impl_->buffers_->end())
