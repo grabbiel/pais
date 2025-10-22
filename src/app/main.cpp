@@ -137,49 +137,38 @@ int main(int, char **) {
   }
 
   std::cout << "Basic LOD demo\n";
-  std::cout << "Controls: Left mouse = orbit, Right mouse = pan, Scroll = zoom\n";
-  std::cout << "          WASD = dolly/strafe, Q/E = vertical, ESC = quit\n";
-  std::cout << "Scene: near/mid/far rows should map to High/Medium/Low LOD.\n";
+  std::cout << "Controls: Left mouse drag = orbit, Right mouse drag = pan, "
+               "Scroll = zoom, ESC = quit\n";
 
   auto high_mesh = renderer->create_cube(1.0f);
-  auto medium_mesh = renderer->create_cube(1.0f);
-  auto low_mesh = renderer->create_quad(1.2f);
-  auto ground_mesh = renderer->create_plane(80.0f, 80.0f, 4);
+  auto medium_mesh = renderer->create_cube(0.8f);
+  auto low_mesh = renderer->create_quad(0.9f);
 
   LODConfig lod_config;
   lod_config.mode = LODMode::Distance;
-  lod_config.distance_high = 24.0f;
-  lod_config.distance_medium = 42.0f;
-  lod_config.distance_cull = 65.0f;
+  lod_config.distance_high = 6.0f;
+  lod_config.distance_medium = 12.0f;
+  lod_config.distance_cull = 20.0f;
   lod_config.temporal.enabled = false;
   lod_config.dither.enabled = false;
 
-  auto base_instances = create_demo_instances();
-  auto animated_instances = base_instances;
+  auto instances = create_grid_instances(3, 5, 2.5f);
 
-  auto lod_mesh =
-      LODMesh::create(renderer->device(), *high_mesh, *medium_mesh, *low_mesh,
-                      base_instances.size(), lod_config);
-  lod_mesh->set_instances(base_instances);
+  auto lod_mesh = LODMesh::create(renderer->device(), *high_mesh, *medium_mesh,
+                                  *low_mesh, instances.size(), lod_config);
+  lod_mesh->set_instances(instances);
 
   Material object_material{};
   object_material.blend_mode = Material::BlendMode::Opaque;
-  object_material.color = Color(1.0f, 1.0f, 1.0f, 1.0f);
-  object_material.roughness = 0.4f;
-
-  Material ground_material{};
-  ground_material.blend_mode = Material::BlendMode::Opaque;
-  ground_material.color = Color(0.22f, 0.25f, 0.30f, 1.0f);
-  ground_material.roughness = 1.0f;
+  object_material.color = Color(0.9f, 0.9f, 0.9f, 1.0f);
 
   renderer->camera().mode = Camera::ProjectionMode::Perspective;
-  renderer->camera().position = {0.0f, 6.0f, 12.0f};
-  renderer->camera().target = {0.0f, 3.0f, -20.0f};
+  renderer->camera().position = {0.0f, 5.0f, 12.0f};
+  renderer->camera().target = {0.0f, 1.5f, -6.0f};
   renderer->camera().fov = 55.0f;
-  renderer->camera().far_clip = 150.0f;
+  renderer->camera().far_clip = 200.0f;
 
-  double last_frame_time = renderer->time();
-  double last_stats_time = last_frame_time;
+  double last_stats_time = 0.0;
 
   while (renderer->process_events()) {
     const auto &input = renderer->input();
@@ -187,34 +176,13 @@ int main(int, char **) {
       break; // ESC
     }
 
-    double now = renderer->time();
-    float delta_time = static_cast<float>(now - last_frame_time);
-    last_frame_time = now;
+    handle_camera_input(*renderer, input);
 
-    handle_camera_input(*renderer, input, delta_time);
-
-    float animation_time = static_cast<float>(now);
-    for (size_t i = 0; i < animated_instances.size(); ++i) {
-      InstanceData inst = base_instances[i];
-      inst.rotation.y += animation_time * 0.35f;
-      float pulse =
-          1.0f + 0.05f * static_cast<float>(std::sin(animation_time * 0.6f +
-                                                     static_cast<float>(i) *
-                                                         0.35f));
-      inst.scale = {inst.scale.x * pulse, inst.scale.y * pulse,
-                    inst.scale.z * pulse};
-      inst.position.y = inst.scale.y * 0.5f;
-      inst.culling_radius = inst.scale.x * 0.85f;
-      animated_instances[i] = inst;
-      lod_mesh->update_instance(i, inst);
-    }
-
-    renderer->begin_frame(Color(0.06f, 0.08f, 0.12f, 1.0f));
-    renderer->draw_mesh(*ground_mesh, {0.0f, -0.01f, -20.0f}, {0.0f, 0.0f, 0.0f},
-                        {1.0f, 1.0f, 1.0f}, ground_material);
+    renderer->begin_frame(Color(0.1f, 0.12f, 0.16f, 1.0f));
     RendererLOD::draw_lod(*renderer, *lod_mesh, object_material);
     renderer->end_frame();
 
+    double now = renderer->time();
     if (now - last_stats_time > 1.0) {
       auto stats = lod_mesh->get_stats();
       std::cout << "High: " << stats.visible_per_lod[0]
