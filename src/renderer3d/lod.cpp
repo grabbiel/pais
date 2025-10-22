@@ -1,10 +1,15 @@
-// src/renderer3d/lod.cpp (Updated for RHI)
+// src/renderer3d/lod.cpp - Enhanced with detailed logging
 #include "pixel/renderer3d/lod.hpp"
 #include <glm/gtc/type_ptr.hpp>
 #include <cmath>
 #include <iostream>
+#include <iomanip>
 
 namespace pixel::renderer3d {
+
+// Global logging flag - set this to true to enable verbose LOD logging
+static bool g_verbose_lod_logging = false;
+static int g_log_frame_counter = 0;
 
 // ============================================================================
 // Screen-Space Utilities
@@ -189,6 +194,47 @@ void LODMesh::set_instances(const std::vector<InstanceData> &instances) {
   source_instances_ = instances;
   total_instance_count_ = instances.size();
 
+  std::cout << "\n========================================\n";
+  std::cout << "LODMesh::set_instances() called\n";
+  std::cout << "========================================\n";
+  std::cout << "Total instances: " << instances.size() << "\n";
+
+  if (instances.size() > 0) {
+    // Calculate position bounds
+    Vec3 min_pos = instances[0].position;
+    Vec3 max_pos = instances[0].position;
+    float min_scale = instances[0].scale.x;
+    float max_scale = instances[0].scale.x;
+
+    for (const auto &inst : instances) {
+      min_pos.x = std::min(min_pos.x, inst.position.x);
+      min_pos.y = std::min(min_pos.y, inst.position.y);
+      min_pos.z = std::min(min_pos.z, inst.position.z);
+      max_pos.x = std::max(max_pos.x, inst.position.x);
+      max_pos.y = std::max(max_pos.y, inst.position.y);
+      max_pos.z = std::max(max_pos.z, inst.position.z);
+      min_scale = std::min(min_scale, inst.scale.x);
+      max_scale = std::max(max_scale, inst.scale.x);
+    }
+
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "Position bounds:\n";
+    std::cout << "  X: [" << min_pos.x << ", " << max_pos.x << "]\n";
+    std::cout << "  Y: [" << min_pos.y << ", " << max_pos.y << "]\n";
+    std::cout << "  Z: [" << min_pos.z << ", " << max_pos.z << "]\n";
+    std::cout << "Scale range: [" << min_scale << ", " << max_scale << "]\n";
+
+    // Show first few instances
+    std::cout << "\nFirst 5 instances:\n";
+    for (size_t i = 0; i < std::min(size_t(5), instances.size()); ++i) {
+      const auto &inst = instances[i];
+      std::cout << "  [" << i << "] pos=(" << inst.position.x << ", "
+                << inst.position.y << ", " << inst.position.z
+                << "), scale=" << inst.scale.x << "\n";
+    }
+  }
+  std::cout << "========================================\n\n";
+
   if (config_.temporal.enabled &&
       instance_lod_states_.size() != instances.size()) {
     instance_lod_states_.resize(instances.size());
@@ -284,16 +330,36 @@ void LODMesh::update_lod_selection(const Renderer &renderer,
   float delta_time = static_cast<float>(current_time - last_update_time_);
   last_update_time_ = current_time;
 
+  // Enable detailed logging for first few frames
+  bool do_detailed_log = (g_log_frame_counter < 3);
+  g_log_frame_counter++;
+
+  if (do_detailed_log) {
+    std::cout << "\n========================================\n";
+    std::cout << "LOD UPDATE - Frame " << g_log_frame_counter << "\n";
+    std::cout << "========================================\n";
+    std::cout << "Delta time: " << delta_time << "s\n";
+    std::cout << "Total source instances: " << source_instances_.size() << "\n";
+  }
+
   // Distribute instances into LOD buckets
   std::vector<InstanceData> lod_instances[3];
   std::vector<std::pair<InstanceData, float>> crossfade_instances[3];
 
   Vec3 cam_pos = renderer.camera().position;
+  if (do_detailed_log) {
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "Camera position: (" << cam_pos.x << ", " << cam_pos.y << ", "
+              << cam_pos.z << ")\n";
+  }
+
   float view[16], proj[16];
   renderer.camera().get_view_matrix(view);
   renderer.camera().get_projection_matrix(proj, renderer.window_width(),
                                           renderer.window_height());
   int viewport_height = renderer.window_height();
+
+  int lod_counts[4] = {0, 0, 0, 0}; // high, medium, low, culled
 
   for (size_t i = 0; i < source_instances_.size(); ++i) {
     auto inst = source_instances_[i];
@@ -314,6 +380,32 @@ void LODMesh::update_lod_selection(const Renderer &renderer,
     uint32_t desired_lod =
         compute_lod_direct(inst, dist, screen_size, renderer);
 
+    lod_counts[desired_lod]++;
+
+    // Log details for first few instances
+    if (do_detailed_log && i < 10) {
+      std::cout << "\nInstance " << i << ":\n";
+      std::cout << "  Position: (" << inst.position.x << ", " << inst.position.y
+                << ", " << inst.position.z << ")\n";
+      std::cout << "  Distance from camera: " << dist << "\n";
+      std::cout << "  Screen size: " << screen_size << " pixels\n";
+      std::cout << "  Desired LOD: ";
+      switch (desired_lod) {
+      case 0:
+        std::cout << "HIGH\n";
+        break;
+      case 1:
+        std::cout << "MEDIUM\n";
+        break;
+      case 2:
+        std::cout << "LOW\n";
+        break;
+      case 3:
+        std::cout << "CULLED\n";
+        break;
+      }
+    }
+
     // Update temporal state
     if (config_.temporal.enabled) {
       if (desired_lod != state.current_lod) {
@@ -328,57 +420,68 @@ void LODMesh::update_lod_selection(const Renderer &renderer,
                                      : config_.temporal.downgrade_delay;
 
           if (state.transition_time >= required_delay) {
+            state.previous_lod = state.current_lod;
+            state.current_lod = state.target_lod;
+            state.transition_time = 0.0f;
+            state.stable_frames = 0;
+
             if (config_.dither.enabled) {
-              state.previous_lod = state.current_lod;
-              state.current_lod = desired_lod;
               state.is_crossfading = true;
-              state.transition_alpha = 0.0f;
-              state.transition_time = 0.0f;
-            } else {
-              state.current_lod = desired_lod;
-              state.transition_time = 0.0f;
             }
           }
         }
       } else {
-        state.target_lod = state.current_lod;
+        state.stable_frames++;
         state.transition_time = 0.0f;
+
+        if (state.is_crossfading &&
+            state.stable_frames >= config_.temporal.min_stable_frames) {
+          state.is_crossfading = false;
+        }
       }
 
-      // Update crossfade
       if (state.is_crossfading) {
-        state.transition_alpha +=
-            delta_time / config_.dither.crossfade_duration;
-        if (state.transition_alpha >= 1.0f) {
-          state.transition_alpha = 1.0f;
-          state.is_crossfading = false;
-          state.previous_lod = state.current_lod;
+        float alpha = std::min(state.stable_frames * delta_time /
+                                   config_.dither.crossfade_duration,
+                               1.0f);
+        inst.lod_transition_alpha = alpha;
+
+        if (state.previous_lod < 3) {
+          auto fade_inst = inst;
+          fade_inst.lod_transition_alpha = 1.0f - alpha;
+          crossfade_instances[state.previous_lod].push_back(
+              {fade_inst, 1.0f - alpha});
+        }
+
+        if (state.current_lod < 3) {
+          inst.lod_transition_alpha = alpha;
+          lod_instances[state.current_lod].push_back(inst);
+        }
+      } else {
+        if (state.current_lod < 3) {
+          inst.lod_transition_alpha = 1.0f;
+          lod_instances[state.current_lod].push_back(inst);
         }
       }
     } else {
-      state.current_lod = desired_lod;
-      state.target_lod = desired_lod;
-    }
-
-    // Add to appropriate LOD bucket
-    if (state.is_crossfading && config_.dither.enabled) {
-      if (state.previous_lod < 3) {
-        auto prev_inst = inst;
-        prev_inst.lod_transition_alpha = 1.0f - state.transition_alpha;
-        crossfade_instances[state.previous_lod].push_back(
-            {prev_inst, 1.0f - state.transition_alpha});
-      }
-
-      if (state.current_lod < 3) {
-        inst.lod_transition_alpha = state.transition_alpha;
-        lod_instances[state.current_lod].push_back(inst);
-      }
-    } else {
-      if (state.current_lod < 3) {
+      if (desired_lod < 3) {
         inst.lod_transition_alpha = 1.0f;
-        lod_instances[state.current_lod].push_back(inst);
+        lod_instances[desired_lod].push_back(inst);
       }
     }
+  }
+
+  if (do_detailed_log) {
+    std::cout << "\nLOD Distribution (desired):\n";
+    std::cout << "  High: " << lod_counts[0] << "\n";
+    std::cout << "  Medium: " << lod_counts[1] << "\n";
+    std::cout << "  Low: " << lod_counts[2] << "\n";
+    std::cout << "  Culled: " << lod_counts[3] << "\n";
+
+    std::cout << "\nInstances assigned to LOD buffers:\n";
+    std::cout << "  High: " << lod_instances[0].size() << "\n";
+    std::cout << "  Medium: " << lod_instances[1].size() << "\n";
+    std::cout << "  Low: " << lod_instances[2].size() << "\n";
   }
 
   // Merge crossfade instances
@@ -392,6 +495,10 @@ void LODMesh::update_lod_selection(const Renderer &renderer,
   for (int lod = 0; lod < 3; lod++) {
     if (lod_meshes_[lod]) {
       lod_meshes_[lod]->set_instances(lod_instances[lod]);
+      if (do_detailed_log) {
+        std::cout << "LOD " << lod << " buffer updated with "
+                  << lod_instances[lod].size() << " instances\n";
+      }
     }
   }
 
@@ -399,6 +506,11 @@ void LODMesh::update_lod_selection(const Renderer &renderer,
   last_stats_.total_instances = total_instance_count_;
   for (int i = 0; i < 3; i++) {
     last_stats_.instances_per_lod[i] = lod_instances[i].size();
+  }
+  last_stats_.culled = lod_counts[3];
+
+  if (do_detailed_log) {
+    std::cout << "========================================\n\n";
   }
 }
 
@@ -431,55 +543,16 @@ void RendererLOD::draw_lod(Renderer &renderer, LODMesh &mesh,
   if (!shader)
     return;
 
-  auto *cmd = renderer.device()->getImmediate();
-  cmd->setPipeline(shader->pipeline(base_material.blend_mode));
+  renderer.use_shader(*shader);
 
-  // Build identity model matrix (instances handle their own transforms)
-  glm::mat4 model = glm::mat4(1.0f);
-
-  // Set model matrix
-  cmd->setUniformMat4("model", glm::value_ptr(model));
-
-  // Calculate and set normal matrix (identity in this case, but required by
-  // shader) For identity matrix, normal matrix is also identity
-  glm::mat3 normalMatrix3x3 = glm::mat3(1.0f);
-  glm::mat4 normalMatrix4x4 = glm::mat4(normalMatrix3x3);
-  cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
-
-  // Set view and projection matrices
-  float view[16], projection[16];
-  renderer.camera().get_view_matrix(view);
-  renderer.camera().get_projection_matrix(projection, renderer.window_width(),
-                                          renderer.window_height());
-  cmd->setUniformMat4("view", view);
-  cmd->setUniformMat4("projection", projection);
-
-  // Set lighting uniforms
-  float light_pos[3] = {10.0f, 10.0f, 10.0f};
-  float view_pos[3] = {renderer.camera().position.x,
-                       renderer.camera().position.y,
-                       renderer.camera().position.z};
-  cmd->setUniformVec3("lightPos", light_pos);
-  cmd->setUniformVec3("viewPos", view_pos);
-
-  // Set time uniform for animated dither
-  cmd->setUniformFloat("uTime", static_cast<float>(renderer.time()));
-
-  // Set dither settings based on LOD config
-  const auto &dither = mesh.config().dither;
-  cmd->setUniformInt("uDitherEnabled", dither.enabled ? 1 : 0);
-  cmd->setUniformFloat("uDitherScale", dither.dither_pattern_scale);
-  cmd->setUniformFloat("uCrossfadeDuration", dither.crossfade_duration);
-
-  // Set texture array if available
-  if (base_material.texture_array.id != 0) {
-    cmd->setTexture("uTextureArray", base_material.texture_array, 1);
-    cmd->setUniformInt("useTextureArray", 1);
-  } else {
-    cmd->setUniformInt("useTextureArray", 0);
+  // Draw each LOD level
+  for (int lod = 0; lod < 3; lod++) {
+    auto *instanced_mesh = mesh.lod_mesh(lod);
+    if (instanced_mesh && instanced_mesh->instance_count() > 0) {
+      renderer.use_material(base_material);
+      instanced_mesh->draw(renderer.cmd());
+    }
   }
-
-  mesh.draw_all_lods(cmd);
 }
 
 } // namespace pixel::renderer3d
