@@ -235,6 +235,28 @@ static MTLBlendOperation toMTLBlendOp(BlendOp op) {
   return MTLBlendOperationAdd;
 }
 
+static MTLLoadAction toMTLLoadAction(LoadOp op) {
+  switch (op) {
+  case LoadOp::Load:
+    return MTLLoadActionLoad;
+  case LoadOp::Clear:
+    return MTLLoadActionClear;
+  case LoadOp::DontCare:
+  default:
+    return MTLLoadActionDontCare;
+  }
+}
+
+static MTLStoreAction toMTLStoreAction(StoreOp op) {
+  switch (op) {
+  case StoreOp::Store:
+    return MTLStoreActionStore;
+  case StoreOp::DontCare:
+  default:
+    return MTLStoreActionDontCare;
+  }
+}
+
 // ============================================================================
 // MetalDevice::Impl - Private Implementation
 // ============================================================================
@@ -841,6 +863,7 @@ void MetalCmdList::begin() {
   impl_->command_buffer_ = [impl_->command_queue_ commandBuffer];
   impl_->render_encoder_ = nil;
   impl_->compute_encoder_ = nil;
+  impl_->current_drawable_ = nil;
   impl_->current_pipeline_ = PipelineHandle{0};
   impl_->current_compute_pipeline_ = PipelineHandle{0};
   impl_->current_vb_ = BufferHandle{0};
@@ -850,36 +873,187 @@ void MetalCmdList::begin() {
   impl_->active_encoder_ = Impl::EncoderState::None;
 }
 
-void MetalCmdList::beginRender(TextureHandle rtColor, TextureHandle rtDepth,
-                               float clear[4], float clearDepth,
-                               uint8_t clearStencil) {
+void MetalCmdList::beginRender(const RenderPassDesc &desc) {
   // Reset draw call counter at the start of each frame
   impl_->draw_call_index_ = 0;
 
   impl_->endComputeEncoderIfNeeded();
 
-  impl_->current_drawable_ = [impl_->layer_ nextDrawable];
-
-  if (!impl_->current_drawable_) {
-    std::cerr << "Failed to get next drawable" << std::endl;
+  if (desc.colorAttachmentCount > kMaxColorAttachments) {
+    std::cerr << "Metal render pass exceeds maximum color attachments" << std::endl;
     return;
+  }
+
+  if (desc.colorAttachmentCount == 0 && !desc.hasDepthAttachment) {
+    std::cerr << "Metal render pass requires at least one attachment" << std::endl;
+    return;
+  }
+
+  bool requiresDrawable = false;
+  bool usesSwapchainDepth = desc.hasDepthAttachment &&
+                            desc.depthAttachment.texture.id == 0;
+
+  if (desc.colorAttachmentCount == 0) {
+    requiresDrawable = usesSwapchainDepth;
+  } else {
+    for (uint32_t i = 0; i < desc.colorAttachmentCount; ++i) {
+      if (desc.colorAttachments[i].texture.id == 0) {
+        requiresDrawable = true;
+        break;
+      }
+    }
+  }
+
+  if (requiresDrawable) {
+    impl_->current_drawable_ = [impl_->layer_ nextDrawable];
+
+    if (!impl_->current_drawable_) {
+      std::cerr << "Failed to get next drawable" << std::endl;
+      return;
+    }
+  } else {
+    impl_->current_drawable_ = nil;
   }
 
   MTLRenderPassDescriptor *renderPassDesc =
       [MTLRenderPassDescriptor renderPassDescriptor];
 
-  // Color attachment
-  renderPassDesc.colorAttachments[0].texture = impl_->current_drawable_.texture;
-  renderPassDesc.colorAttachments[0].loadAction = MTLLoadActionClear;
-  renderPassDesc.colorAttachments[0].storeAction = MTLStoreActionStore;
-  renderPassDesc.colorAttachments[0].clearColor =
-      MTLClearColorMake(clear[0], clear[1], clear[2], clear[3]);
+  if (!renderPassDesc) {
+    std::cerr << "Failed to allocate Metal render pass descriptor" << std::endl;
+    return;
+  }
 
-  // Depth attachment
-  renderPassDesc.depthAttachment.texture = impl_->depth_texture_;
-  renderPassDesc.depthAttachment.loadAction = MTLLoadActionClear;
-  renderPassDesc.depthAttachment.storeAction = MTLStoreActionDontCare;
-  renderPassDesc.depthAttachment.clearDepth = clearDepth;
+  NSUInteger targetWidth = 0;
+  NSUInteger targetHeight = 0;
+
+  for (uint32_t i = 0; i < desc.colorAttachmentCount; ++i) {
+    const auto &attachment = desc.colorAttachments[i];
+    MTLRenderPassColorAttachmentDescriptor *colorDesc =
+        renderPassDesc.colorAttachments[i];
+
+    id<MTLTexture> texture = nil;
+    if (attachment.texture.id == 0) {
+      if (!impl_->current_drawable_) {
+        std::cerr << "Render pass requested swapchain attachment without drawable"
+                  << std::endl;
+        return;
+      }
+      texture = impl_->current_drawable_.texture;
+    } else {
+      auto it = impl_->textures_->find(attachment.texture.id);
+      if (it == impl_->textures_->end() || !it->second.texture) {
+        std::cerr << "Invalid Metal color attachment texture handle" << std::endl;
+        return;
+      }
+      texture = it->second.texture;
+      if (attachment.mipLevel >= (uint32_t)texture.mipmapLevelCount) {
+        std::cerr << "Metal color attachment mip level out of range" << std::endl;
+        return;
+      }
+      if (texture.textureType == MTLTextureType2D) {
+        if (attachment.arraySlice != 0) {
+          std::cerr << "Metal color attachment slice must be zero for 2D textures"
+                    << std::endl;
+          return;
+        }
+      } else if (attachment.arraySlice >= (uint32_t)texture.arrayLength) {
+        std::cerr << "Metal color attachment array slice out of range"
+                  << std::endl;
+        return;
+      } else {
+        colorDesc.slice = attachment.arraySlice;
+      }
+    }
+
+    colorDesc.texture = texture;
+    colorDesc.level = attachment.mipLevel;
+    colorDesc.loadAction = toMTLLoadAction(attachment.loadOp);
+    colorDesc.storeAction = toMTLStoreAction(attachment.storeOp);
+    if (attachment.loadOp == LoadOp::Clear) {
+      colorDesc.clearColor = MTLClearColorMake(attachment.clearColor[0],
+                                              attachment.clearColor[1],
+                                              attachment.clearColor[2],
+                                              attachment.clearColor[3]);
+    }
+
+    if (texture) {
+      if (targetWidth == 0) {
+        targetWidth = texture.width;
+        targetHeight = texture.height;
+      } else if (targetWidth != texture.width || targetHeight != texture.height) {
+        std::cerr << "Metal color attachments must have matching dimensions"
+                  << std::endl;
+        return;
+      }
+    }
+  }
+
+  for (uint32_t i = desc.colorAttachmentCount; i < kMaxColorAttachments; ++i) {
+    MTLRenderPassColorAttachmentDescriptor *colorDesc =
+        renderPassDesc.colorAttachments[i];
+    colorDesc.texture = nil;
+    colorDesc.loadAction = MTLLoadActionDontCare;
+    colorDesc.storeAction = MTLStoreActionDontCare;
+  }
+
+  if (desc.hasDepthAttachment) {
+    const auto &depthAttachment = desc.depthAttachment;
+    id<MTLTexture> depthTexture = nil;
+
+    if (depthAttachment.texture.id == 0) {
+      depthTexture = impl_->depth_texture_;
+    } else {
+      auto it = impl_->textures_->find(depthAttachment.texture.id);
+      if (it == impl_->textures_->end() || !it->second.texture) {
+        std::cerr << "Invalid Metal depth attachment texture handle" << std::endl;
+        return;
+      }
+      depthTexture = it->second.texture;
+    }
+
+    if (depthTexture) {
+      renderPassDesc.depthAttachment.texture = depthTexture;
+      renderPassDesc.depthAttachment.loadAction =
+          toMTLLoadAction(depthAttachment.depthLoadOp);
+      renderPassDesc.depthAttachment.storeAction =
+          toMTLStoreAction(depthAttachment.depthStoreOp);
+      renderPassDesc.depthAttachment.clearDepth = depthAttachment.clearDepth;
+
+      if (depthAttachment.hasStencil) {
+        renderPassDesc.stencilAttachment.texture = depthTexture;
+        renderPassDesc.stencilAttachment.loadAction =
+            toMTLLoadAction(depthAttachment.stencilLoadOp);
+        renderPassDesc.stencilAttachment.storeAction =
+            toMTLStoreAction(depthAttachment.stencilStoreOp);
+        renderPassDesc.stencilAttachment.clearStencil =
+            depthAttachment.clearStencil;
+      } else {
+        renderPassDesc.stencilAttachment.texture = nil;
+      }
+
+      if (targetWidth == 0) {
+        targetWidth = depthTexture.width;
+        targetHeight = depthTexture.height;
+      } else if (targetWidth != depthTexture.width ||
+                 targetHeight != depthTexture.height) {
+        std::cerr << "Metal depth attachment dimensions must match color attachments"
+                  << std::endl;
+        return;
+      }
+    } else {
+      std::cerr << "Metal render pass missing depth texture" << std::endl;
+      return;
+    }
+  } else {
+    renderPassDesc.depthAttachment.texture = nil;
+    renderPassDesc.stencilAttachment.texture = nil;
+  }
+
+  if (targetWidth != 0 && targetHeight != 0) {
+    renderPassDesc.renderTargetWidth = targetWidth;
+    renderPassDesc.renderTargetHeight = targetHeight;
+    renderPassDesc.renderTargetArrayLength = 1;
+  }
 
   impl_->render_encoder_ = [impl_->command_buffer_
       renderCommandEncoderWithDescriptor:renderPassDesc];

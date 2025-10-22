@@ -84,12 +84,27 @@ void Renderer::begin_frame(const Color &clear_color) {
   auto *cmd = device_->getImmediate();
   cmd->begin();
 
-  float clear[4] = {clear_color.r, clear_color.g, clear_color.b, clear_color.a};
+  rhi::RenderPassDesc pass{};
+  pass.colorAttachmentCount = 1;
+  pass.colorAttachments[0].texture = rhi::TextureHandle{0};
+  pass.colorAttachments[0].loadOp = rhi::LoadOp::Clear;
+  pass.colorAttachments[0].storeOp = rhi::StoreOp::Store;
+  pass.colorAttachments[0].clearColor[0] = clear_color.r;
+  pass.colorAttachments[0].clearColor[1] = clear_color.g;
+  pass.colorAttachments[0].clearColor[2] = clear_color.b;
+  pass.colorAttachments[0].clearColor[3] = clear_color.a;
 
-  rhi::TextureHandle backbuffer{0};
-  rhi::TextureHandle depth_buffer{0};
+  pass.hasDepthAttachment = true;
+  pass.depthAttachment.texture = rhi::TextureHandle{0};
+  pass.depthAttachment.depthLoadOp = rhi::LoadOp::Clear;
+  pass.depthAttachment.depthStoreOp = rhi::StoreOp::DontCare;
+  pass.depthAttachment.clearDepth = 1.0f;
+  pass.depthAttachment.hasStencil = true;
+  pass.depthAttachment.stencilLoadOp = rhi::LoadOp::Clear;
+  pass.depthAttachment.stencilStoreOp = rhi::StoreOp::DontCare;
+  pass.depthAttachment.clearStencil = 0;
 
-  cmd->beginRender(backbuffer, depth_buffer, clear, 1.0f, 0);
+  cmd->beginRender(pass);
 }
 
 void Renderer::end_frame() {

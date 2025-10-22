@@ -17,6 +17,17 @@ enum class Format {
   D32F
 };
 
+enum class LoadOp : uint8_t {
+  Load,
+  Clear,
+  DontCare,
+};
+
+enum class StoreOp : uint8_t {
+  Store,
+  DontCare,
+};
+
 enum class BlendFactor : uint8_t {
   Zero,
   One,

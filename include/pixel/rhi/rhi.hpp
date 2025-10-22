@@ -28,11 +28,36 @@ struct PipelineDesc {
   std::array<ColorAttachmentDesc, kMaxColorAttachments> colorAttachments{};
 };
 
+struct RenderPassColorAttachment {
+  TextureHandle texture{};
+  LoadOp loadOp{LoadOp::Clear};
+  StoreOp storeOp{StoreOp::Store};
+  float clearColor[4]{0.0f, 0.0f, 0.0f, 0.0f};
+  uint32_t mipLevel{0};
+  uint32_t arraySlice{0};
+};
+
+struct RenderPassDepthAttachment {
+  TextureHandle texture{};
+  LoadOp depthLoadOp{LoadOp::Clear};
+  StoreOp depthStoreOp{StoreOp::DontCare};
+  LoadOp stencilLoadOp{LoadOp::DontCare};
+  StoreOp stencilStoreOp{StoreOp::DontCare};
+  float clearDepth{1.0f};
+  uint32_t clearStencil{0};
+  bool hasStencil{false};
+};
+
+struct RenderPassDesc {
+  std::array<RenderPassColorAttachment, kMaxColorAttachments> colorAttachments{};
+  uint32_t colorAttachmentCount{0};
+  bool hasDepthAttachment{false};
+  RenderPassDepthAttachment depthAttachment{};
+};
+
 struct CmdList {
   virtual void begin() = 0;
-  virtual void beginRender(TextureHandle rtColor, TextureHandle rtDepth,
-                           float clear[4], float clearDepth,
-                           uint8_t clearStencil) = 0;
+  virtual void beginRender(const RenderPassDesc &desc) = 0;
   virtual void setPipeline(PipelineHandle) = 0;
   virtual void setVertexBuffer(BufferHandle, size_t offset = 0) = 0;
   virtual void setIndexBuffer(BufferHandle, size_t offset = 0) = 0;

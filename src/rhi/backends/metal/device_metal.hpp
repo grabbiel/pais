@@ -74,8 +74,7 @@ public:
   ~MetalCmdList() override;
 
   void begin() override;
-  void beginRender(TextureHandle rtColor, TextureHandle rtDepth, float clear[4],
-                   float clearDepth, uint8_t clearStencil) override;
+  void beginRender(const RenderPassDesc &desc) override;
   void setPipeline(PipelineHandle handle) override;
   void setVertexBuffer(BufferHandle handle, size_t offset = 0) override;
   void setIndexBuffer(BufferHandle handle, size_t offset = 0) override;
