@@ -7,10 +7,11 @@
 #include <GLFW/glfw3native.h>
 #import <Cocoa/Cocoa.h>
 #import <Metal/MTLCommandBuffer.h>
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
-#include <iterator>
 #include <sstream>
+#include <utility>
 
 namespace pixel::renderer3d::metal {
 
@@ -477,6 +478,17 @@ bool MetalBackend::initialize(GLFWwindow *window) {
 
   inflight_command_buffers_ = [[NSMutableArray alloc] init];
 
+  for (auto &frame : frame_contexts_) {
+    frame.fence = dispatch_semaphore_create(1);
+    if (!frame.fence) {
+      std::cerr << "Failed to create Metal frame fence" << std::endl;
+      return false;
+    }
+    frame.frame_id = 0;
+    frame.active = false;
+    frame.completion_callbacks.clear();
+  }
+
   // Get the native window
   NSWindow *nsWindow = glfwGetCocoaWindow(window);
   if (!nsWindow) {
@@ -552,6 +564,8 @@ bool MetalBackend::initialize(GLFWwindow *window) {
 
   frame_counter_ = 0;
   current_frame_id_ = 0;
+  last_completed_frame_id_ = 0;
+  current_frame_context_ = nullptr;
 
   return true;
 }
@@ -564,10 +578,55 @@ MetalBackend::~MetalBackend() {
     [inflight_command_buffers_ removeAllObjects];
   }
 
-  flush_pending_releases(nullptr);
-
   inflight_command_buffers_ = nil;
+
+  for (auto &frame : frame_contexts_) {
+    if (frame.fence) {
+      dispatch_semaphore_wait(frame.fence, DISPATCH_TIME_FOREVER);
+    }
+
+    std::vector<std::function<void()>> callbacks;
+    {
+      std::lock_guard<std::mutex> lock(frame_mutex_);
+      callbacks = std::move(frame.completion_callbacks);
+      frame.active = false;
+    }
+
+    for (auto &callback : callbacks) {
+      if (callback) {
+        callback();
+      }
+    }
+
+#if defined(OS_OBJECT_USE_OBJC) && OS_OBJECT_USE_OBJC
+    frame.fence = nullptr;
+#else
+    if (frame.fence) {
+      dispatch_release(frame.fence);
+      frame.fence = nullptr;
+    }
+#endif
+  }
+
+  {
+    std::vector<std::unique_ptr<MetalResource>> leftovers;
+    {
+      std::lock_guard<std::mutex> lock(resource_mutex_);
+      for (auto &entry : deferred_destruction_queue_) {
+        leftovers.push_back(std::move(entry.resource));
+      }
+      deferred_destruction_queue_.clear();
+    }
+  }
+
+#if defined(OS_OBJECT_USE_OBJC) && OS_OBJECT_USE_OBJC
   inflight_semaphore_ = nullptr;
+#else
+  if (inflight_semaphore_) {
+    dispatch_release(inflight_semaphore_);
+    inflight_semaphore_ = nullptr;
+  }
+#endif
 }
 
 void MetalBackend::begin_frame(const Color &clear_color) {
@@ -584,11 +643,25 @@ void MetalBackend::begin_frame(const Color &clear_color) {
   dispatch_semaphore_wait(inflight_semaphore_, DISPATCH_TIME_FOREVER);
 
   current_frame_id_ = frame_counter_++;
+  size_t frame_index = current_frame_id_ % kMaxFramesInFlight;
+  FrameContext &frame_context = frame_contexts_[frame_index];
+
+  dispatch_semaphore_wait(frame_context.fence, DISPATCH_TIME_FOREVER);
+
+  {
+    std::lock_guard<std::mutex> lock(frame_mutex_);
+    frame_context.frame_id = current_frame_id_;
+    frame_context.active = true;
+    frame_context.completion_callbacks.clear();
+  }
+
+  current_frame_context_ = &frame_context;
+
   current_drawable_ = [metal_layer_ nextDrawable];
 
   if (!current_drawable_) {
     std::cerr << "Failed to acquire CAMetalDrawable for frame" << std::endl;
-    dispatch_semaphore_signal(inflight_semaphore_);
+    abort_frame(frame_context);
     return;
   }
 
@@ -596,7 +669,7 @@ void MetalBackend::begin_frame(const Color &clear_color) {
   if (!command_buffer_) {
     std::cerr << "Failed to create Metal command buffer" << std::endl;
     current_drawable_ = nil;
-    dispatch_semaphore_signal(inflight_semaphore_);
+    abort_frame(frame_context);
     return;
   }
 
@@ -604,16 +677,17 @@ void MetalBackend::begin_frame(const Color &clear_color) {
       [NSString stringWithFormat:@"Frame_%llu", current_frame_id_];
   command_buffer_.label = frameLabel;
 
+  FrameContext *captured_context = current_frame_context_;
   MetalBackend *backend = this;
   [command_buffer_ addCompletedHandler:^(id<MTLCommandBuffer> buffer) {
-    backend->on_command_buffer_complete(buffer);
+    backend->on_command_buffer_complete(buffer, captured_context);
   }];
 
   if (!setup_render_pass_descriptor()) {
     std::cerr << "Failed to configure Metal render pass descriptor" << std::endl;
     command_buffer_ = nil;
     current_drawable_ = nil;
-    dispatch_semaphore_signal(inflight_semaphore_);
+    abort_frame(frame_context);
     return;
   }
 
@@ -627,7 +701,7 @@ void MetalBackend::begin_frame(const Color &clear_color) {
     std::cerr << "Failed to create Metal render command encoder" << std::endl;
     command_buffer_ = nil;
     current_drawable_ = nil;
-    dispatch_semaphore_signal(inflight_semaphore_);
+    abort_frame(frame_context);
     return;
   }
 
@@ -637,7 +711,9 @@ void MetalBackend::begin_frame(const Color &clear_color) {
 void MetalBackend::end_frame() {
   if (!command_buffer_ || !render_encoder_ || !current_drawable_) {
     std::cerr << "Attempted to end Metal frame without active encoder" << std::endl;
-    if (command_buffer_) {
+    if (current_frame_context_) {
+      abort_frame(*current_frame_context_);
+    } else if (inflight_semaphore_) {
       dispatch_semaphore_signal(inflight_semaphore_);
     }
     render_encoder_ = nil;
@@ -650,13 +726,9 @@ void MetalBackend::end_frame() {
 
   [command_buffer_ presentDrawable:current_drawable_];
 
-  {
+  if (current_frame_context_) {
     id<CAMetalDrawable> drawable = current_drawable_;
-    std::lock_guard<std::mutex> lock(inflight_mutex_);
-    void *key = (__bridge void *)command_buffer_;
-    pending_releases_[key].emplace_back([drawable]() {
-      (void)drawable;
-    });
+    enqueue_completion_task([drawable]() { (void)drawable; });
   }
 
   track_inflight_command_buffer(command_buffer_);
@@ -666,6 +738,7 @@ void MetalBackend::end_frame() {
   render_encoder_ = nil;
   command_buffer_ = nil;
   current_drawable_ = nil;
+  current_frame_context_ = nullptr;
 
   if (render_pass_descriptor_) {
     render_pass_descriptor_.colorAttachments[0].texture = nil;
@@ -682,31 +755,103 @@ void MetalBackend::track_inflight_command_buffer(
   [inflight_command_buffers_ addObject:command_buffer];
 }
 
-void MetalBackend::flush_pending_releases(void *command_buffer_key) {
-  std::vector<std::function<void()>> releases;
+void MetalBackend::enqueue_completion_task(std::function<void()> callback) {
+  if (!callback) {
+    return;
+  }
+
+  if (!current_frame_context_) {
+    callback();
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(frame_mutex_);
+  current_frame_context_->completion_callbacks.emplace_back(std::move(callback));
+}
+
+void MetalBackend::mark_resource_in_use(const MetalResource *resource) {
+  if (!resource) {
+    return;
+  }
+
+  resource->mark_used(current_frame_id_);
+
+  std::lock_guard<std::mutex> lock(resource_mutex_);
+  resource_last_usage_[resource] = current_frame_id_;
+}
+
+void MetalBackend::wait_for_resource(const MetalResource *resource) {
+  if (!resource) {
+    return;
+  }
+
+  std::unique_lock<std::mutex> lock(resource_mutex_);
+  auto it = resource_last_usage_.find(resource);
+  if (it == resource_last_usage_.end()) {
+    return;
+  }
+
+  uint64_t target_frame = it->second;
+  frame_completion_cv_.wait(lock, [&]() {
+    return last_completed_frame_id_ >= target_frame;
+  });
+}
+
+void MetalBackend::defer_resource_destruction(
+    std::unique_ptr<MetalResource> resource) {
+  if (!resource) {
+    return;
+  }
+
+  const MetalResource *key = resource.get();
+  uint64_t safe_frame = std::max(resource->last_used_frame(), current_frame_id_);
+
+  resource->mark_pending_destruction();
+
+  bool enqueued = false;
 
   {
-    std::lock_guard<std::mutex> lock(inflight_mutex_);
-    if (!command_buffer_key) {
-      for (auto &[key, callbacks] : pending_releases_) {
-        releases.insert(releases.end(), std::make_move_iterator(callbacks.begin()),
-                        std::make_move_iterator(callbacks.end()));
-      }
-      pending_releases_.clear();
-    } else {
-      auto it = pending_releases_.find(command_buffer_key);
-      if (it != pending_releases_.end()) {
-        releases = std::move(it->second);
-        pending_releases_.erase(it);
-      }
+    std::lock_guard<std::mutex> lock(resource_mutex_);
+    resource_last_usage_.erase(key);
+
+    if (last_completed_frame_id_ < safe_frame) {
+      deferred_destruction_queue_.push_back(
+          DeferredResource{safe_frame, std::move(resource)});
+      enqueued = true;
     }
   }
 
-  for (auto &callback : releases) {
-    if (callback) {
-      callback();
-    }
+  if (enqueued) {
+    return;
   }
+  // Resource will be destroyed when going out of scope if already safe.
+}
+
+void MetalBackend::abort_frame(FrameContext &context) {
+  {
+    std::lock_guard<std::mutex> lock(frame_mutex_);
+    context.active = false;
+    context.completion_callbacks.clear();
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(resource_mutex_);
+    last_completed_frame_id_ = std::max(last_completed_frame_id_, context.frame_id);
+  }
+  frame_completion_cv_.notify_all();
+
+  if (context.fence) {
+    dispatch_semaphore_signal(context.fence);
+  }
+
+  if (inflight_semaphore_) {
+    dispatch_semaphore_signal(inflight_semaphore_);
+  }
+
+  current_frame_context_ = nullptr;
+  command_buffer_ = nil;
+  render_encoder_ = nil;
+  current_drawable_ = nil;
 }
 
 void MetalBackend::log_nserror(const std::string &context, NSError *error) const {
@@ -784,9 +929,7 @@ std::string MetalBackend::describe_command_buffer(
 }
 
 void MetalBackend::on_command_buffer_complete(
-    id<MTLCommandBuffer> command_buffer) {
-  void *key = command_buffer ? (__bridge void *)command_buffer : nullptr;
-
+    id<MTLCommandBuffer> command_buffer, FrameContext *frame_context) {
   if (command_buffer && command_buffer.status == MTLCommandBufferStatusError) {
     std::string context = "command buffer " + describe_command_buffer(command_buffer);
     log_nserror(context, command_buffer.error);
@@ -799,7 +942,45 @@ void MetalBackend::on_command_buffer_complete(
     }
   }
 
-  flush_pending_releases(key);
+  if (frame_context) {
+    std::vector<std::function<void()>> callbacks;
+    std::vector<std::unique_ptr<MetalResource>> ready_for_destruction;
+
+    {
+      std::lock_guard<std::mutex> lock(frame_mutex_);
+      callbacks = std::move(frame_context->completion_callbacks);
+      frame_context->active = false;
+    }
+
+    for (auto &callback : callbacks) {
+      if (callback) {
+        callback();
+      }
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(resource_mutex_);
+      last_completed_frame_id_ =
+          std::max(last_completed_frame_id_, frame_context->frame_id);
+
+      auto it = deferred_destruction_queue_.begin();
+      while (it != deferred_destruction_queue_.end()) {
+        if (it->frame_id <= last_completed_frame_id_) {
+          ready_for_destruction.push_back(std::move(it->resource));
+          it = deferred_destruction_queue_.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    }
+    frame_completion_cv_.notify_all();
+
+    ready_for_destruction.clear();
+
+    if (frame_context->fence) {
+      dispatch_semaphore_signal(frame_context->fence);
+    }
+  }
 
   if (inflight_semaphore_) {
     dispatch_semaphore_signal(inflight_semaphore_);
@@ -948,6 +1129,9 @@ void MetalBackend::draw_mesh(const MetalMesh &mesh, const Vec3 &position,
   if (!shader || !render_encoder_) {
     return;
   }
+
+  mark_resource_in_use(&mesh);
+  mark_resource_in_use(shader);
 
   DepthStencilStateKey key = make_depth_stencil_key(material);
   id<MTLDepthStencilState> depth_state = get_depth_stencil_state(key);
