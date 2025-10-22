@@ -73,8 +73,8 @@ Renderer::~Renderer() {
 }
 
 void Renderer::setup_default_shaders() {
-  default_shader_ = load_shader("assets/shaders/default.vert",
-                                "assets/shaders/default.frag");
+  default_shader_ =
+      load_shader("assets/shaders/default.vert", "assets/shaders/default.frag");
   instanced_shader_ = load_shader("assets/shaders/instanced.vert",
                                   "assets/shaders/instanced.frag");
   sprite_shader_ = default_shader_; // Use same for sprites
@@ -129,7 +129,7 @@ void Renderer::update_input_state() {
   input_state_.prev_mouse_x = input_state_.mouse_x;
   input_state_.prev_mouse_y = input_state_.mouse_y;
 
-  for (int key = 0; key < 512; ++key) {
+  for (int key = 32; key <= 348; ++key) {
     input_state_.keys[key] = (glfwGetKey(window_, key) == GLFW_PRESS);
   }
 

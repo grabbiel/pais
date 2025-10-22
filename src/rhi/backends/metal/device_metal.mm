@@ -74,9 +74,10 @@ struct UniformAllocator {
     if (frame_size == 0) {
       frame_size = size;
     }
-    buffer = [device newBufferWithLength:size
-                                  options:(MTLResourceStorageModeShared |
-                                           MTLResourceCPUCacheModeWriteCombined)];
+    buffer =
+        [device newBufferWithLength:size
+                            options:(MTLResourceStorageModeShared |
+                                     MTLResourceCPUCacheModeWriteCombined)];
     if (!buffer) {
       return false;
     }
@@ -187,22 +188,22 @@ struct PipelineCacheKeyHash {
 
     for (uint32_t i = 0; i < key.color_attachment_count; ++i) {
       const auto &attachment = key.color_attachments[i];
-      hash_combine(std::hash<FormatUnderlying>{}(static_cast<FormatUnderlying>(
-          attachment.format)));
+      hash_combine(std::hash<FormatUnderlying>{}(
+          static_cast<FormatUnderlying>(attachment.format)));
       const auto &blend = attachment.blend;
       hash_combine(std::hash<bool>{}(blend.enabled));
-      hash_combine(std::hash<BlendFactorUnderlying>{}(static_cast<
-          BlendFactorUnderlying>(blend.srcColor)));
-      hash_combine(std::hash<BlendFactorUnderlying>{}(static_cast<
-          BlendFactorUnderlying>(blend.dstColor)));
-      hash_combine(std::hash<BlendOpUnderlying>{}(static_cast<BlendOpUnderlying>(
-          blend.colorOp)));
-      hash_combine(std::hash<BlendFactorUnderlying>{}(static_cast<
-          BlendFactorUnderlying>(blend.srcAlpha)));
-      hash_combine(std::hash<BlendFactorUnderlying>{}(static_cast<
-          BlendFactorUnderlying>(blend.dstAlpha)));
-      hash_combine(std::hash<BlendOpUnderlying>{}(static_cast<BlendOpUnderlying>(
-          blend.alphaOp)));
+      hash_combine(std::hash<BlendFactorUnderlying>{}(
+          static_cast<BlendFactorUnderlying>(blend.srcColor)));
+      hash_combine(std::hash<BlendFactorUnderlying>{}(
+          static_cast<BlendFactorUnderlying>(blend.dstColor)));
+      hash_combine(std::hash<BlendOpUnderlying>{}(
+          static_cast<BlendOpUnderlying>(blend.colorOp)));
+      hash_combine(std::hash<BlendFactorUnderlying>{}(
+          static_cast<BlendFactorUnderlying>(blend.srcAlpha)));
+      hash_combine(std::hash<BlendFactorUnderlying>{}(
+          static_cast<BlendFactorUnderlying>(blend.dstAlpha)));
+      hash_combine(std::hash<BlendOpUnderlying>{}(
+          static_cast<BlendOpUnderlying>(blend.alphaOp)));
     }
     return seed;
   }
@@ -367,7 +368,8 @@ struct MetalDevice::Impl {
     // Initialize ring buffer allocator for frequently changing uniform data
     size_t ringBufferSize = sizeof(Uniforms) * kTotalUniformSlots;
     if (!uniform_allocator_.initialize(device_, ringBufferSize)) {
-      std::cerr << "Failed to create Metal uniform allocator buffer" << std::endl;
+      std::cerr << "Failed to create Metal uniform allocator buffer"
+                << std::endl;
     }
 
     immediate_ = std::make_unique<MetalCmdList>(this);
@@ -696,7 +698,8 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
     attachments[0].format = Format::BGRA8;
     attachments[0].blend = make_alpha_blend_state();
   } else {
-    for (uint32_t i = 0; i < colorAttachmentCount && i < kMaxColorAttachments; ++i) {
+    for (uint32_t i = 0; i < colorAttachmentCount && i < kMaxColorAttachments;
+         ++i) {
       attachments[i] = desc.colorAttachments[i];
     }
   }
@@ -738,8 +741,7 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
       pipelineDesc.colorAttachments[i].sourceRGBBlendFactor = MTLBlendFactorOne;
       pipelineDesc.colorAttachments[i].destinationRGBBlendFactor =
           MTLBlendFactorZero;
-      pipelineDesc.colorAttachments[i].rgbBlendOperation =
-          MTLBlendOperationAdd;
+      pipelineDesc.colorAttachments[i].rgbBlendOperation = MTLBlendOperationAdd;
       pipelineDesc.colorAttachments[i].sourceAlphaBlendFactor =
           MTLBlendFactorOne;
       pipelineDesc.colorAttachments[i].destinationAlphaBlendFactor =
@@ -800,7 +802,8 @@ void MetalDevice::readBuffer(BufferHandle handle, void *dst, size_t size,
 
   const MTLBufferResource &buffer = it->second;
   if (!buffer.host_visible) {
-    std::cerr << "Metal buffer is not host-visible; cannot read back" << std::endl;
+    std::cerr << "Metal buffer is not host-visible; cannot read back"
+              << std::endl;
     return;
   }
 
@@ -906,11 +909,11 @@ struct MetalCmdList::Impl {
       return;
     }
     [encoder setVertexBuffer:current_uniform_.buffer
-                       offset:current_uniform_.offset
-                      atIndex:1];
+                      offset:current_uniform_.offset
+                     atIndex:1];
     [encoder setFragmentBuffer:current_uniform_.buffer
-                         offset:current_uniform_.offset
-                        atIndex:1];
+                        offset:current_uniform_.offset
+                       atIndex:1];
   }
 
   void endRenderEncoderIfNeeded() {
@@ -985,18 +988,20 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
   impl_->endComputeEncoderIfNeeded();
 
   if (desc.colorAttachmentCount > kMaxColorAttachments) {
-    std::cerr << "Metal render pass exceeds maximum color attachments" << std::endl;
+    std::cerr << "Metal render pass exceeds maximum color attachments"
+              << std::endl;
     return;
   }
 
   if (desc.colorAttachmentCount == 0 && !desc.hasDepthAttachment) {
-    std::cerr << "Metal render pass requires at least one attachment" << std::endl;
+    std::cerr << "Metal render pass requires at least one attachment"
+              << std::endl;
     return;
   }
 
   bool requiresDrawable = false;
-  bool usesSwapchainDepth = desc.hasDepthAttachment &&
-                            desc.depthAttachment.texture.id == 0;
+  bool usesSwapchainDepth =
+      desc.hasDepthAttachment && desc.depthAttachment.texture.id == 0;
 
   if (desc.colorAttachmentCount == 0) {
     requiresDrawable = usesSwapchainDepth;
@@ -1039,26 +1044,30 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     id<MTLTexture> texture = nil;
     if (attachment.texture.id == 0) {
       if (!impl_->current_drawable_) {
-        std::cerr << "Render pass requested swapchain attachment without drawable"
-                  << std::endl;
+        std::cerr
+            << "Render pass requested swapchain attachment without drawable"
+            << std::endl;
         return;
       }
       texture = impl_->current_drawable_.texture;
     } else {
       auto it = impl_->textures_->find(attachment.texture.id);
       if (it == impl_->textures_->end() || !it->second.texture) {
-        std::cerr << "Invalid Metal color attachment texture handle" << std::endl;
+        std::cerr << "Invalid Metal color attachment texture handle"
+                  << std::endl;
         return;
       }
       texture = it->second.texture;
       if (attachment.mipLevel >= (uint32_t)texture.mipmapLevelCount) {
-        std::cerr << "Metal color attachment mip level out of range" << std::endl;
+        std::cerr << "Metal color attachment mip level out of range"
+                  << std::endl;
         return;
       }
       if (texture.textureType == MTLTextureType2D) {
         if (attachment.arraySlice != 0) {
-          std::cerr << "Metal color attachment slice must be zero for 2D textures"
-                    << std::endl;
+          std::cerr
+              << "Metal color attachment slice must be zero for 2D textures"
+              << std::endl;
           return;
         }
       } else if (attachment.arraySlice >= (uint32_t)texture.arrayLength) {
@@ -1075,17 +1084,17 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     colorDesc.loadAction = toMTLLoadAction(attachment.loadOp);
     colorDesc.storeAction = toMTLStoreAction(attachment.storeOp);
     if (attachment.loadOp == LoadOp::Clear) {
-      colorDesc.clearColor = MTLClearColorMake(attachment.clearColor[0],
-                                              attachment.clearColor[1],
-                                              attachment.clearColor[2],
-                                              attachment.clearColor[3]);
+      colorDesc.clearColor =
+          MTLClearColorMake(attachment.clearColor[0], attachment.clearColor[1],
+                            attachment.clearColor[2], attachment.clearColor[3]);
     }
 
     if (texture) {
       if (targetWidth == 0) {
         targetWidth = texture.width;
         targetHeight = texture.height;
-      } else if (targetWidth != texture.width || targetHeight != texture.height) {
+      } else if (targetWidth != texture.width ||
+                 targetHeight != texture.height) {
         std::cerr << "Metal color attachments must have matching dimensions"
                   << std::endl;
         return;
@@ -1110,7 +1119,8 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     } else {
       auto it = impl_->textures_->find(depthAttachment.texture.id);
       if (it == impl_->textures_->end() || !it->second.texture) {
-        std::cerr << "Invalid Metal depth attachment texture handle" << std::endl;
+        std::cerr << "Invalid Metal depth attachment texture handle"
+                  << std::endl;
         return;
       }
       depthTexture = it->second.texture;
@@ -1141,8 +1151,9 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
         targetHeight = depthTexture.height;
       } else if (targetWidth != depthTexture.width ||
                  targetHeight != depthTexture.height) {
-        std::cerr << "Metal depth attachment dimensions must match color attachments"
-                  << std::endl;
+        std::cerr
+            << "Metal depth attachment dimensions must match color attachments"
+            << std::endl;
         return;
       }
     } else {
@@ -1174,8 +1185,9 @@ void MetalCmdList::setPipeline(PipelineHandle handle) {
   const MTLPipelineResource &pipeline = it->second;
 
   if (!impl_->render_encoder_) {
-    std::cerr << "Attempted to set render pipeline without an active render pass"
-              << std::endl;
+    std::cerr
+        << "Attempted to set render pipeline without an active render pass"
+        << std::endl;
     return;
   }
 
@@ -1455,8 +1467,9 @@ void MetalCmdList::setStorageBuffer(uint32_t binding, BufferHandle buffer,
   const MTLBufferResource &buf = it->second;
 
   if (!impl_->compute_encoder_) {
-    std::cerr << "Attempted to bind storage buffer without an active compute encoder"
-              << std::endl;
+    std::cerr
+        << "Attempted to bind storage buffer without an active compute encoder"
+        << std::endl;
     return;
   }
 
@@ -1483,7 +1496,8 @@ void MetalCmdList::dispatch(uint32_t groupCountX, uint32_t groupCountY,
   NSUInteger executionWidth = state.threadExecutionWidth;
 
   NSUInteger threadsX = std::max<NSUInteger>(
-      1, std::min<NSUInteger>(executionWidth, static_cast<NSUInteger>(groupCountX)));
+      1, std::min<NSUInteger>(executionWidth,
+                              static_cast<NSUInteger>(groupCountX)));
   threadsX = std::min(threadsX, maxThreads);
 
   NSUInteger remaining = std::max<NSUInteger>(1, maxThreads / threadsX);
@@ -1506,12 +1520,12 @@ void MetalCmdList::dispatch(uint32_t groupCountX, uint32_t groupCountY,
     return (total + denom - 1) / denom;
   };
 
-  NSUInteger groupsX = ceilDiv(static_cast<NSUInteger>(groupCountX),
-                               threadsPerGroup.width);
-  NSUInteger groupsY = ceilDiv(static_cast<NSUInteger>(groupCountY),
-                               threadsPerGroup.height);
-  NSUInteger groupsZ = ceilDiv(static_cast<NSUInteger>(groupCountZ),
-                               threadsPerGroup.depth);
+  NSUInteger groupsX =
+      ceilDiv(static_cast<NSUInteger>(groupCountX), threadsPerGroup.width);
+  NSUInteger groupsY =
+      ceilDiv(static_cast<NSUInteger>(groupCountY), threadsPerGroup.height);
+  NSUInteger groupsZ =
+      ceilDiv(static_cast<NSUInteger>(groupCountZ), threadsPerGroup.depth);
 
   groupsX = std::max<NSUInteger>(groupsX, 1);
   groupsY = std::max<NSUInteger>(groupsY, 1);
@@ -1527,10 +1541,12 @@ void MetalCmdList::memoryBarrier() {
   if (!impl_->compute_encoder_)
     return;
 
-  if ([impl_->compute_encoder_ respondsToSelector:@selector(memoryBarrierWithScope:options:)]) {
+  if ([impl_->compute_encoder_
+          respondsToSelector:@selector(memoryBarrierWithScope:options:)]) {
     [impl_->compute_encoder_ memoryBarrierWithScope:MTLBarrierScopeBuffers
                                             options:0];
-  } else if ([impl_->compute_encoder_ respondsToSelector:@selector(memoryBarrierWithScope:)]) {
+  } else if ([impl_->compute_encoder_
+                 respondsToSelector:@selector(memoryBarrierWithScope:)]) {
     [impl_->compute_encoder_ memoryBarrierWithScope:MTLBarrierScopeBuffers];
   }
 }
@@ -1574,10 +1590,10 @@ void MetalCmdList::copyToBuffer(BufferHandle handle, size_t dstOff,
     return;
   }
 
-  id<MTLBuffer> staging =
-      [impl_->device_ newBufferWithLength:src.size()
-                                   options:(MTLResourceStorageModeShared |
-                                            MTLResourceCPUCacheModeWriteCombined)];
+  id<MTLBuffer> staging = [impl_->device_
+      newBufferWithLength:src.size()
+                  options:(MTLResourceStorageModeShared |
+                           MTLResourceCPUCacheModeWriteCombined)];
 
   if (!staging) {
     std::cerr << "Failed to allocate Metal staging buffer for upload"
@@ -1600,10 +1616,10 @@ void MetalCmdList::copyToBuffer(BufferHandle handle, size_t dstOff,
     return;
   }
   [blit copyFromBuffer:staging
-          sourceOffset:0
-              toBuffer:buffer.buffer
-     destinationOffset:dstOff
-                  size:src.size()];
+           sourceOffset:0
+               toBuffer:buffer.buffer
+      destinationOffset:dstOff
+                   size:src.size()];
   [blit endEncoding];
 
   impl_->staging_uploads_.push_back(staging);
@@ -1618,7 +1634,7 @@ void MetalCmdList::end() {
     }
 
     [impl_->command_buffer_ commit];
-    [impl_->command_buffer_ waitUntilCompleted];
+    /* [impl_->command_buffer_ waitUntilCompleted]; */
   }
 
   impl_->staging_uploads_.clear();
