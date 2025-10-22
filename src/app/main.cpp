@@ -12,7 +12,8 @@
 using namespace pixel::renderer3d;
 
 namespace {
-std::vector<InstanceData> create_grid_instances(int rows, int cols, float spacing) {
+std::vector<InstanceData> create_grid_instances(int rows, int cols,
+                                                float spacing) {
   std::vector<InstanceData> instances;
   instances.reserve(static_cast<size_t>(rows * cols));
 
@@ -63,9 +64,9 @@ std::vector<InstanceData> create_demo_instances() {
     const RowSpec &row = rows[row_index];
     float start_x = -0.5f * static_cast<float>(row.count - 1) * spacing;
     for (int c = 0; c < row.count; ++c) {
-      float blend = row.count > 1
-                        ? static_cast<float>(c) / static_cast<float>(row.count - 1)
-                        : 0.0f;
+      float blend = row.count > 1 ? static_cast<float>(c) /
+                                        static_cast<float>(row.count - 1)
+                                  : 0.0f;
       float tint = 0.85f + 0.15f * blend;
 
       InstanceData data;
@@ -194,6 +195,7 @@ int main(int, char **) {
   renderer->camera().far_clip = 200.0f;
 
   double last_stats_time = 0.0;
+  double last_frame_time = renderer->time();
 
   while (renderer->process_events()) {
     const auto &input = renderer->input();
@@ -201,7 +203,11 @@ int main(int, char **) {
       break; // ESC
     }
 
-    handle_camera_input(*renderer, input);
+    double current_frame_time = renderer->time();
+    handle_camera_input(
+        *renderer, input,
+        static_cast<float>(current_frame_time - last_frame_time));
+    last_frame_time = current_frame_time;
 
     renderer->begin_frame(Color(0.1f, 0.12f, 0.16f, 1.0f));
     RendererLOD::draw_lod(*renderer, *lod_mesh, object_material);
