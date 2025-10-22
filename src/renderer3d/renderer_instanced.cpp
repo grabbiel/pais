@@ -1,4 +1,5 @@
 #include "pixel/renderer3d/renderer_instanced.hpp"
+#include <glm/gtc/type_ptr.hpp>
 #include <iostream>
 
 namespace pixel::renderer3d {
