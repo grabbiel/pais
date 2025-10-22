@@ -239,6 +239,12 @@ public:
   virtual void begin_frame(const Color &clear_color = Color::Black());
   virtual void end_frame();
 
+  // Render pass control helpers - used when compute workloads need to run
+  // mid-frame (e.g. GPU-driven LOD selection)
+  void pause_render_pass();
+  void resume_render_pass();
+  bool render_pass_active() const { return render_pass_active_; }
+
   bool process_events();
 
   const InputState &input() const { return input_state_; }
@@ -309,6 +315,9 @@ protected:
   std::unique_ptr<Mesh> sprite_mesh_;
 
   Camera camera_;
+
+  rhi::RenderPassDesc current_pass_desc_{};
+  bool render_pass_active_ = false;
 };
 
 namespace primitives {

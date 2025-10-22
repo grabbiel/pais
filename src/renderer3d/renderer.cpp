@@ -104,15 +104,38 @@ void Renderer::begin_frame(const Color &clear_color) {
   pass.depthAttachment.stencilStoreOp = rhi::StoreOp::DontCare;
   pass.depthAttachment.clearStencil = 0;
 
-  cmd->beginRender(pass);
+  current_pass_desc_ = pass;
+  cmd->beginRender(current_pass_desc_);
+  render_pass_active_ = true;
 }
 
 void Renderer::end_frame() {
   auto *cmd = device_->getImmediate();
-  cmd->endRender();
+  if (render_pass_active_) {
+    cmd->endRender();
+    render_pass_active_ = false;
+  }
   cmd->end();
 
   device_->present();
+}
+
+void Renderer::pause_render_pass() {
+  if (!device_ || !render_pass_active_)
+    return;
+
+  auto *cmd = device_->getImmediate();
+  cmd->endRender();
+  render_pass_active_ = false;
+}
+
+void Renderer::resume_render_pass() {
+  if (!device_ || render_pass_active_)
+    return;
+
+  auto *cmd = device_->getImmediate();
+  cmd->beginRender(current_pass_desc_);
+  render_pass_active_ = true;
 }
 
 bool Renderer::process_events() {
