@@ -3,30 +3,56 @@
 #include "pixel/renderer3d/renderer.hpp"
 #include "pixel/renderer3d/renderer_instanced.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <iostream>
 #include <vector>
 
 using namespace pixel::renderer3d;
 
 namespace {
-std::vector<InstanceData> create_grid_instances(int rows, int cols,
-                                                float spacing) {
+std::vector<InstanceData> create_demo_instances() {
+  struct RowSpec {
+    int count;
+    float z;
+    float scale;
+    Color base_color;
+  };
+
+  const std::array<RowSpec, 3> rows{
+      RowSpec{5, -6.0f, 1.0f, Color(0.95f, 0.55f, 0.35f, 1.0f)},
+      RowSpec{7, -18.0f, 1.35f, Color(0.35f, 0.82f, 0.64f, 1.0f)},
+      RowSpec{9, -32.0f, 1.75f, Color(0.45f, 0.65f, 0.95f, 1.0f)}};
+
+  const float spacing = 4.0f;
+
   std::vector<InstanceData> instances;
-  instances.reserve(static_cast<size_t>(rows * cols));
+  size_t total_instances = 0;
+  for (const auto &row : rows) {
+    total_instances += static_cast<size_t>(row.count);
+  }
+  instances.reserve(total_instances);
 
-  float start_x = -0.5f * (cols - 1) * spacing;
+  for (size_t row_index = 0; row_index < rows.size(); ++row_index) {
+    const RowSpec &row = rows[row_index];
+    float start_x = -0.5f * static_cast<float>(row.count - 1) * spacing;
+    for (int c = 0; c < row.count; ++c) {
+      float blend = row.count > 1
+                        ? static_cast<float>(c) / static_cast<float>(row.count - 1)
+                        : 0.0f;
+      float tint = 0.85f + 0.15f * blend;
 
-  for (int r = 0; r < rows; ++r) {
-    for (int c = 0; c < cols; ++c) {
       InstanceData data;
-      data.position = {start_x + static_cast<float>(c) * spacing, 0.0f,
-                       -static_cast<float>(r) * spacing * 1.5f};
-      data.rotation = {0.0f, 0.0f, 0.0f};
-      data.scale = {1.0f, 1.0f, 1.0f};
-      float hue = 0.45f + 0.05f * static_cast<float>(r);
-      data.color = Color(0.4f + 0.2f * static_cast<float>(c) / cols,
-                         0.7f * hue, 0.9f, 1.0f);
-      data.culling_radius = 0.9f;
+      data.position = {start_x + static_cast<float>(c) * spacing,
+                       row.scale * 0.5f, row.z};
+      data.rotation = {0.0f, 0.35f * static_cast<float>(c), 0.0f};
+      data.scale = {row.scale, row.scale, row.scale};
+      data.color = Color(std::min(row.base_color.r * tint, 1.0f),
+                         std::min(row.base_color.g * tint, 1.0f),
+                         std::min(row.base_color.b * tint, 1.0f), 1.0f);
+      data.texture_index = static_cast<float>(row_index);
+      data.culling_radius = row.scale * 0.75f;
       data.lod_transition_alpha = 1.0f;
       instances.push_back(data);
     }
@@ -35,21 +61,64 @@ std::vector<InstanceData> create_grid_instances(int rows, int cols,
   return instances;
 }
 
-void handle_camera_input(Renderer &renderer, const InputState &input) {
+void handle_camera_input(Renderer &renderer, const InputState &input,
+                         float delta_time) {
+  Camera &camera = renderer.camera();
+  const Vec3 cam_pos = camera.position;
+  const Vec3 cam_target = camera.target;
+
+  auto squared = [](float value) { return value * value; };
+  float distance = std::sqrt(squared(cam_pos.x - cam_target.x) +
+                             squared(cam_pos.y - cam_target.y) +
+                             squared(cam_pos.z - cam_target.z));
+  distance = std::max(distance, 1.0f);
+
   if (input.mouse_buttons[0]) {
-    float dx = static_cast<float>(input.mouse_x - input.prev_mouse_x);
-    float dy = static_cast<float>(input.mouse_y - input.prev_mouse_y);
-    renderer.camera().orbit(dx, dy);
+    float dx = static_cast<float>(input.mouse_delta_x) * 1.25f;
+    float dy = static_cast<float>(input.mouse_delta_y) * 1.25f;
+    camera.orbit(dx, dy);
   }
 
   if (input.mouse_buttons[1]) {
-    float dx = static_cast<float>(input.mouse_x - input.prev_mouse_x) * 0.01f;
-    float dy = static_cast<float>(input.mouse_y - input.prev_mouse_y) * 0.01f;
-    renderer.camera().pan(-dx, dy);
+    float pan_speed = std::max(distance * 0.0025f, 0.0025f);
+    float dx = static_cast<float>(input.mouse_delta_x) * pan_speed;
+    float dy = static_cast<float>(input.mouse_delta_y) * pan_speed;
+    camera.pan(-dx, dy);
   }
 
   if (input.scroll_delta != 0.0) {
-    renderer.camera().zoom(static_cast<float>(input.scroll_delta) * 0.4f);
+    float zoom_speed = std::max(distance * 0.08f, 0.4f);
+    camera.zoom(static_cast<float>(input.scroll_delta) * zoom_speed);
+  }
+
+  float dolly = 0.0f;
+  if (input.key_down('W'))
+    dolly -= 1.0f;
+  if (input.key_down('S'))
+    dolly += 1.0f;
+  if (dolly != 0.0f) {
+    camera.zoom(dolly * delta_time * distance);
+  }
+
+  float strafe = 0.0f;
+  if (input.key_down('D'))
+    strafe += 1.0f;
+  if (input.key_down('A'))
+    strafe -= 1.0f;
+  if (strafe != 0.0f) {
+    float strafe_speed = std::max(distance * 0.6f, 1.0f);
+    camera.pan(-strafe * strafe_speed * delta_time, 0.0f);
+  }
+
+  float vertical = 0.0f;
+  if (input.key_down('E'))
+    vertical += 1.0f;
+  if (input.key_down('Q'))
+    vertical -= 1.0f;
+  if (vertical != 0.0f) {
+    float vertical_speed = std::max(distance * 0.5f, 1.0f) * delta_time;
+    camera.position.y += vertical_speed * vertical;
+    camera.target.y += vertical_speed * vertical;
   }
 }
 
