@@ -17,7 +17,9 @@ if(APPLE)
     set(RHI_BACKEND_SOURCES
       backends/metal/device_metal.mm
       backends/metal/cmd_metal.mm
+      backends/metal/resources_metal.mm
       backends/metal/pipeline_metal.mm
+      backends/metal/state_metal.mm
     )
     message(STATUS "RHI: Using Metal backend (RHI implementation)")
 
@@ -144,7 +146,9 @@ if(APPLE)
     set_source_files_properties(
       backends/metal/device_metal.mm
       backends/metal/cmd_metal.mm
+      backends/metal/resources_metal.mm
       backends/metal/pipeline_metal.mm
+      backends/metal/state_metal.mm
       PROPERTIES
       COMPILE_FLAGS "-x objective-c++"
     )
