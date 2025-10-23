@@ -8,6 +8,7 @@
 #include <cstring>
 #include <algorithm>
 #include <cstdlib>
+#include <memory>
 
 #ifndef GL_TEXTURE_MAX_ANISOTROPY_EXT
 #define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
@@ -39,6 +40,34 @@ struct GLFWwindow;
 namespace pixel::rhi::gl {
 
 namespace {
+
+class GLQuery {
+public:
+  GLQuery() { glGenQueries(1, &query_id_); }
+
+  ~GLQuery() { glDeleteQueries(1, &query_id_); }
+
+  void begin_time_elapsed() { glBeginQuery(GL_TIME_ELAPSED, query_id_); }
+
+  void end_time_elapsed() { glEndQuery(GL_TIME_ELAPSED); }
+
+  bool is_result_available() {
+    GLint available = 0;
+    glGetQueryObjectiv(query_id_, GL_QUERY_RESULT_AVAILABLE, &available);
+    return available != 0;
+  }
+
+  uint64_t get_result() {
+    uint64_t elapsed_time = 0;
+    glGetQueryObjectui64v(query_id_, GL_QUERY_RESULT, &elapsed_time);
+    return elapsed_time;
+  }
+
+  void timestamp() { glQueryCounter(query_id_, GL_TIMESTAMP); }
+
+private:
+  GLuint query_id_{};
+};
 
 GLenum to_gl_compare(CompareOp op) {
   switch (op) {
@@ -136,6 +165,16 @@ struct GLFramebuffer {
   std::vector<GLenum> draw_buffers;
 };
 
+struct GLQueryObject {
+  QueryType type{QueryType::TimeElapsed};
+  std::unique_ptr<GLQuery> query;
+};
+
+struct GLFence {
+  GLsync sync{nullptr};
+  bool signaled{false};
+};
+
 // ============================================================================
 // OpenGL Command List
 // ============================================================================
@@ -147,9 +186,12 @@ public:
             std::unordered_map<uint32_t, GLTexture> *textures,
             std::unordered_map<uint32_t, GLPipeline> *pipelines,
             std::unordered_map<uint32_t, GLFramebuffer> *framebuffers,
+            std::unordered_map<uint32_t, GLQueryObject> *queries,
+            std::unordered_map<uint32_t, GLFence> *fences,
             GLFWwindow *window)
       : buffers_(buffers), textures_(textures), pipelines_(pipelines),
-        framebuffers_(framebuffers), window_(window) {}
+        framebuffers_(framebuffers), queries_(queries), fences_(fences),
+        window_(window) {}
 
   void begin() override { recording_ = true; }
 
@@ -731,6 +773,62 @@ public:
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
   }
 
+  void resourceBarrier(std::span<const ResourceBarrierDesc> barriers) override {
+    if (barriers.empty())
+      return;
+    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+  }
+
+  void beginQuery(QueryHandle handle, QueryType type) override {
+    if (!queries_)
+      return;
+    auto it = queries_->find(handle.id);
+    if (it == queries_->end() || !it->second.query)
+      return;
+    if (it->second.type != type)
+      return;
+    switch (type) {
+    case QueryType::TimeElapsed:
+      it->second.query->begin_time_elapsed();
+      break;
+    case QueryType::Timestamp:
+      break;
+    }
+  }
+
+  void endQuery(QueryHandle handle, QueryType type) override {
+    if (!queries_)
+      return;
+    auto it = queries_->find(handle.id);
+    if (it == queries_->end() || !it->second.query)
+      return;
+    if (it->second.type != type)
+      return;
+    switch (type) {
+    case QueryType::TimeElapsed:
+      it->second.query->end_time_elapsed();
+      break;
+    case QueryType::Timestamp:
+      it->second.query->timestamp();
+      break;
+    }
+  }
+
+  void signalFence(FenceHandle handle) override {
+    if (!fences_)
+      return;
+    auto it = fences_->find(handle.id);
+    if (it == fences_->end())
+      return;
+    if (it->second.sync) {
+      glDeleteSync(it->second.sync);
+      it->second.sync = nullptr;
+    }
+    it->second.signaled = false;
+    glFlush();
+    it->second.sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+  }
+
   void drawIndexed(uint32_t indexCount, uint32_t firstIndex,
                    uint32_t instanceCount) override {
     if (current_pipeline_.id == 0)
@@ -798,6 +896,8 @@ private:
   std::unordered_map<uint32_t, GLTexture> *textures_;
   std::unordered_map<uint32_t, GLPipeline> *pipelines_;
   std::unordered_map<uint32_t, GLFramebuffer> *framebuffers_;
+  std::unordered_map<uint32_t, GLQueryObject> *queries_;
+  std::unordered_map<uint32_t, GLFence> *fences_;
   GLFWwindow *window_ = nullptr;
 
   bool recording_ = false;
@@ -845,8 +945,9 @@ public:
     caps_.samplerCompare =
         has_extension("GL_ARB_shadow") || has_extension("GL_EXT_shadow");
 
-    cmd_list_ = std::make_unique<GLCmdList>(&buffers_, &textures_, &pipelines_,
-                                            &framebuffers_, window_);
+    cmd_list_ = std::make_unique<GLCmdList>(
+        &buffers_, &textures_, &pipelines_, &framebuffers_, &queries_, &fences_,
+        window_);
   }
 
   ~GLDevice() override {
@@ -867,6 +968,15 @@ public:
     for (auto &[id, fb] : framebuffers_) {
       if (fb.id != 0) {
         glDeleteFramebuffers(1, &fb.id);
+      }
+    }
+    for (auto &[id, query] : queries_) {
+      query.query.reset();
+    }
+    for (auto &[id, fence] : fences_) {
+      if (fence.sync) {
+        glDeleteSync(fence.sync);
+        fence.sync = nullptr;
       }
     }
   }
@@ -1304,6 +1414,85 @@ public:
     return FramebufferHandle{handle_id};
   }
 
+  QueryHandle createQuery(QueryType type) override {
+    GLQueryObject query;
+    query.type = type;
+    query.query = std::make_unique<GLQuery>();
+    if (!query.query)
+      return QueryHandle{0};
+    uint32_t id = next_query_id_++;
+    queries_[id] = std::move(query);
+    return QueryHandle{id};
+  }
+
+  void destroyQuery(QueryHandle handle) override {
+    auto it = queries_.find(handle.id);
+    if (it == queries_.end())
+      return;
+    it->second.query.reset();
+    queries_.erase(it);
+  }
+
+  bool getQueryResult(QueryHandle handle, uint64_t &result,
+                      bool wait) override {
+    auto it = queries_.find(handle.id);
+    if (it == queries_.end() || !it->second.query)
+      return false;
+    if (!wait && !it->second.query->is_result_available())
+      return false;
+    result = it->second.query->get_result();
+    return true;
+  }
+
+  FenceHandle createFence(bool signaled = false) override {
+    GLFence fence;
+    fence.signaled = signaled;
+    fence.sync = nullptr;
+    uint32_t id = next_fence_id_++;
+    fences_[id] = fence;
+    return FenceHandle{id};
+  }
+
+  void destroyFence(FenceHandle handle) override {
+    auto it = fences_.find(handle.id);
+    if (it == fences_.end())
+      return;
+    if (it->second.sync) {
+      glDeleteSync(it->second.sync);
+      it->second.sync = nullptr;
+    }
+    fences_.erase(it);
+  }
+
+  void waitFence(FenceHandle handle, uint64_t timeout_ns) override {
+    auto it = fences_.find(handle.id);
+    if (it == fences_.end())
+      return;
+    if (it->second.signaled)
+      return;
+    if (!it->second.sync)
+      return;
+    GLuint64 timeout = timeout_ns == ~0ull ? GL_TIMEOUT_IGNORED : timeout_ns;
+    GLenum status =
+        glClientWaitSync(it->second.sync, GL_SYNC_FLUSH_COMMANDS_BIT, timeout);
+    if (status == GL_ALREADY_SIGNALED || status == GL_CONDITION_SATISFIED) {
+      glDeleteSync(it->second.sync);
+      it->second.sync = nullptr;
+      it->second.signaled = true;
+    }
+  }
+
+  void resetFence(FenceHandle handle) override {
+    auto it = fences_.find(handle.id);
+    if (it == fences_.end())
+      return;
+    if (it->second.sync) {
+      glDeleteSync(it->second.sync);
+      it->second.sync = nullptr;
+    }
+    it->second.signaled = false;
+  }
+
   void readBuffer(BufferHandle handle, void *dst, size_t size,
                   size_t offset = 0) override {
     auto it = buffers_.find(handle.id);
@@ -1346,6 +1535,8 @@ private:
   std::unordered_map<uint32_t, GLShader> shaders_;
   std::unordered_map<uint32_t, GLPipeline> pipelines_;
   std::unordered_map<uint32_t, GLFramebuffer> framebuffers_;
+  std::unordered_map<uint32_t, GLQueryObject> queries_;
+  std::unordered_map<uint32_t, GLFence> fences_;
 
   uint32_t next_buffer_id_ = 1;
   uint32_t next_texture_id_ = 1;
@@ -1353,6 +1544,8 @@ private:
   uint32_t next_shader_id_ = 1;
   uint32_t next_pipeline_id_ = 1;
   uint32_t next_framebuffer_id_ = 1;
+  uint32_t next_query_id_ = 1;
+  uint32_t next_fence_id_ = 1;
 };
 
 } // namespace pixel::rhi::gl

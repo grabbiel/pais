@@ -53,6 +53,14 @@ public:
                             std::span<const uint8_t> bytes) override;
   PipelineHandle createPipeline(const PipelineDesc &desc) override;
   FramebufferHandle createFramebuffer(const FramebufferDesc &desc) override;
+  QueryHandle createQuery(QueryType type) override;
+  void destroyQuery(QueryHandle handle) override;
+  bool getQueryResult(QueryHandle handle, uint64_t &result,
+                      bool wait) override;
+  FenceHandle createFence(bool signaled = false) override;
+  void destroyFence(FenceHandle handle) override;
+  void waitFence(FenceHandle handle, uint64_t timeout_ns = ~0ull) override;
+  void resetFence(FenceHandle handle) override;
 
   CmdList *getImmediate() override;
   void present() override;
@@ -104,6 +112,10 @@ public:
   void dispatch(uint32_t groupCountX, uint32_t groupCountY = 1,
                 uint32_t groupCountZ = 1) override;
   void memoryBarrier() override;
+  void resourceBarrier(std::span<const ResourceBarrierDesc> barriers) override;
+  void beginQuery(QueryHandle handle, QueryType type) override;
+  void endQuery(QueryHandle handle, QueryType type) override;
+  void signalFence(FenceHandle handle) override;
 
   void drawIndexed(uint32_t indexCount, uint32_t firstIndex = 0,
                    uint32_t instanceCount = 1) override;

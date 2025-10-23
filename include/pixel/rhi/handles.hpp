@@ -19,4 +19,10 @@ struct PipelineHandle {
 struct FramebufferHandle {
   uint32_t id{0};
 };
+struct QueryHandle {
+  uint32_t id{0};
+};
+struct FenceHandle {
+  uint32_t id{0};
+};
 } // namespace pixel::rhi

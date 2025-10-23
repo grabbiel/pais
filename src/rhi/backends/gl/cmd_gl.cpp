@@ -314,34 +314,4 @@ void unmap_buffer(GLuint buffer, GLenum target) {
   glBindBuffer(target, 0);
 }
 
-// ============================================================================
-// Query Performance Helpers
-// ============================================================================
-
-class GLQuery {
-public:
-  GLQuery() { glGenQueries(1, &query_id_); }
-
-  ~GLQuery() { glDeleteQueries(1, &query_id_); }
-
-  void begin_time_elapsed() { glBeginQuery(GL_TIME_ELAPSED, query_id_); }
-
-  void end_time_elapsed() { glEndQuery(GL_TIME_ELAPSED); }
-
-  bool is_result_available() {
-    GLint available;
-    glGetQueryObjectiv(query_id_, GL_QUERY_RESULT_AVAILABLE, &available);
-    return available != 0;
-  }
-
-  uint64_t get_result() {
-    uint64_t elapsed_time;
-    glGetQueryObjectui64v(query_id_, GL_QUERY_RESULT, &elapsed_time);
-    return elapsed_time;
-  }
-
-private:
-  GLuint query_id_;
-};
-
 } // namespace pixel::rhi::gl

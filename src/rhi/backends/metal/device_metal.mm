@@ -10,6 +10,7 @@
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <Cocoa/Cocoa.h>
+#import <dispatch/dispatch.h>
 
 #include <algorithm>
 #include <array>
@@ -175,6 +176,19 @@ struct MTLFramebufferResource {
   FramebufferDesc desc{};
   uint32_t width{0};
   uint32_t height{0};
+};
+
+struct MetalQueryResource {
+  QueryType type{QueryType::TimeElapsed};
+  bool active{false};
+  bool available{false};
+  uint64_t result{0};
+  id<MTLCommandBuffer> pending_command_buffer = nil;
+};
+
+struct MetalFenceResource {
+  dispatch_semaphore_t semaphore = nullptr;
+  bool signaled = false;
 };
 
 struct PipelineCacheKey {
@@ -372,6 +386,8 @@ struct MetalDevice::Impl {
   std::unordered_map<uint32_t, MTLShaderResource> shaders_;
   std::unordered_map<uint32_t, MTLPipelineResource> pipelines_;
   std::unordered_map<uint32_t, MTLFramebufferResource> framebuffers_;
+  std::unordered_map<uint32_t, MetalQueryResource> queries_;
+  std::unordered_map<uint32_t, MetalFenceResource> fences_;
   std::unordered_map<PipelineCacheKey, PipelineHandle, PipelineCacheKeyHash>
       pipeline_cache_;
   std::unordered_map<size_t, MTLVertexDescriptor *> vertex_descriptor_library_;
@@ -382,6 +398,8 @@ struct MetalDevice::Impl {
   uint32_t next_shader_id_ = 1;
   uint32_t next_pipeline_id_ = 1;
   uint32_t next_framebuffer_id_ = 1;
+  uint32_t next_query_id_ = 1;
+  uint32_t next_fence_id_ = 1;
 
   uint32_t frame_index_ = 0; // Current frame index for ring buffer
 
@@ -495,6 +513,16 @@ struct MetalDevice::Impl {
     }
     for (auto &pair : vertex_descriptor_library_) {
       pair.second = nil;
+    }
+    for (auto &pair : fences_) {
+      if (pair.second.semaphore) {
+#if defined(OS_OBJECT_USE_OBJC) && OS_OBJECT_USE_OBJC
+        pair.second.semaphore = nullptr;
+#else
+        dispatch_release(pair.second.semaphore);
+        pair.second.semaphore = nullptr;
+#endif
+      }
     }
   }
 };
@@ -918,6 +946,90 @@ FramebufferHandle MetalDevice::createFramebuffer(const FramebufferDesc &desc) {
   return FramebufferHandle{handle_id};
 }
 
+QueryHandle MetalDevice::createQuery(QueryType type) {
+  MetalQueryResource query;
+  query.type = type;
+  uint32_t id = impl_->next_query_id_++;
+  impl_->queries_[id] = query;
+  return QueryHandle{id};
+}
+
+void MetalDevice::destroyQuery(QueryHandle handle) {
+  auto it = impl_->queries_.find(handle.id);
+  if (it == impl_->queries_.end())
+    return;
+  it->second.pending_command_buffer = nil;
+  impl_->queries_.erase(it);
+}
+
+bool MetalDevice::getQueryResult(QueryHandle handle, uint64_t &result,
+                                 bool wait) {
+  auto it = impl_->queries_.find(handle.id);
+  if (it == impl_->queries_.end())
+    return false;
+  auto &query = it->second;
+  if (!query.available && wait && query.pending_command_buffer) {
+    [query.pending_command_buffer waitUntilCompleted];
+  }
+  if (!query.available)
+    return false;
+  result = query.result;
+  return true;
+}
+
+FenceHandle MetalDevice::createFence(bool signaled) {
+  MetalFenceResource fence;
+  fence.semaphore = dispatch_semaphore_create(signaled ? 1 : 0);
+  if (!fence.semaphore)
+    return FenceHandle{0};
+  fence.signaled = signaled;
+  uint32_t id = impl_->next_fence_id_++;
+  impl_->fences_[id] = fence;
+  return FenceHandle{id};
+}
+
+void MetalDevice::destroyFence(FenceHandle handle) {
+  auto it = impl_->fences_.find(handle.id);
+  if (it == impl_->fences_.end())
+    return;
+  if (it->second.semaphore) {
+#if defined(OS_OBJECT_USE_OBJC) && OS_OBJECT_USE_OBJC
+    it->second.semaphore = nullptr;
+#else
+    dispatch_release(it->second.semaphore);
+    it->second.semaphore = nullptr;
+#endif
+  }
+  impl_->fences_.erase(it);
+}
+
+void MetalDevice::waitFence(FenceHandle handle, uint64_t timeout_ns) {
+  auto it = impl_->fences_.find(handle.id);
+  if (it == impl_->fences_.end())
+    return;
+  if (!it->second.semaphore)
+    return;
+  dispatch_time_t timeout = timeout_ns == ~0ull
+                                 ? DISPATCH_TIME_FOREVER
+                                 : dispatch_time(DISPATCH_TIME_NOW,
+                                                 static_cast<int64_t>(timeout_ns));
+  long status = dispatch_semaphore_wait(it->second.semaphore, timeout);
+  if (status == 0) {
+    it->second.signaled = true;
+  }
+}
+
+void MetalDevice::resetFence(FenceHandle handle) {
+  auto it = impl_->fences_.find(handle.id);
+  if (it == impl_->fences_.end())
+    return;
+  if (!it->second.semaphore)
+    return;
+  while (dispatch_semaphore_wait(it->second.semaphore, DISPATCH_TIME_NOW) == 0) {
+  }
+  it->second.signaled = false;
+}
+
 CmdList *MetalDevice::getImmediate() { return impl_->immediate_.get(); }
 
 void MetalDevice::present() {
@@ -966,6 +1078,8 @@ struct MetalCmdList::Impl {
   std::unordered_map<uint32_t, MTLTextureResource> *textures_;
   std::unordered_map<uint32_t, MTLPipelineResource> *pipelines_;
   std::unordered_map<uint32_t, MTLFramebufferResource> *framebuffers_;
+  std::unordered_map<uint32_t, MetalQueryResource> *queries_;
+  std::unordered_map<uint32_t, MetalFenceResource> *fences_;
 
   id<MTLCommandBuffer> command_buffer_ = nil;
   id<CAMetalDrawable> current_drawable_ = nil;
@@ -997,6 +1111,7 @@ struct MetalCmdList::Impl {
         buffers_(&device_impl->buffers_), textures_(&device_impl->textures_),
         pipelines_(&device_impl->pipelines_),
         framebuffers_(&device_impl->framebuffers_),
+        queries_(&device_impl->queries_), fences_(&device_impl->fences_),
         frame_index_(&device_impl->frame_index_) {}
 
   ~Impl() {
@@ -1792,6 +1907,87 @@ void MetalCmdList::memoryBarrier() {
                  respondsToSelector:@selector(memoryBarrierWithScope:)]) {
     [impl_->compute_encoder_ memoryBarrierWithScope:MTLBarrierScopeBuffers];
   }
+}
+
+void MetalCmdList::resourceBarrier(
+    std::span<const ResourceBarrierDesc> barriers) {
+  if (barriers.empty())
+    return;
+  impl_->endRenderEncoderIfNeeded();
+  impl_->endComputeEncoderIfNeeded();
+}
+
+void MetalCmdList::beginQuery(QueryHandle handle, QueryType type) {
+  if (!impl_->queries_)
+    return;
+  auto it = impl_->queries_->find(handle.id);
+  if (it == impl_->queries_->end())
+    return;
+  MetalQueryResource &query = it->second;
+  query.type = type;
+  query.active = true;
+  query.available = false;
+  query.result = 0;
+  query.pending_command_buffer = impl_->command_buffer_;
+}
+
+void MetalCmdList::endQuery(QueryHandle handle, QueryType type) {
+  if (!impl_->queries_)
+    return;
+  auto it = impl_->queries_->find(handle.id);
+  if (it == impl_->queries_->end())
+    return;
+  MetalQueryResource &query = it->second;
+  query.type = type;
+  query.active = false;
+  if (!impl_->command_buffer_)
+    return;
+  query.pending_command_buffer = impl_->command_buffer_;
+  __block MetalQueryResource *blockQuery = &query;
+  [impl_->command_buffer_ addCompletedHandler:^(id<MTLCommandBuffer> cb) {
+    double gpuStart = 0.0;
+    double gpuEnd = 0.0;
+    if ([cb respondsToSelector:@selector(GPUStartTime)]) {
+      gpuStart = cb.GPUStartTime;
+    }
+    if ([cb respondsToSelector:@selector(GPUEndTime)]) {
+      gpuEnd = cb.GPUEndTime;
+    }
+    uint64_t value = 0;
+    if (blockQuery->type == QueryType::Timestamp) {
+      value = static_cast<uint64_t>(gpuEnd * 1e9);
+    } else {
+      double delta = std::max(0.0, gpuEnd - gpuStart);
+      value = static_cast<uint64_t>(delta * 1e9);
+    }
+    blockQuery->result = value;
+    blockQuery->available = true;
+    blockQuery->pending_command_buffer = nil;
+  }];
+}
+
+void MetalCmdList::signalFence(FenceHandle handle) {
+  if (!impl_->fences_)
+    return;
+  auto it = impl_->fences_->find(handle.id);
+  if (it == impl_->fences_->end())
+    return;
+  MetalFenceResource &fence = it->second;
+  if (!fence.semaphore)
+    return;
+  fence.signaled = false;
+  if (!impl_->command_buffer_) {
+    dispatch_semaphore_signal(fence.semaphore);
+    fence.signaled = true;
+    return;
+  }
+  dispatch_semaphore_t semaphore = fence.semaphore;
+  __block MetalFenceResource *blockFence = &fence;
+  [impl_->command_buffer_ addCompletedHandler:^(id<MTLCommandBuffer> cb) {
+    (void)cb;
+    dispatch_semaphore_signal(semaphore);
+    blockFence->signaled = true;
+  }];
 }
 
 void MetalCmdList::endRender() {

@@ -113,6 +113,11 @@ struct CmdList {
   virtual void dispatch(uint32_t groupCountX, uint32_t groupCountY = 1,
                         uint32_t groupCountZ = 1) = 0;
   virtual void memoryBarrier() = 0;
+  virtual void resourceBarrier(std::span<const ResourceBarrierDesc> barriers) = 0;
+
+  virtual void beginQuery(QueryHandle handle, QueryType type) = 0;
+  virtual void endQuery(QueryHandle handle, QueryType type) = 0;
+  virtual void signalFence(FenceHandle handle) = 0;
 
   virtual void drawIndexed(uint32_t indexCount, uint32_t firstIndex = 0,
                            uint32_t instanceCount = 1) = 0;
@@ -134,6 +139,14 @@ struct Device {
                                     std::span<const uint8_t> bytes) = 0;
   virtual PipelineHandle createPipeline(const PipelineDesc &) = 0;
   virtual FramebufferHandle createFramebuffer(const FramebufferDesc &) = 0;
+  virtual QueryHandle createQuery(QueryType type) = 0;
+  virtual void destroyQuery(QueryHandle handle) = 0;
+  virtual bool getQueryResult(QueryHandle handle, uint64_t &result,
+                              bool wait) = 0;
+  virtual FenceHandle createFence(bool signaled = false) = 0;
+  virtual void destroyFence(FenceHandle handle) = 0;
+  virtual void waitFence(FenceHandle handle, uint64_t timeout_ns = ~0ull) = 0;
+  virtual void resetFence(FenceHandle handle) = 0;
 
   virtual CmdList *getImmediate() = 0;
   virtual void present() = 0;
