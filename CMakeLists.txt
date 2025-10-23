@@ -154,6 +154,7 @@ endif()
 # STEP 2: Core libraries (no dependencies on other pixel:: targets)
 add_subdirectory(src/core)
 add_subdirectory(src/math)
+add_subdirectory(src/input)
 add_subdirectory(src/platform/common)
 add_subdirectory(src/telemetry)
 

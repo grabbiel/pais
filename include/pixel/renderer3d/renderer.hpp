@@ -62,43 +62,6 @@ public:
   void pan(float dx, float dy);
   void zoom(float delta);
 };
-// ============================================================================
-// Input State
-// ============================================================================
-
-struct InputState {
-  bool keys[512] = {false};
-  bool prev_keys[512] = {false};
-  bool mouse_buttons[8] = {false};
-  bool prev_mouse_buttons[8] = {false};
-  double mouse_x = 0.0;
-  double mouse_y = 0.0;
-  double prev_mouse_x = 0.0;
-  double prev_mouse_y = 0.0;
-  double mouse_delta_x = 0.0;
-  double mouse_delta_y = 0.0;
-  double scroll_delta = 0.0;
-
-  bool key_pressed(int key) const {
-    return key >= 0 && key < 512 && keys[key] && !prev_keys[key];
-  }
-  bool key_down(int key) const { return key >= 0 && key < 512 && keys[key]; }
-  bool key_released(int key) const {
-    return key >= 0 && key < 512 && !keys[key] && prev_keys[key];
-  }
-
-  bool mouse_pressed(int button) const {
-    return button >= 0 && button < 8 && mouse_buttons[button] &&
-           !prev_mouse_buttons[button];
-  }
-  bool mouse_down(int button) const {
-    return button >= 0 && button < 8 && mouse_buttons[button];
-  }
-  bool mouse_released(int button) const {
-    return button >= 0 && button < 8 && !mouse_buttons[button] &&
-           prev_mouse_buttons[button];
-  }
-};
 
 // ============================================================================
 // Shader Variants
@@ -266,8 +229,6 @@ public:
 
   bool process_events();
 
-  const InputState &input() const { return input_state_; }
-
   ShaderID load_shader(const std::string &vert_path,
                        const std::string &frag_path);
   Shader *get_shader(ShaderID id);
@@ -311,17 +272,15 @@ public:
   rhi::Device *device() { return device_; }
   const rhi::Device *device() const { return device_; }
 
+  GLFWwindow *window() { return window_; }
+  const GLFWwindow *window() const { return window_; }
+
 protected:
   Renderer() = default;
   void setup_default_shaders();
-  void update_input_state();
 
   struct GLFWwindow *window_ = nullptr;
   rhi::Device *device_ = nullptr;
-
-  InputState input_state_;
-  double last_mouse_x_ = 0.0;
-  double last_mouse_y_ = 0.0;
 
   std::unordered_map<ShaderID, std::unique_ptr<Shader>> shaders_;
   ShaderID next_shader_id_ = 1;

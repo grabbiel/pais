@@ -140,37 +140,7 @@ void Renderer::resume_render_pass() {
 
 bool Renderer::process_events() {
   glfwPollEvents();
-  update_input_state();
   return !glfwWindowShouldClose(window_);
-}
-
-void Renderer::update_input_state() {
-  std::memcpy(input_state_.prev_keys, input_state_.keys,
-              sizeof(input_state_.keys));
-  std::memcpy(input_state_.prev_mouse_buttons, input_state_.mouse_buttons,
-              sizeof(input_state_.mouse_buttons));
-  input_state_.prev_mouse_x = input_state_.mouse_x;
-  input_state_.prev_mouse_y = input_state_.mouse_y;
-
-  for (int key = 32; key <= 348; ++key) {
-    input_state_.keys[key] = (glfwGetKey(window_, key) == GLFW_PRESS);
-  }
-
-  for (int btn = 0; btn < 8; ++btn) {
-    input_state_.mouse_buttons[btn] =
-        (glfwGetMouseButton(window_, btn) == GLFW_PRESS);
-  }
-
-  double x, y;
-  glfwGetCursorPos(window_, &x, &y);
-  input_state_.mouse_delta_x = x - last_mouse_x_;
-  input_state_.mouse_delta_y = y - last_mouse_y_;
-  input_state_.mouse_x = x;
-  input_state_.mouse_y = y;
-  last_mouse_x_ = x;
-  last_mouse_y_ = y;
-
-  input_state_.scroll_delta = 0.0;
 }
 
 ShaderID Renderer::load_shader(const std::string &vert_path,
