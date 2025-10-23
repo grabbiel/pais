@@ -70,7 +70,8 @@ bool string_to_bool(std::string_view value) {
   std::string lowercase;
   lowercase.reserve(value.size());
   for (char c : value) {
-    lowercase.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    lowercase.push_back(
+        static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
   }
 
   if (lowercase == "false" || lowercase == "off") {
@@ -465,7 +466,7 @@ void ShaderVariantKey::set_define(std::string name, std::string value) {
 }
 
 void ShaderVariantKey::clear_define(std::string_view name) {
-  defines_.erase(name);
+  defines_.erase(std::string(name));
 }
 
 bool ShaderVariantKey::has_define(std::string_view name) const {
@@ -524,8 +525,8 @@ std::unique_ptr<Shader> Shader::create(rhi::Device *device,
   return shader;
 }
 
-Shader::VariantData &Shader::get_or_create_variant(
-    const ShaderVariantKey &variant) const {
+Shader::VariantData &
+Shader::get_or_create_variant(const ShaderVariantKey &variant) const {
   std::string key = variant.cache_key();
   auto it = variant_cache_.find(key);
   if (it != variant_cache_.end()) {
@@ -538,8 +539,8 @@ Shader::VariantData &Shader::get_or_create_variant(
   return inserted->second;
 }
 
-Shader::VariantData Shader::build_variant(
-    const ShaderVariantKey &variant) const {
+Shader::VariantData
+Shader::build_variant(const ShaderVariantKey &variant) const {
   if (!device_) {
     throw std::runtime_error("Shader created without a valid device");
   }
