@@ -22,6 +22,7 @@ target_include_directories(pixel_life PRIVATE
 # Link to renderer3d - it will bring in RHI and other dependencies transitively
 target_link_libraries(pixel_life PRIVATE
   pixel::renderer3d  # CHANGED: Link to renderer3d instead of just RHI
+  pixel::input       # For InputManager
   pixel::core        # For clock and other utilities
   pixel::platform    # For platform utilities
 )

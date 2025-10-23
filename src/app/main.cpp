@@ -1,4 +1,5 @@
 #include "pixel/platform/platform.hpp"
+#include "pixel/input/input_manager.hpp"
 #include "pixel/renderer3d/lod.hpp"
 #include "pixel/renderer3d/renderer.hpp"
 #include "pixel/renderer3d/renderer_instanced.hpp"
@@ -87,7 +88,7 @@ std::vector<InstanceData> create_demo_instances() {
   return instances;
 }
 
-void handle_camera_input(Renderer &renderer, const InputState &input,
+void handle_camera_input(Renderer &renderer, const pixel::input::InputState &input,
                          float delta_time) {
   Camera &camera = renderer.camera();
   const Vec3 cam_pos = camera.position;
@@ -162,6 +163,9 @@ int main(int, char **) {
     return 1;
   }
 
+  // Create input manager using renderer's window
+  pixel::input::InputManager input_manager(renderer->window());
+
   std::cout << "Basic LOD demo\n";
   std::cout << "Controls: Left mouse drag = orbit, Right mouse drag = pan, "
                "Scroll = zoom, ESC = quit\n";
@@ -198,7 +202,10 @@ int main(int, char **) {
   double last_frame_time = renderer->time();
 
   while (renderer->process_events()) {
-    const auto &input = renderer->input();
+    // Update input state each frame
+    input_manager.update();
+    const auto &input = input_manager.state();
+
     if (input.keys[256]) {
       break; // ESC
     }
