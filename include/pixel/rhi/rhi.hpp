@@ -168,14 +168,20 @@ Device *create_gl_device(GLFWwindow *window);
 Device *create_metal_device(void *window);
 #endif
 
+} // namespace pixel::rhi
+
 // ============================================================================
 // Device Factory
 // ============================================================================
 
 // Forward declaration
+namespace pixel {
 namespace platform {
   class Window;
 }
+}
+
+namespace pixel::rhi {
 
 enum class GraphicsAPI {
   Default,
@@ -185,14 +191,14 @@ enum class GraphicsAPI {
 
 /**
  * @brief Create a Device from an existing Window
- * @param window Pointer to a platform::Window instance
+ * @param window Pointer to a pixel::platform::Window instance
  * @param preferred_api Preferred graphics API (default selects based on platform)
  * @return Unique pointer to the created Device
  * @throws std::invalid_argument if window is null
  * @throws std::runtime_error if device creation fails
  */
 std::unique_ptr<Device> create_device(
-    platform::Window* window,
+    ::pixel::platform::Window* window,
     GraphicsAPI preferred_api = GraphicsAPI::Default
 );
 

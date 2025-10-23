@@ -10,15 +10,8 @@
 
 namespace pixel::rhi {
 
-// GraphicsAPI enum to match platform::GraphicsAPI
-enum class GraphicsAPI {
-  Default,
-  OpenGL,
-  Metal
-};
-
 std::unique_ptr<Device> create_device(
-    platform::Window* window,
+    ::pixel::platform::Window* window,
     GraphicsAPI preferred_api) {
 
   if (!window) {
