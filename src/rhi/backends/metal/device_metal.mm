@@ -48,6 +48,29 @@ MTLCompareFunction to_mtl_compare(CompareOp op) {
   }
 }
 
+MTLStencilOperation to_mtl_stencil(StencilOp op) {
+  switch (op) {
+  case StencilOp::Keep:
+    return MTLStencilOperationKeep;
+  case StencilOp::Zero:
+    return MTLStencilOperationZero;
+  case StencilOp::Replace:
+    return MTLStencilOperationReplace;
+  case StencilOp::IncrementClamp:
+    return MTLStencilOperationIncrementClamp;
+  case StencilOp::DecrementClamp:
+    return MTLStencilOperationDecrementClamp;
+  case StencilOp::Invert:
+    return MTLStencilOperationInvert;
+  case StencilOp::IncrementWrap:
+    return MTLStencilOperationIncrementWrap;
+  case StencilOp::DecrementWrap:
+    return MTLStencilOperationDecrementWrap;
+  default:
+    return MTLStencilOperationKeep;
+  }
+}
+
 } // namespace
 
 // ============================================================================
@@ -251,6 +274,37 @@ struct PipelineCacheKeyHash {
       hash_combine(std::hash<BlendOpUnderlying>{}(
           static_cast<BlendOpUnderlying>(blend.alphaOp)));
     }
+    return seed;
+  }
+};
+
+struct DepthStencilStateHash {
+  std::size_t operator()(const DepthStencilState &state) const noexcept {
+    std::size_t seed = 0;
+    auto hash_combine = [&seed](std::size_t value) {
+      seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    };
+
+    using CompareUnderlying = std::underlying_type_t<CompareOp>;
+    using StencilUnderlying = std::underlying_type_t<StencilOp>;
+
+    hash_combine(std::hash<bool>{}(state.depthTestEnable));
+    hash_combine(std::hash<bool>{}(state.depthWriteEnable));
+    hash_combine(std::hash<CompareUnderlying>{}(
+        static_cast<CompareUnderlying>(state.depthCompare)));
+    hash_combine(std::hash<bool>{}(state.stencilEnable));
+    hash_combine(std::hash<CompareUnderlying>{}(
+        static_cast<CompareUnderlying>(state.stencilCompare)));
+    hash_combine(std::hash<StencilUnderlying>{}(
+        static_cast<StencilUnderlying>(state.stencilFailOp)));
+    hash_combine(std::hash<StencilUnderlying>{}(
+        static_cast<StencilUnderlying>(state.stencilDepthFailOp)));
+    hash_combine(std::hash<StencilUnderlying>{}(
+        static_cast<StencilUnderlying>(state.stencilPassOp)));
+    hash_combine(std::hash<uint32_t>{}(state.stencilReadMask));
+    hash_combine(std::hash<uint32_t>{}(state.stencilWriteMask));
+    hash_combine(std::hash<uint32_t>{}(state.stencilReference));
+
     return seed;
   }
 };
@@ -1086,6 +1140,14 @@ struct MetalCmdList::Impl {
   std::unordered_map<uint32_t, MetalQueryResource> *queries_;
   std::unordered_map<uint32_t, MetalFenceResource> *fences_;
 
+  std::unordered_map<DepthStencilState, id<MTLDepthStencilState>,
+                     DepthStencilStateHash>
+      depth_stencil_cache_;
+  DepthStencilState current_depth_stencil_state_{};
+  DepthBiasState current_depth_bias_state_{};
+  bool depth_stencil_state_initialized_ = false;
+  bool depth_bias_initialized_ = false;
+
   id<MTLCommandBuffer> command_buffer_ = nil;
   id<CAMetalDrawable> current_drawable_ = nil;
   id<MTLRenderCommandEncoder> render_encoder_ = nil;
@@ -1235,6 +1297,8 @@ void MetalCmdList::begin() {
   impl_->current_vb_offset_ = 0;
   impl_->current_ib_offset_ = 0;
   impl_->active_encoder_ = Impl::EncoderState::None;
+  impl_->depth_stencil_state_initialized_ = false;
+  impl_->depth_bias_initialized_ = false;
 }
 
 void MetalCmdList::beginRender(const RenderPassDesc &desc) {
@@ -1584,6 +1648,96 @@ void MetalCmdList::setInstanceBuffer(BufferHandle handle, size_t stride,
   [impl_->render_encoder_ setVertexBuffer:it->second.buffer
                                    offset:offset
                                   atIndex:2];
+}
+
+void MetalCmdList::setDepthStencilState(const DepthStencilState &state) {
+  if (impl_->depth_stencil_state_initialized_ &&
+      state == impl_->current_depth_stencil_state_)
+    return;
+
+  if (!impl_->render_encoder_) {
+    std::cerr
+        << "Attempted to set depth/stencil state without an active render pass"
+        << std::endl;
+    return;
+  }
+
+  impl_->depth_stencil_state_initialized_ = true;
+  impl_->current_depth_stencil_state_ = state;
+
+  if (!state.depthTestEnable && !state.stencilEnable) {
+    [impl_->render_encoder_ setDepthStencilState:nil];
+    return;
+  }
+
+  auto it = impl_->depth_stencil_cache_.find(state);
+  id<MTLDepthStencilState> depth_state = nil;
+  if (it != impl_->depth_stencil_cache_.end()) {
+    depth_state = it->second;
+  } else {
+    MTLDepthStencilDescriptor *descriptor = [[MTLDepthStencilDescriptor alloc] init];
+    descriptor.depthCompareFunction =
+        state.depthTestEnable ? to_mtl_compare(state.depthCompare)
+                              : MTLCompareFunctionAlways;
+    descriptor.depthWriteEnabled = state.depthWriteEnable;
+
+    if (state.stencilEnable) {
+      MTLStencilDescriptor *front = [[MTLStencilDescriptor alloc] init];
+      front.stencilCompareFunction = to_mtl_compare(state.stencilCompare);
+      front.stencilFailureOperation = to_mtl_stencil(state.stencilFailOp);
+      front.depthFailureOperation =
+          to_mtl_stencil(state.stencilDepthFailOp);
+      front.depthStencilPassOperation =
+          to_mtl_stencil(state.stencilPassOp);
+      front.readMask = state.stencilReadMask;
+      front.writeMask = state.stencilWriteMask;
+
+      MTLStencilDescriptor *back = [front copy];
+
+      descriptor.frontFaceStencil = front;
+      descriptor.backFaceStencil = back;
+    }
+
+    depth_state = [impl_->device_ newDepthStencilStateWithDescriptor:descriptor];
+
+    if (!depth_state) {
+      std::cerr << "Failed to create Metal depth stencil state" << std::endl;
+      return;
+    }
+
+    impl_->depth_stencil_cache_[state] = depth_state;
+  }
+
+  [impl_->render_encoder_ setDepthStencilState:depth_state];
+  if (state.stencilEnable) {
+    [impl_->render_encoder_ setStencilReferenceValue:state.stencilReference];
+  }
+}
+
+void MetalCmdList::setDepthBias(const DepthBiasState &state) {
+  if (impl_->depth_bias_initialized_ &&
+      state.enable == impl_->current_depth_bias_state_.enable &&
+      state.constantFactor == impl_->current_depth_bias_state_.constantFactor &&
+      state.slopeFactor == impl_->current_depth_bias_state_.slopeFactor) {
+    return;
+  }
+
+  if (!impl_->render_encoder_) {
+    std::cerr << "Attempted to set depth bias without an active render pass"
+              << std::endl;
+    return;
+  }
+
+  impl_->depth_bias_initialized_ = true;
+  impl_->current_depth_bias_state_ = state;
+
+  if (state.enable) {
+    [impl_->render_encoder_ setDepthBias:state.constantFactor
+                              slopeScale:state.slopeFactor
+                                   clamp:0.0f];
+  } else {
+    [impl_->render_encoder_ setDepthBias:0.0f slopeScale:0.0f clamp:0.0f];
+  }
 }
 
 // Part 4: Uniform Setters

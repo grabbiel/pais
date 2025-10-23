@@ -151,6 +151,9 @@ struct Material {
   bool depth_test = true;
   bool depth_write = true;
   rhi::CompareOp depth_compare = rhi::CompareOp::Less;
+  bool depth_bias_enable = false;
+  float depth_bias_constant = 0.0f;
+  float depth_bias_slope = 0.0f;
   bool stencil_enable = false;
   rhi::CompareOp stencil_compare = rhi::CompareOp::Always;
   rhi::StencilOp stencil_fail_op = rhi::StencilOp::Keep;
@@ -270,6 +273,8 @@ public:
   virtual void draw_mesh(const Mesh &mesh, const Vec3 &position,
                          const Vec3 &rotation, const Vec3 &scale,
                          const Material &material);
+  void apply_material_state(rhi::CmdList *cmd,
+                            const Material &material) const;
 
   void draw_sprite(rhi::TextureHandle texture, const Vec3 &position,
                    const Vec2 &size, const Color &tint = Color::White());

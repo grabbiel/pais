@@ -116,6 +116,32 @@ std::vector<Vertex> create_plane_vertices(float width, float depth,
 
 namespace pixel::renderer3d {
 
+void Renderer::apply_material_state(rhi::CmdList *cmd,
+                                    const Material &material) const {
+  if (!cmd)
+    return;
+
+  rhi::DepthStencilState depth_state{};
+  depth_state.depthTestEnable = material.depth_test;
+  depth_state.depthWriteEnable = material.depth_write;
+  depth_state.depthCompare = material.depth_compare;
+  depth_state.stencilEnable = material.stencil_enable;
+  depth_state.stencilCompare = material.stencil_compare;
+  depth_state.stencilFailOp = material.stencil_fail_op;
+  depth_state.stencilDepthFailOp = material.stencil_depth_fail_op;
+  depth_state.stencilPassOp = material.stencil_pass_op;
+  depth_state.stencilReadMask = material.stencil_read_mask;
+  depth_state.stencilWriteMask = material.stencil_write_mask;
+  depth_state.stencilReference = material.stencil_reference;
+  cmd->setDepthStencilState(depth_state);
+
+  rhi::DepthBiasState bias_state{};
+  bias_state.enable = material.depth_bias_enable;
+  bias_state.constantFactor = material.depth_bias_constant;
+  bias_state.slopeFactor = material.depth_bias_slope;
+  cmd->setDepthBias(bias_state);
+}
+
 std::unique_ptr<Mesh> Renderer::create_quad(float size) {
   std::vector<Vertex> verts = primitives::create_quad_vertices(size);
   std::vector<uint32_t> indices = {0, 1, 2, 2, 3, 0};
@@ -153,6 +179,7 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
 
   auto *cmd = device_->getImmediate();
   cmd->setPipeline(shader->pipeline(material.blend_mode));
+  apply_material_state(cmd, material);
   cmd->setVertexBuffer(mesh.vertex_buffer());
   cmd->setIndexBuffer(mesh.index_buffer());
 
@@ -210,6 +237,10 @@ void Renderer::draw_sprite(rhi::TextureHandle texture, const Vec3 &position,
 
   auto *cmd = device_->getImmediate();
   cmd->setPipeline(shader->pipeline(Material::BlendMode::Alpha));
+
+  Material sprite_material;
+  sprite_material.blend_mode = Material::BlendMode::Alpha;
+  apply_material_state(cmd, sprite_material);
 
   if (sprite_mesh_) {
     cmd->setVertexBuffer(sprite_mesh_->vertex_buffer());

@@ -91,6 +91,9 @@ struct CmdList {
   virtual void setInstanceBuffer(BufferHandle, size_t stride,
                                  size_t offset = 0) = 0;
 
+  virtual void setDepthStencilState(const DepthStencilState &state) = 0;
+  virtual void setDepthBias(const DepthBiasState &state) = 0;
+
   virtual void setUniformMat4(const char *name, const float *mat4x4) = 0;
   virtual void setUniformVec3(const char *name, const float *vec3) = 0;
   virtual void setUniformVec4(const char *name,

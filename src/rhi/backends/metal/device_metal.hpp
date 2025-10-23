@@ -89,6 +89,8 @@ public:
   void setIndexBuffer(BufferHandle handle, size_t offset = 0) override;
   void setInstanceBuffer(BufferHandle handle, size_t stride,
                          size_t offset = 0) override;
+  void setDepthStencilState(const DepthStencilState &state) override;
+  void setDepthBias(const DepthBiasState &state) override;
 
   void setUniformMat4(const char *name, const float *mat4x4) override;
   void setUniformVec3(const char *name, const float *vec3) override;
