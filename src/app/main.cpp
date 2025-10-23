@@ -1,91 +1,74 @@
 #include "pixel/platform/platform.hpp"
-#include "pixel/renderer3d/lod.hpp"
+#include "pixel/input/input_manager.hpp"
+#include "pixel/renderer3d/mesh.hpp"
 #include "pixel/renderer3d/renderer.hpp"
 #include "pixel/renderer3d/renderer_instanced.hpp"
-#include "pixel/input/input_manager.hpp"
+#include "pixel/renderer3d/types.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
+#include <iomanip>
 #include <iostream>
+#include <random>
+#include <string>
 #include <vector>
 
 using namespace pixel::renderer3d;
 
 namespace {
-std::vector<InstanceData> create_grid_instances(int rows, int cols,
-                                                float spacing) {
-  std::vector<InstanceData> instances;
-  instances.reserve(static_cast<size_t>(rows * cols));
 
-  float start_x = -0.5f * static_cast<float>(cols - 1) * spacing;
-  float start_z = -0.5f * static_cast<float>(rows - 1) * spacing;
+constexpr float kPi = 3.14159265359f;
+constexpr float kTwoPi = 6.28318530718f;
 
-  for (int row = 0; row < rows; ++row) {
-    for (int col = 0; col < cols; ++col) {
-      InstanceData data;
-      data.position = {start_x + static_cast<float>(col) * spacing, 0.5f,
-                       start_z + static_cast<float>(row) * spacing};
-      data.rotation = {0.0f, 0.0f, 0.0f};
-      data.scale = {1.0f, 1.0f, 1.0f};
-      data.color = Color(0.8f, 0.8f, 0.8f, 1.0f);
-      data.texture_index = 0.0f;
-      data.culling_radius = 0.75f;
-      data.lod_transition_alpha = 1.0f;
-      instances.push_back(data);
+std::unique_ptr<Mesh> create_uv_sphere(Renderer &renderer, float radius,
+                                       int longitude_segments,
+                                       int latitude_segments) {
+  longitude_segments = std::max(3, longitude_segments);
+  latitude_segments = std::max(2, latitude_segments);
+
+  std::vector<Vertex> vertices;
+  std::vector<uint32_t> indices;
+
+  vertices.reserve(static_cast<size_t>((latitude_segments + 1) *
+                                       (longitude_segments + 1)));
+
+  for (int lat = 0; lat <= latitude_segments; ++lat) {
+    float v = static_cast<float>(lat) / static_cast<float>(latitude_segments);
+    float phi = v * kPi;
+    float sin_phi = std::sin(phi);
+    float cos_phi = std::cos(phi);
+
+    for (int lon = 0; lon <= longitude_segments; ++lon) {
+      float u = static_cast<float>(lon) / static_cast<float>(longitude_segments);
+      float theta = u * kTwoPi;
+      float sin_theta = std::sin(theta);
+      float cos_theta = std::cos(theta);
+
+      Vec3 normal{cos_theta * sin_phi, cos_phi, sin_theta * sin_phi};
+      Vec3 position = normal * radius;
+      Vec2 texcoord{u, 1.0f - v};
+
+      vertices.push_back(Vertex{position, normal, texcoord, Color::White()});
     }
   }
 
-  return instances;
-}
+  indices.reserve(static_cast<size_t>(latitude_segments * longitude_segments * 6));
+  for (int lat = 0; lat < latitude_segments; ++lat) {
+    for (int lon = 0; lon < longitude_segments; ++lon) {
+      uint32_t current = static_cast<uint32_t>(lat * (longitude_segments + 1) + lon);
+      uint32_t next = current + static_cast<uint32_t>(longitude_segments + 1);
 
-std::vector<InstanceData> create_demo_instances() {
-  struct RowSpec {
-    int count;
-    float z;
-    float scale;
-    Color base_color;
-  };
+      indices.push_back(current);
+      indices.push_back(next);
+      indices.push_back(current + 1);
 
-  const std::array<RowSpec, 3> rows{
-      RowSpec{5, -6.0f, 1.0f, Color(0.95f, 0.55f, 0.35f, 1.0f)},
-      RowSpec{7, -18.0f, 1.35f, Color(0.35f, 0.82f, 0.64f, 1.0f)},
-      RowSpec{9, -32.0f, 1.75f, Color(0.45f, 0.65f, 0.95f, 1.0f)}};
-
-  const float spacing = 4.0f;
-
-  std::vector<InstanceData> instances;
-  size_t total_instances = 0;
-  for (const auto &row : rows) {
-    total_instances += static_cast<size_t>(row.count);
-  }
-  instances.reserve(total_instances);
-
-  for (size_t row_index = 0; row_index < rows.size(); ++row_index) {
-    const RowSpec &row = rows[row_index];
-    float start_x = -0.5f * static_cast<float>(row.count - 1) * spacing;
-    for (int c = 0; c < row.count; ++c) {
-      float blend = row.count > 1 ? static_cast<float>(c) /
-                                        static_cast<float>(row.count - 1)
-                                  : 0.0f;
-      float tint = 0.85f + 0.15f * blend;
-
-      InstanceData data;
-      data.position = {start_x + static_cast<float>(c) * spacing,
-                       row.scale * 0.5f, row.z};
-      data.rotation = {0.0f, 0.35f * static_cast<float>(c), 0.0f};
-      data.scale = {row.scale, row.scale, row.scale};
-      data.color = Color(std::min(row.base_color.r * tint, 1.0f),
-                         std::min(row.base_color.g * tint, 1.0f),
-                         std::min(row.base_color.b * tint, 1.0f), 1.0f);
-      data.texture_index = static_cast<float>(row_index);
-      data.culling_radius = row.scale * 0.75f;
-      data.lod_transition_alpha = 1.0f;
-      instances.push_back(data);
+      indices.push_back(current + 1);
+      indices.push_back(next);
+      indices.push_back(next + 1);
     }
   }
 
-  return instances;
+  return Mesh::create(renderer.device(), vertices, indices);
 }
 
 void handle_camera_input(Renderer &renderer, const pixel::input::InputState &input,
@@ -101,8 +84,8 @@ void handle_camera_input(Renderer &renderer, const pixel::input::InputState &inp
   distance = std::max(distance, 1.0f);
 
   if (input.mouse_buttons[0]) {
-    float dx = static_cast<float>(input.mouse_delta_x) * 1.25f;
-    float dy = static_cast<float>(input.mouse_delta_y) * 1.25f;
+    float dx = static_cast<float>(input.mouse_delta_x) * 1.15f;
+    float dy = static_cast<float>(input.mouse_delta_y) * 1.15f;
     camera.orbit(dx, dy);
   }
 
@@ -149,13 +132,102 @@ void handle_camera_input(Renderer &renderer, const pixel::input::InputState &inp
   }
 }
 
+struct SphereAnimation {
+  float base_height = 0.0f;
+  float amplitude = 0.0f;
+  float speed = 1.0f;
+  float phase = 0.0f;
+  float rotation_speed = 0.0f;
+};
+
+struct SphereField {
+  std::vector<InstanceData> instances;
+  std::vector<SphereAnimation> animation;
+};
+
+SphereField create_sphere_field(int rows, int cols, float spacing, float base_height,
+                                float base_amplitude, int texture_count) {
+  SphereField field;
+  field.instances.reserve(static_cast<size_t>(rows * cols));
+  field.animation.reserve(static_cast<size_t>(rows * cols));
+
+  std::mt19937 rng(1337);
+  std::uniform_real_distribution<float> scale_dist(0.65f, 1.35f);
+  std::uniform_real_distribution<float> speed_dist(0.6f, 1.6f);
+  std::uniform_real_distribution<float> phase_dist(0.0f, kTwoPi);
+  std::uniform_real_distribution<float> amplitude_dist(0.7f, 1.3f);
+  std::uniform_real_distribution<float> height_jitter(-0.4f, 0.4f);
+  std::uniform_real_distribution<float> rotation_dist(0.25f, 1.1f);
+
+  float start_x = -0.5f * static_cast<float>(cols - 1) * spacing;
+  float start_z = -0.5f * static_cast<float>(rows - 1) * spacing;
+
+  for (int row = 0; row < rows; ++row) {
+    float v = rows > 1 ? static_cast<float>(row) / static_cast<float>(rows - 1) : 0.0f;
+    for (int col = 0; col < cols; ++col) {
+      float u = cols > 1 ? static_cast<float>(col) / static_cast<float>(cols - 1) : 0.0f;
+
+      float scale = scale_dist(rng);
+      SphereAnimation anim;
+      anim.speed = speed_dist(rng);
+      anim.phase = phase_dist(rng);
+      anim.amplitude = base_amplitude * amplitude_dist(rng);
+      anim.base_height = base_height + height_jitter(rng);
+      anim.rotation_speed = rotation_dist(rng);
+
+      InstanceData data;
+      data.position = {start_x + static_cast<float>(col) * spacing,
+                       anim.base_height +
+                           static_cast<float>(std::sin(anim.phase)) * anim.amplitude,
+                       start_z + static_cast<float>(row) * spacing};
+      data.scale = {scale, scale, scale};
+      data.rotation = {0.0f, static_cast<float>(std::fmod(anim.phase, kTwoPi)), 0.0f};
+      data.color =
+          Color(std::clamp(0.65f + 0.35f * v, 0.0f, 1.0f),
+                std::clamp(0.6f + 0.4f * (1.0f - v), 0.0f, 1.0f),
+                std::clamp(0.7f + 0.3f * u, 0.0f, 1.0f), 1.0f);
+      data.texture_index =
+          static_cast<float>((row * cols + col) % std::max(1, texture_count));
+      float base_radius = 0.5f * scale;
+      data.culling_radius = base_radius + anim.amplitude;
+      data.lod_transition_alpha = 1.0f;
+
+      field.instances.push_back(data);
+      field.animation.push_back(anim);
+    }
+  }
+
+  return field;
+}
+
+void update_sphere_field(std::vector<InstanceData> &instances,
+                         const std::vector<SphereAnimation> &animation,
+                         float elapsed_time, float delta_time) {
+  size_t count = std::min(instances.size(), animation.size());
+  for (size_t i = 0; i < count; ++i) {
+    const SphereAnimation &anim = animation[i];
+    float wave =
+        static_cast<float>(std::sin(elapsed_time * anim.speed + anim.phase));
+    instances[i].position.y = anim.base_height + wave * anim.amplitude;
+
+    float yaw = instances[i].rotation.y + delta_time * anim.rotation_speed;
+    if (yaw > kTwoPi) {
+      yaw = std::fmod(yaw, kTwoPi);
+    }
+    instances[i].rotation.y = yaw;
+    instances[i].rotation.x =
+        0.15f * static_cast<float>(std::cos((elapsed_time * anim.speed * 0.5f) +
+                                            anim.phase));
+  }
+}
+
 } // namespace
 
 int main(int, char **) {
   pixel::platform::WindowSpec spec;
-  spec.w = 1280;
-  spec.h = 720;
-  spec.title = "Basic LOD Demo";
+  spec.w = 1600;
+  spec.h = 900;
+  spec.title = "Floating Sphere Field";
 
   auto renderer = Renderer::create(spec);
   if (!renderer) {
@@ -163,71 +235,94 @@ int main(int, char **) {
     return 1;
   }
 
-  // Create input manager with the renderer's window
   pixel::input::InputManager input_manager(renderer->window());
 
-  std::cout << "Basic LOD demo\n";
-  std::cout << "Controls: Left mouse drag = orbit, Right mouse drag = pan, "
-               "Scroll = zoom, ESC = quit\n";
+  std::vector<std::string> texture_paths = {
+      "assets/textures/brick.png", "assets/textures/dirt.png",
+      "assets/textures/grass.png", "assets/textures/metal.png",
+      "assets/textures/stone.png", "assets/textures/wood.png"};
 
-  auto high_mesh = renderer->create_cube(1.0f);
-  auto medium_mesh = renderer->create_cube(0.8f);
-  auto low_mesh = renderer->create_quad(0.9f);
+  auto texture_array = renderer->load_texture_array(texture_paths);
+  if (texture_array.id == 0) {
+    std::cerr << "Failed to load texture array" << std::endl;
+    return 1;
+  }
 
-  LODConfig lod_config;
-  lod_config.mode = LODMode::Distance;
-  lod_config.distance_high = 6.0f;
-  lod_config.distance_medium = 12.0f;
-  lod_config.distance_cull = 20.0f;
-  lod_config.temporal.enabled = false;
-  lod_config.dither.enabled = false;
+  auto sphere_mesh = create_uv_sphere(*renderer, 0.5f, 48, 24);
+  if (!sphere_mesh) {
+    std::cerr << "Failed to create sphere mesh" << std::endl;
+    return 1;
+  }
 
-  auto instances = create_grid_instances(3, 5, 2.5f);
+  const int rows = 32;
+  const int cols = 32;
+  const float spacing = 2.25f;
+  const float base_height = 1.6f;
+  const float base_amplitude = 0.75f;
 
-  auto lod_mesh = LODMesh::create(renderer->device(), *high_mesh, *medium_mesh,
-                                  *low_mesh, instances.size(), lod_config);
-  lod_mesh->set_instances(instances);
+  SphereField sphere_field = create_sphere_field(
+      rows, cols, spacing, base_height, base_amplitude,
+      static_cast<int>(texture_paths.size()));
 
-  Material object_material{};
-  object_material.blend_mode = Material::BlendMode::Opaque;
-  object_material.color = Color(0.9f, 0.9f, 0.9f, 1.0f);
+  auto instanced_mesh = RendererInstanced::create_instanced_mesh(
+      renderer->device(), *sphere_mesh, sphere_field.instances.size());
+  instanced_mesh->set_instances(sphere_field.instances);
+
+  Material sphere_material{};
+  sphere_material.blend_mode = Material::BlendMode::Opaque;
+  sphere_material.color = Color(1.0f, 1.0f, 1.0f, 1.0f);
+  sphere_material.texture_array = texture_array;
+  sphere_material.depth_test = true;
+  sphere_material.depth_write = true;
 
   renderer->camera().mode = Camera::ProjectionMode::Perspective;
-  renderer->camera().position = {0.0f, 5.0f, 12.0f};
-  renderer->camera().target = {0.0f, 1.5f, -6.0f};
-  renderer->camera().fov = 55.0f;
-  renderer->camera().far_clip = 200.0f;
+  renderer->camera().position = {0.0f, 28.0f, 68.0f};
+  renderer->camera().target = {0.0f, 8.0f, 0.0f};
+  renderer->camera().fov = 50.0f;
+  renderer->camera().far_clip = 400.0f;
 
-  double last_stats_time = 0.0;
+  std::cout << "Floating sphere field demo\n";
+  std::cout << "Controls: Left mouse drag = orbit, Right mouse drag = pan, "
+               "Scroll = zoom, WASD = move, Q/E = vertical, ESC = quit\n";
+  std::cout << "Instances: " << sphere_field.instances.size()
+            << ", textures used: " << texture_paths.size() << "\n";
+
   double last_frame_time = renderer->time();
+  double stats_time = last_frame_time;
+  size_t frames_since_stats = 0;
 
   while (renderer->process_events()) {
-    // Update input state
     input_manager.update();
     const auto &input = input_manager.state();
-
     if (input.keys[256]) {
       break; // ESC
     }
 
-    double current_frame_time = renderer->time();
-    handle_camera_input(
-        *renderer, input,
-        static_cast<float>(current_frame_time - last_frame_time));
-    last_frame_time = current_frame_time;
+    double current_time = renderer->time();
+    float delta_time = static_cast<float>(current_time - last_frame_time);
+    last_frame_time = current_time;
 
-    renderer->begin_frame(Color(0.1f, 0.12f, 0.16f, 1.0f));
-    RendererLOD::draw_lod(*renderer, *lod_mesh, object_material);
+    handle_camera_input(*renderer, input, delta_time);
+
+    float elapsed_time = static_cast<float>(current_time);
+    update_sphere_field(sphere_field.instances, sphere_field.animation,
+                        elapsed_time, delta_time);
+    instanced_mesh->set_instances(sphere_field.instances);
+
+    renderer->begin_frame(Color(0.03f, 0.04f, 0.07f, 1.0f));
+    RendererInstanced::draw_instanced(*renderer, *instanced_mesh, sphere_material);
     renderer->end_frame();
 
-    double now = renderer->time();
-    if (now - last_stats_time > 1.0) {
-      auto stats = lod_mesh->get_stats();
-      std::cout << "High: " << stats.visible_per_lod[0]
-                << ", Medium: " << stats.visible_per_lod[1]
-                << ", Low: " << stats.visible_per_lod[2]
-                << ", Culled: " << stats.culled << '\n';
-      last_stats_time = now;
+    ++frames_since_stats;
+    if (current_time - stats_time >= 2.0) {
+      double fps = static_cast<double>(frames_since_stats) /
+                   (current_time - stats_time);
+      std::cout << "FPS: " << std::fixed << std::setprecision(1) << fps
+                << std::defaultfloat
+                << " | Visible spheres: " << instanced_mesh->instance_count()
+                << " | Textures: " << texture_paths.size() << '\n';
+      stats_time = current_time;
+      frames_since_stats = 0;
     }
   }
 
