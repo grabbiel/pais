@@ -596,8 +596,7 @@ const Caps &MetalDevice::caps() const {
   static Caps caps;
   caps.instancing = true;
   caps.samplerAniso = true;
-  caps.maxSamplerAnisotropy =
-      std::max(1.0f, static_cast<float>([impl_->device_ maxSamplerAnisotropy]));
+  caps.maxSamplerAnisotropy = 16.0f;
   caps.samplerCompare = true;
   caps.uniformBuffers = true;
   caps.clipSpaceYDown = true; // Metal uses Y-down clip space
@@ -696,15 +695,12 @@ SamplerHandle MetalDevice::createSampler(const SamplerDesc &desc) {
                                          : MTLSamplerAddressModeClampToEdge;
 
   if (desc.aniso || desc.maxAnisotropy > 1.0f) {
+    const float kMetalMaxAnisotropy = 16.0f;
     float requested =
-        desc.maxAnisotropy > 1.0f
-            ? desc.maxAnisotropy
-            : static_cast<float>([impl_->device_ maxSamplerAnisotropy]);
-    float device_max =
-        static_cast<float>([impl_->device_ maxSamplerAnisotropy]);
-    requested = std::min(requested, device_max);
-    samplerDesc.maxAnisotropy =
-        std::max<NSUInteger>(1, static_cast<NSUInteger>(requested));
+        desc.maxAnisotropy > 1.0f ? desc.maxAnisotropy : kMetalMaxAnisotropy;
+    requested = std::min(requested, kMetalMaxAnisotropy);
+    samplerDesc.maxAnisotropy = std::max<NSUInteger>(
+        1, std::min<NSUInteger>(16, static_cast<NSUInteger>(requested)));
   }
 
   samplerDesc.compareFunction = desc.compareEnable
