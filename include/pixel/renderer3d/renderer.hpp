@@ -2,6 +2,7 @@
 #include "pixel/platform/platform.hpp"
 #include "pixel/rhi/rhi.hpp"
 #include "pixel/renderer3d/shader_reflection.hpp"
+#include "pixel/math/math.hpp"
 #include <glm/glm.hpp>
 #include <array>
 #include <cstdint>
@@ -18,47 +19,14 @@ struct GLFWwindow;
 namespace pixel::renderer3d {
 
 // ============================================================================
-// Math Types
+// Math Types (imported from pixel::math)
 // ============================================================================
 
-struct Vec2 {
-  float x, y;
-  Vec2() : x(0), y(0) {}
-  Vec2(float x_, float y_) : x(x_), y(y_) {}
-};
-
-struct Vec3 {
-  float x, y, z;
-  Vec3() : x(0), y(0), z(0) {}
-  Vec3(float x_, float y_, float z_) : x(x_), y(y_), z(z_) {}
-  Vec3(const glm::vec3 &v) : x(v.x), y(v.y), z(v.z) {}
-  glm::vec3 to_glm() const;
-  static Vec3 from_glm(const glm::vec3 &v) { return {v.x, v.y, v.z}; }
-  Vec3 operator-(const Vec3 &other) const;
-  Vec3 operator+(const Vec3 &other) const;
-  Vec3 normalized() const;
-  Vec3 operator*(float scalar) const;
-  friend Vec3 operator*(float scalar, const Vec3 &v);
-  float length() const;
-};
-
-struct Vec4 {
-  float x, y, z, w;
-  Vec4() : x(0), y(0), z(0), w(1) {}
-  Vec4(float x_, float y_, float z_, float w_) : x(x_), y(y_), z(z_), w(w_) {}
-};
-
-struct Color {
-  float r, g, b, a;
-  Color() : r(1), g(1), b(1), a(1) {}
-  Color(float r_, float g_, float b_, float a_ = 1.0f)
-      : r(r_), g(g_), b(b_), a(a_) {}
-  static Color White() { return {1, 1, 1, 1}; }
-  static Color Black() { return {0, 0, 0, 1}; }
-  static Color Red() { return {1, 0, 0, 1}; }
-  static Color Green() { return {0, 1, 0, 1}; }
-  static Color Blue() { return {0, 0, 1, 1}; }
-};
+// Type aliases for backward compatibility
+using Vec2 = pixel::math::Vec2;
+using Vec3 = pixel::math::Vec3;
+using Vec4 = pixel::math::Vec4;
+using Color = pixel::math::Color;
 
 // ============================================================================
 // Camera
