@@ -18,6 +18,10 @@ namespace pixel::platform {
   class Window;
 }
 
+namespace pixel::resources {
+  class TextureLoader;
+}
+
 namespace pixel::renderer3d {
 
 // ============================================================================
@@ -290,9 +294,7 @@ protected:
   ShaderID sprite_shader_ = INVALID_SHADER;
   ShaderID instanced_shader_ = INVALID_SHADER;
 
-  std::unordered_map<std::string, rhi::TextureHandle> texture_path_to_id_;
-  std::unordered_map<uint32_t, rhi::TextureHandle> textures_;
-  uint32_t next_texture_id_ = 1;
+  std::unique_ptr<resources::TextureLoader> texture_loader_;
 
   std::unique_ptr<Mesh> sprite_mesh_;
 

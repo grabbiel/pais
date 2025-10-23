@@ -164,10 +164,13 @@ add_subdirectory(schemas)
 # STEP 4: RHI (depends on core, platform, third-party)
 add_subdirectory(src/rhi)
 
-# STEP 5: Renderer (depends on RHI and everything below it)
+# STEP 5: Resources (depends on RHI)
+add_subdirectory(src/resources)
+
+# STEP 6: Renderer (depends on RHI, Resources, and everything below it)
 add_subdirectory(src/renderer3d)
 
-# STEP 6: Application (depends on everything)
+# STEP 7: Application (depends on everything)
 add_subdirectory(src/app)
 
 # ============================================================================
