@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <exception>
+#include <initializer_list>
 #include <iostream>
 #include <iomanip>
 #include <string>
@@ -484,11 +485,38 @@ void LODMesh::update_lod_selection_gpu(Renderer &renderer, float delta_time,
   cmd->copyToBuffer(gpu_.lod_counters, 0, counter_bytes);
 
   cmd->setComputePipeline(gpu_.compute_pipeline);
-  cmd->setUniformBuffer(0, gpu_.uniform_buffer);
-  cmd->setStorageBuffer(1, gpu_.source_instances);
-  cmd->setStorageBuffer(2, gpu_.lod_assignments);
-  cmd->setStorageBuffer(3, gpu_.lod_counters);
-  cmd->setStorageBuffer(4, gpu_.lod_instance_indices);
+  const ShaderReflection &compute_reflection = gpu_.reflection;
+  auto resolve_binding = [&](std::initializer_list<std::string_view> names,
+                             ShaderBlockType type, uint32_t fallback) {
+    for (auto name : names) {
+      if (auto binding = compute_reflection.binding_for_block(name, type)) {
+        return *binding;
+      }
+    }
+    return fallback;
+  };
+
+  uint32_t uniform_binding =
+      resolve_binding({"LODUniforms"}, ShaderBlockType::Uniform, 0);
+  cmd->setUniformBuffer(uniform_binding, gpu_.uniform_buffer);
+
+  uint32_t source_binding = resolve_binding({"SourceInstancesBuffer",
+                                            "sourceInstances"},
+                                           ShaderBlockType::Storage, 1);
+  uint32_t assignments_binding = resolve_binding({"LODAssignmentsBuffer",
+                                                  "lodAssignments"},
+                                                 ShaderBlockType::Storage, 2);
+  uint32_t counters_binding = resolve_binding({"LODCountersBuffer",
+                                               "lodCounters"},
+                                              ShaderBlockType::Storage, 3);
+  uint32_t indices_binding = resolve_binding({"LODInstanceIndicesBuffer",
+                                              "lodInstanceIndices"},
+                                             ShaderBlockType::Storage, 4);
+
+  cmd->setStorageBuffer(source_binding, gpu_.source_instances);
+  cmd->setStorageBuffer(assignments_binding, gpu_.lod_assignments);
+  cmd->setStorageBuffer(counters_binding, gpu_.lod_counters);
+  cmd->setStorageBuffer(indices_binding, gpu_.lod_instance_indices);
 
   uint32_t total_instances = static_cast<uint32_t>(source_instances_.size());
   if (total_instances > 0) {
@@ -688,6 +716,7 @@ bool LODMesh::initialize_gpu_resources(size_t max_instances) {
       reinterpret_cast<const uint8_t *>(compute_source.data()),
       compute_source.size());
 
+  resources.reflection = reflect_glsl(compute_source, ShaderStage::Compute);
   resources.compute_shader = device_->createShader("cs_lod", shader_bytes);
   if (resources.compute_shader.id == 0)
     return false;
@@ -784,33 +813,54 @@ void RendererLOD::draw_lod(Renderer &renderer, LODMesh &mesh,
                                     base_material.blend_mode));
 
   glm::mat4 model = glm::mat4(1.0f);
-  cmd->setUniformMat4("model", glm::value_ptr(model));
+  const ShaderReflection &reflection =
+      shader->reflection(base_material.shader_variant);
+  if (reflection.has_uniform("model")) {
+    cmd->setUniformMat4("model", glm::value_ptr(model));
+  }
 
   glm::mat3 normalMatrix3x3 = glm::mat3(1.0f);
   glm::mat4 normalMatrix4x4 = glm::mat4(normalMatrix3x3);
-  cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
+  if (reflection.has_uniform("normalMatrix")) {
+    cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
+  }
 
   float view[16], projection[16];
   renderer.camera().get_view_matrix(view);
   renderer.camera().get_projection_matrix(projection, renderer.window_width(),
                                           renderer.window_height());
-  cmd->setUniformMat4("view", view);
-  cmd->setUniformMat4("projection", projection);
+  if (reflection.has_uniform("view")) {
+    cmd->setUniformMat4("view", view);
+  }
+  if (reflection.has_uniform("projection")) {
+    cmd->setUniformMat4("projection", projection);
+  }
 
   float light_pos[3] = {10.0f, 10.0f, 10.0f};
   float view_pos[3] = {renderer.camera().position.x,
                        renderer.camera().position.y,
                        renderer.camera().position.z};
-  cmd->setUniformVec3("lightPos", light_pos);
-  cmd->setUniformVec3("viewPos", view_pos);
+  if (reflection.has_uniform("lightPos")) {
+    cmd->setUniformVec3("lightPos", light_pos);
+  }
+  if (reflection.has_uniform("viewPos")) {
+    cmd->setUniformVec3("viewPos", view_pos);
+  }
 
-  cmd->setUniformFloat("uTime", static_cast<float>(renderer.time()));
-  cmd->setUniformInt("uDitherEnabled", 1);
+  if (reflection.has_uniform("uTime")) {
+    cmd->setUniformFloat("uTime", static_cast<float>(renderer.time()));
+  }
+  if (reflection.has_uniform("uDitherEnabled")) {
+    cmd->setUniformInt("uDitherEnabled", 1);
+  }
 
-  if (base_material.texture_array.id != 0) {
+  if (base_material.texture_array.id != 0 &&
+      reflection.has_sampler("uTextureArray")) {
     cmd->setTexture("uTextureArray", base_material.texture_array, 1);
-    cmd->setUniformInt("useTextureArray", 1);
-  } else {
+    if (reflection.has_uniform("useTextureArray")) {
+      cmd->setUniformInt("useTextureArray", 1);
+    }
+  } else if (reflection.has_uniform("useTextureArray")) {
     cmd->setUniformInt("useTextureArray", 0);
   }
 

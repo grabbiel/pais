@@ -1,6 +1,7 @@
 #pragma once
 #include "renderer.hpp"
 #include "renderer_instanced.hpp"
+#include "shader_reflection.hpp"
 #include <array>
 #include <memory>
 #include <optional>
@@ -152,6 +153,7 @@ private:
     rhi::BufferHandle lod_counters{};
     rhi::BufferHandle lod_instance_indices{};
     rhi::BufferHandle uniform_buffer{};
+    ShaderReflection reflection{};
   };
 
   void update_lod_selection_cpu(Renderer &renderer, float delta_time,

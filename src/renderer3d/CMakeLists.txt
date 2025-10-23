@@ -11,6 +11,7 @@ set(RENDERER3D_SOURCES
   camera.cpp
   mesh.cpp
   shader.cpp
+  shader_reflection.cpp
   renderer_texture.cpp
   renderer_primitives.cpp
   renderer_instanced.cpp
