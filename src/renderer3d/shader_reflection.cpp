@@ -25,8 +25,9 @@ constexpr uint32_t stage_bit_value(ShaderStage stage) {
 
 std::string to_lower(std::string_view value) {
   std::string result(value.begin(), value.end());
-  std::transform(result.begin(), result.end(), result.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  std::transform(
+      result.begin(), result.end(), result.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return result;
 }
 
@@ -115,8 +116,8 @@ std::optional<uint32_t> parse_binding(std::string_view layout_str) {
     return std::nullopt;
 
   uint32_t value = 0;
-  auto result = std::from_chars(layout_str.data() + pos,
-                                layout_str.data() + end, value);
+  auto result =
+      std::from_chars(layout_str.data() + pos, layout_str.data() + end, value);
   if (result.ec != std::errc{})
     return std::nullopt;
   return value;
@@ -124,12 +125,12 @@ std::optional<uint32_t> parse_binding(std::string_view layout_str) {
 
 bool is_qualifier(std::string_view token) {
   static constexpr std::string_view qualifiers[] = {
-      "const",   "in",     "out",         "inout",    "centroid",
-      "flat",    "smooth", "noperspective", "patch",    "sample",
-      "uniform", "buffer", "shared",       "coherent", "volatile",
-      "restrict","readonly","writeonly",   "precise",  "highp",
-      "mediump", "lowp",   "constant",     "device",   "thread",
-      "threadgroup",        "constexpr"};
+      "const",       "in",       "out",           "inout",    "centroid",
+      "flat",        "smooth",   "noperspective", "patch",    "sample",
+      "uniform",     "buffer",   "shared",        "coherent", "volatile",
+      "restrict",    "readonly", "writeonly",     "precise",  "highp",
+      "mediump",     "lowp",     "constant",      "device",   "thread",
+      "threadgroup", "constexpr"};
 
   std::string lower = to_lower(token);
   for (auto qualifier : qualifiers) {
@@ -149,11 +150,9 @@ ShaderUniformType to_uniform_type(std::string_view type_name) {
     return ShaderUniformType::Vec3;
   if (lower == "vec4" || lower == "float4")
     return ShaderUniformType::Vec4;
-  if (lower == "mat3" || lower == "float3x3" ||
-      lower == "matrix_float3x3")
+  if (lower == "mat3" || lower == "float3x3" || lower == "matrix_float3x3")
     return ShaderUniformType::Mat3;
-  if (lower == "mat4" || lower == "float4x4" ||
-      lower == "matrix_float4x4")
+  if (lower == "mat4" || lower == "float4x4" || lower == "matrix_float4x4")
     return ShaderUniformType::Mat4;
   if (lower == "int")
     return ShaderUniformType::Int;
@@ -297,7 +296,8 @@ std::optional<MetalAttribute> parse_metal_attribute(std::string_view value) {
     return attr;
 
   uint32_t parsed = 0;
-  auto conv = std::from_chars(number.data(), number.data() + number.size(), parsed);
+  auto conv =
+      std::from_chars(number.data(), number.data() + number.size(), parsed);
   if (conv.ec == std::errc{})
     attr.index = parsed;
   return attr;
@@ -352,9 +352,6 @@ std::vector<std::string> split_parameters(std::string_view params) {
     result.push_back(std::move(last));
   return result;
 }
-
-ShaderReflection reflect_glsl_impl(std::string_view source, ShaderStage stage);
-ShaderReflection reflect_metal_impl(std::string_view source, ShaderStage stage);
 
 } // namespace
 
@@ -422,8 +419,7 @@ void ShaderReflection::add_block(ShaderBlock block) {
     return &blocks_order_[lookup->second];
   };
 
-  if (auto existing = find_existing(block.block_name);
-      existing != nullptr) {
+  if (auto existing = find_existing(block.block_name); existing != nullptr) {
     existing->stage_mask |= block.stage_mask;
     if (!existing->binding && block.binding)
       existing->binding = block.binding;
@@ -431,12 +427,12 @@ void ShaderReflection::add_block(ShaderBlock block) {
       existing->members = block.members;
     if (existing->instance_name.empty() && !block.instance_name.empty())
       existing->instance_name = block.instance_name;
-    add_lookup(block.instance_name, static_cast<size_t>(existing - blocks_order_.data()));
+    add_lookup(block.instance_name,
+               static_cast<size_t>(existing - blocks_order_.data()));
     return;
   }
 
-  if (auto existing = find_existing(block.instance_name);
-      existing != nullptr) {
+  if (auto existing = find_existing(block.instance_name); existing != nullptr) {
     existing->stage_mask |= block.stage_mask;
     if (!existing->binding && block.binding)
       existing->binding = block.binding;
@@ -444,7 +440,8 @@ void ShaderReflection::add_block(ShaderBlock block) {
       existing->members = block.members;
     if (existing->block_name.empty() && !block.block_name.empty())
       existing->block_name = block.block_name;
-    add_lookup(block.block_name, static_cast<size_t>(existing - blocks_order_.data()));
+    add_lookup(block.block_name,
+               static_cast<size_t>(existing - blocks_order_.data()));
     return;
   }
 
@@ -475,7 +472,8 @@ bool ShaderReflection::has_sampler(std::string_view name) const {
   return it->second.is_sampler();
 }
 
-const ShaderUniform *ShaderReflection::find_uniform(std::string_view name) const {
+const ShaderUniform *
+ShaderReflection::find_uniform(std::string_view name) const {
   auto it = uniforms_.find(std::string(name));
   if (it == uniforms_.end())
     return nullptr;
@@ -532,7 +530,7 @@ ShaderReflection reflect_glsl_impl(std::string_view source, ShaderStage stage) {
     const std::smatch &match = *it;
     ShaderBlock block;
     block.type = (match[3].str() == "buffer") ? ShaderBlockType::Storage
-                                               : ShaderBlockType::Uniform;
+                                              : ShaderBlockType::Uniform;
     block.block_name = match[4].str();
     block.instance_name = match[6].matched ? match[6].str() : std::string();
     block.add_stage(stage);
@@ -548,8 +546,7 @@ ShaderReflection reflect_glsl_impl(std::string_view source, ShaderStage stage) {
       size_t semicolon = members_src.find(';', cursor);
       if (semicolon == std::string::npos)
         break;
-      std::string_view decl(members_src.data() + cursor,
-                            semicolon - cursor);
+      std::string_view decl(members_src.data() + cursor, semicolon - cursor);
       cursor = semicolon + 1;
       auto parsed = parse_declaration(decl);
       if (!parsed)
@@ -621,9 +618,10 @@ ShaderReflection reflect_metal_impl(std::string_view source,
   ShaderReflection reflection;
   std::string no_comments = remove_comments(source);
 
-  std::unordered_map<std::string, std::vector<ShaderBlockMember>> struct_members;
-  std::regex struct_regex(
-      R"(struct\s+([A-Za-z_]\w*)\s*\{([^}]*)\}\s*;)", std::regex::optimize);
+  std::unordered_map<std::string, std::vector<ShaderBlockMember>>
+      struct_members;
+  std::regex struct_regex(R"(struct\s+([A-Za-z_]\w*)\s*\{([^}]*)\}\s*;)",
+                          std::regex::optimize);
   for (auto it = std::sregex_iterator(no_comments.begin(), no_comments.end(),
                                       struct_regex);
        it != std::sregex_iterator(); ++it) {
@@ -762,8 +760,8 @@ ShaderReflection reflect_metal_impl(std::string_view source,
           }
 
           ShaderBlock block;
-          block.type = is_storage ? ShaderBlockType::Storage
-                                  : ShaderBlockType::Uniform;
+          block.type =
+              is_storage ? ShaderBlockType::Storage : ShaderBlockType::Uniform;
           block.block_name = has_struct ? parsed->type : parsed->name;
           block.instance_name = parsed->name;
           block.binding = attr.index;
@@ -848,4 +846,3 @@ ShaderReflection reflect_metal(std::string_view source, ShaderStage stage) {
 }
 
 } // namespace pixel::renderer3d
-
