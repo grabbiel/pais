@@ -716,7 +716,7 @@ bool LODMesh::initialize_gpu_resources(size_t max_instances) {
       reinterpret_cast<const uint8_t *>(compute_source.data()),
       compute_source.size());
 
-  resources.reflection = reflect_glsl(compute_source, ShaderStage::Compute);
+  resources.reflection = reflect_shader(compute_source, ShaderStage::Compute);
   resources.compute_shader = device_->createShader("cs_lod", shader_bytes);
   if (resources.compute_shader.id == 0)
     return false;

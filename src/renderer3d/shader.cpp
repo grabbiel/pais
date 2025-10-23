@@ -590,9 +590,9 @@ Shader::build_variant(const ShaderVariantKey &variant) const {
       device_->createPipeline(build_desc(rhi::make_disabled_blend_state()));
 
   ShaderReflection vert_reflection =
-      reflect_glsl(processed_vert, ShaderStage::Vertex);
+      reflect_shader(processed_vert, ShaderStage::Vertex);
   ShaderReflection frag_reflection =
-      reflect_glsl(processed_frag, ShaderStage::Fragment);
+      reflect_shader(processed_frag, ShaderStage::Fragment);
   data.reflection = std::move(vert_reflection);
   data.reflection.merge(frag_reflection);
 
