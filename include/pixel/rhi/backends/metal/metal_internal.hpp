@@ -456,6 +456,7 @@ struct MetalDevice::Impl {
 };
 
 struct MetalCmdList::Impl {
+  MetalDevice::Impl *device_impl_ = nullptr;
   id<MTLDevice> device_;
   id<MTLCommandQueue> command_queue_;
   CAMetalLayer *layer_;
@@ -501,7 +502,8 @@ struct MetalCmdList::Impl {
   std::vector<id<MTLBuffer>> staging_uploads_;
 
   Impl(MetalDevice::Impl *device_impl)
-      : device_(device_impl->device_),
+      : device_impl_(device_impl),
+        device_(device_impl->device_),
         command_queue_(device_impl->command_queue_),
         layer_(device_impl->layer_),
         depth_texture_(device_impl->depth_texture_),

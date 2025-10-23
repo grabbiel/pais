@@ -129,7 +129,10 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
       targetHeight = std::max<NSUInteger>(targetHeight, 1);
     }
 
-    impl_->updateSwapchainSize(targetWidth, targetHeight);
+    if (impl_->device_impl_) {
+      impl_->device_impl_->updateSwapchainSize(targetWidth, targetHeight);
+      impl_->depth_texture_ = impl_->device_impl_->depth_texture_;
+    }
 
     std::cerr << "DEBUG: Attempting to acquire drawable for " << targetWidth
               << "x" << targetHeight << std::endl;
