@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <array>
 
+#include "handles.hpp"
+
 namespace pixel::rhi {
 
 enum class Format {
@@ -168,5 +170,48 @@ inline BlendState make_multiply_blend_state() {
   state.dstAlpha = BlendFactor::OneMinusSrcAlpha;
   return state;
 }
+
+enum class QueryType : uint8_t {
+  Timestamp,
+  TimeElapsed,
+};
+
+enum class PipelineStage : uint32_t {
+  TopOfPipe,
+  VertexShader,
+  FragmentShader,
+  ComputeShader,
+  Transfer,
+  BottomOfPipe,
+};
+
+enum class ResourceState : uint32_t {
+  Undefined,
+  General,
+  CopySrc,
+  CopyDst,
+  ShaderRead,
+  ShaderWrite,
+  RenderTarget,
+  DepthStencilRead,
+  DepthStencilWrite,
+  Present,
+};
+
+enum class BarrierType : uint8_t { Buffer, Texture };
+
+struct ResourceBarrierDesc {
+  BarrierType type{BarrierType::Buffer};
+  PipelineStage srcStage{PipelineStage::TopOfPipe};
+  PipelineStage dstStage{PipelineStage::BottomOfPipe};
+  ResourceState srcState{ResourceState::Undefined};
+  ResourceState dstState{ResourceState::Undefined};
+  BufferHandle buffer{};
+  TextureHandle texture{};
+  uint32_t baseMipLevel{0};
+  uint32_t levelCount{1};
+  uint32_t baseArrayLayer{0};
+  uint32_t layerCount{1};
+};
 
 } // namespace pixel::rhi
