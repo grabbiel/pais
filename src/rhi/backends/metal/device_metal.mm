@@ -23,6 +23,32 @@
 
 namespace pixel::rhi {
 
+namespace {
+
+MTLCompareFunction to_mtl_compare(CompareOp op) {
+  switch (op) {
+  case CompareOp::Never:
+    return MTLCompareFunctionNever;
+  case CompareOp::Less:
+    return MTLCompareFunctionLess;
+  case CompareOp::Equal:
+    return MTLCompareFunctionEqual;
+  case CompareOp::LessEqual:
+    return MTLCompareFunctionLessEqual;
+  case CompareOp::Greater:
+    return MTLCompareFunctionGreater;
+  case CompareOp::NotEqual:
+    return MTLCompareFunctionNotEqual;
+  case CompareOp::GreaterEqual:
+    return MTLCompareFunctionGreaterEqual;
+  case CompareOp::Always:
+  default:
+    return MTLCompareFunctionAlways;
+  }
+}
+
+} // namespace
+
 // ============================================================================
 // Uniforms Structure (matches shaders.metal)
 // ============================================================================
@@ -487,6 +513,9 @@ const Caps &MetalDevice::caps() const {
   static Caps caps;
   caps.instancing = true;
   caps.samplerAniso = true;
+  caps.maxSamplerAnisotropy = std::max(
+      1.0f, static_cast<float>([impl_->device_ maxSamplerAnisotropy]));
+  caps.samplerCompare = true;
   caps.uniformBuffers = true;
   caps.clipSpaceYDown = true; // Metal uses Y-down clip space
   return caps;
@@ -582,6 +611,19 @@ SamplerHandle MetalDevice::createSampler(const SamplerDesc &desc) {
                                          : MTLSamplerAddressModeClampToEdge;
   samplerDesc.tAddressMode = desc.repeat ? MTLSamplerAddressModeRepeat
                                          : MTLSamplerAddressModeClampToEdge;
+
+  if (desc.aniso || desc.maxAnisotropy > 1.0f) {
+    float requested = desc.maxAnisotropy > 1.0f
+                          ? desc.maxAnisotropy
+                          : static_cast<float>([impl_->device_ maxSamplerAnisotropy]);
+    float device_max = static_cast<float>([impl_->device_ maxSamplerAnisotropy]);
+    requested = std::min(requested, device_max);
+    samplerDesc.maxAnisotropy = std::max<NSUInteger>(1, static_cast<NSUInteger>(requested));
+  }
+
+  samplerDesc.compareFunction = desc.compareEnable
+                                    ? to_mtl_compare(desc.compareOp)
+                                    : MTLCompareFunctionNever;
 
   sampler.sampler = [impl_->device_ newSamplerStateWithDescriptor:samplerDesc];
 

@@ -13,6 +13,8 @@ namespace pixel::rhi {
 struct Caps {
   bool instancing{true};
   bool samplerAniso{false};
+  float maxSamplerAnisotropy{1.0f};
+  bool samplerCompare{false};
   bool uniformBuffers{true};
   bool clipSpaceYDown{false}; // GL vs Metal differences if needed
 };
