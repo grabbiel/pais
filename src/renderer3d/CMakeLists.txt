@@ -11,7 +11,6 @@ set(RENDERER3D_SOURCES
   mesh.cpp
   shader.cpp
   shader_reflection.cpp
-  renderer_texture.cpp
   renderer_primitives.cpp
   renderer_instanced.cpp
   lod.cpp
@@ -43,9 +42,9 @@ target_link_libraries(pixel_renderer3d
     pixel::math      # Alias created in src/math/CMakeLists.txt
     pixel::platform  # Alias created in src/platform/common/CMakeLists.txt
     pixel::rhi       # Alias created in src/rhi/CMakeLists.txt
+    pixel::resources # Alias created in src/resources/CMakeLists.txt
     ext::glfw        # Alias created in third_party/CMakeLists.txt
     ext::glm         # Alias created in third_party/CMakeLists.txt
-    ext::stb         # Alias created in third_party/CMakeLists.txt
 )
 
 # Note: OpenGL::GL is now linked through pixel::rhi, not directly here
@@ -136,7 +135,6 @@ source_group("Renderer\\Core" FILES
 source_group("Renderer\\Resources" FILES
   mesh.cpp
   shader.cpp
-  renderer_texture.cpp
 )
 
 source_group("Renderer\\Primitives" FILES

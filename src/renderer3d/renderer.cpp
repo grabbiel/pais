@@ -2,6 +2,7 @@
 #include "pixel/renderer3d/renderer.hpp"
 #include "pixel/renderer3d/renderer_fwd.hpp"
 #include "pixel/rhi/rhi.hpp"
+#include "pixel/resources/texture_loader.hpp"
 #include "pixel/platform/shader_loader.hpp"
 #include "pixel/platform/window.hpp"
 #include <cmath>
@@ -42,6 +43,9 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
     // Transfer ownership to renderer
     renderer->window_ = window.release();
     renderer->device_ = device.release();
+
+    // Initialize texture loader
+    renderer->texture_loader_ = std::make_unique<resources::TextureLoader>(renderer->device_);
 
   } catch (const std::exception &e) {
     throw std::runtime_error(std::string("Failed to initialize renderer: ") +
@@ -165,5 +169,54 @@ double Renderer::time() const {
 }
 
 const char *Renderer::backend_name() const { return "OpenGL 3.3 Core"; }
+
+// ============================================================================
+// Texture Loading (delegated to TextureLoader)
+// ============================================================================
+
+rhi::TextureHandle Renderer::load_texture(const std::string &path) {
+  if (!texture_loader_) {
+    std::cerr << "Renderer: TextureLoader not initialized" << std::endl;
+    return {0};
+  }
+  return texture_loader_->load(path);
+}
+
+rhi::TextureHandle Renderer::create_texture(int width, int height,
+                                            const uint8_t *data) {
+  if (!texture_loader_) {
+    std::cerr << "Renderer: TextureLoader not initialized" << std::endl;
+    return {0};
+  }
+  return texture_loader_->create(width, height, data);
+}
+
+rhi::TextureHandle Renderer::create_texture_array(int width, int height,
+                                                  int layers) {
+  if (!texture_loader_) {
+    std::cerr << "Renderer: TextureLoader not initialized" << std::endl;
+    return {0};
+  }
+  return texture_loader_->create_array(width, height, layers);
+}
+
+rhi::TextureHandle
+Renderer::load_texture_array(const std::vector<std::string> &paths) {
+  if (!texture_loader_) {
+    std::cerr << "Renderer: TextureLoader not initialized" << std::endl;
+    return {0};
+  }
+  return texture_loader_->load_array(paths);
+}
+
+void Renderer::set_texture_array_layer(rhi::TextureHandle array_id, int layer,
+                                       int width, int height,
+                                       const uint8_t *data) {
+  if (!texture_loader_) {
+    std::cerr << "Renderer: TextureLoader not initialized" << std::endl;
+    return;
+  }
+  texture_loader_->set_array_layer(array_id, layer, width, height, data);
+}
 
 } // namespace pixel::renderer3d
