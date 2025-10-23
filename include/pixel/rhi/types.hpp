@@ -107,6 +107,9 @@ struct SamplerDesc {
   bool linear{true};
   bool repeat{true};
   bool aniso{false};
+  float maxAnisotropy{1.0f};
+  bool compareEnable{false};
+  CompareOp compareOp{CompareOp::LessEqual};
 };
 
 struct BlendState {

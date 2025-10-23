@@ -7,6 +7,20 @@
 #include <vector>
 #include <cstring>
 #include <algorithm>
+#include <cstdlib>
+
+#ifndef GL_TEXTURE_MAX_ANISOTROPY_EXT
+#define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
+#endif
+#ifndef GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
+#define GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT 0x84FF
+#endif
+#ifndef GL_MAJOR_VERSION
+#define GL_MAJOR_VERSION 0x821B
+#endif
+#ifndef GL_NUM_EXTENSIONS
+#define GL_NUM_EXTENSIONS 0x821D
+#endif
 
 struct GLFWwindow;
 
@@ -23,6 +37,57 @@ struct GLFWwindow;
 #endif
 #endif
 namespace pixel::rhi::gl {
+
+namespace {
+
+GLenum to_gl_compare(CompareOp op) {
+  switch (op) {
+  case CompareOp::Never:
+    return GL_NEVER;
+  case CompareOp::Less:
+    return GL_LESS;
+  case CompareOp::Equal:
+    return GL_EQUAL;
+  case CompareOp::LessEqual:
+    return GL_LEQUAL;
+  case CompareOp::Greater:
+    return GL_GREATER;
+  case CompareOp::NotEqual:
+    return GL_NOTEQUAL;
+  case CompareOp::GreaterEqual:
+    return GL_GEQUAL;
+  case CompareOp::Always:
+  default:
+    return GL_ALWAYS;
+  }
+}
+
+bool has_extension(const char *extension) {
+  int major = 0;
+  if (const char *version =
+          reinterpret_cast<const char *>(glGetString(GL_VERSION))) {
+    major = std::atoi(version);
+  }
+
+  if (major >= 3) {
+    GLint count = 0;
+    glGetIntegerv(GL_NUM_EXTENSIONS, &count);
+    for (GLint i = 0; i < count; ++i) {
+      const char *name =
+          reinterpret_cast<const char *>(glGetStringi(GL_EXTENSIONS, i));
+      if (name && std::strcmp(name, extension) == 0)
+        return true;
+    }
+  } else {
+    const char *extensions =
+        reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS));
+    if (extensions && std::strstr(extensions, extension))
+      return true;
+  }
+  return false;
+}
+
+} // namespace
 
 // ============================================================================
 // OpenGL Resource Storage
@@ -766,8 +831,19 @@ public:
 
     caps_.instancing = true;
     caps_.uniformBuffers = true;
-    caps_.samplerAniso = false;
     caps_.clipSpaceYDown = false;
+    caps_.samplerAniso = false;
+    caps_.maxSamplerAnisotropy = 1.0f;
+    if (has_extension("GL_EXT_texture_filter_anisotropic")) {
+      caps_.samplerAniso = true;
+      GLfloat max_aniso = 1.0f;
+      glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &max_aniso);
+      if (max_aniso < 1.0f)
+        max_aniso = 1.0f;
+      caps_.maxSamplerAnisotropy = max_aniso;
+    }
+    caps_.samplerCompare =
+        has_extension("GL_ARB_shadow") || has_extension("GL_EXT_shadow");
 
     cmd_list_ = std::make_unique<GLCmdList>(&buffers_, &textures_, &pipelines_,
                                             &framebuffers_, window_);
@@ -915,6 +991,28 @@ public:
     glSamplerParameteri(sampler.id, GL_TEXTURE_MAG_FILTER, mag_filter);
     glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_S, wrap);
     glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_T, wrap);
+    glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_R, wrap);
+
+    if ((desc.aniso || desc.maxAnisotropy > 1.0f) && caps_.samplerAniso) {
+      GLfloat requested = desc.maxAnisotropy > 1.0f
+                              ? static_cast<GLfloat>(desc.maxAnisotropy)
+                              : caps_.maxSamplerAnisotropy;
+      requested = std::min(requested,
+                           static_cast<GLfloat>(caps_.maxSamplerAnisotropy));
+      glSamplerParameterf(sampler.id, GL_TEXTURE_MAX_ANISOTROPY_EXT,
+                          requested);
+    }
+
+    if (caps_.samplerCompare) {
+      if (desc.compareEnable) {
+        glSamplerParameteri(sampler.id, GL_TEXTURE_COMPARE_MODE,
+                            GL_COMPARE_REF_TO_TEXTURE);
+        glSamplerParameteri(sampler.id, GL_TEXTURE_COMPARE_FUNC,
+                            to_gl_compare(desc.compareOp));
+      } else {
+        glSamplerParameteri(sampler.id, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+      }
+    }
 
     uint32_t handle_id = next_sampler_id_++;
     samplers_[handle_id] = sampler;
