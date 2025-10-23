@@ -52,6 +52,7 @@ public:
   ShaderHandle createShader(std::string_view stage,
                             std::span<const uint8_t> bytes) override;
   PipelineHandle createPipeline(const PipelineDesc &desc) override;
+  FramebufferHandle createFramebuffer(const FramebufferDesc &desc) override;
 
   CmdList *getImmediate() override;
   void present() override;
