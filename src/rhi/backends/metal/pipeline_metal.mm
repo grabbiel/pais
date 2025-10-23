@@ -3,10 +3,14 @@
 #ifdef __APPLE__
 
 #include "pixel/rhi/backends/metal/metal_internal.hpp"
+#include <iostream>
 
 namespace pixel::rhi {
 
 PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
+  std::cerr << "MetalDevice::createPipeline()" << std::endl;
+  std::cerr << "  VS handle: " << desc.vs.id << " FS handle: " << desc.fs.id
+            << " CS handle: " << desc.cs.id << std::endl;
   MTLPipelineResource pipeline;
 
   if (desc.cs.id != 0) {
@@ -51,6 +55,8 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
   }
 
   bool isInstanced = (vs_it->second.stage == "vs_instanced");
+  std::cerr << "  Instanced vertex stage: " << (isInstanced ? "YES" : "NO")
+            << std::endl;
 
   PipelineCacheKey cacheKey{};
   cacheKey.vs_id = desc.vs.id;
@@ -66,10 +72,15 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
     colorAttachmentCount = 1;
     attachments[0].format = Format::BGRA8;
     attachments[0].blend = make_alpha_blend_state();
+    std::cerr << "  No color attachments specified, defaulting to BGRA8" << std::endl;
   } else {
     for (uint32_t i = 0; i < colorAttachmentCount && i < kMaxColorAttachments;
          ++i) {
       attachments[i] = desc.colorAttachments[i];
+      std::cerr << "  Color attachment " << i << " format="
+                << static_cast<int>(attachments[i].format)
+                << " blend.enabled="
+                << (attachments[i].blend.enabled ? "YES" : "NO") << std::endl;
     }
   }
 
@@ -129,6 +140,12 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
   MTLVertexDescriptor *vertexDesc =
       impl_->getOrCreateVertexDescriptor(isInstanced);
 
+  if (!vertexDesc) {
+    std::cerr << "  ERROR: Failed to acquire vertex descriptor" << std::endl;
+  } else {
+    std::cerr << "  Vertex descriptor acquired" << std::endl;
+  }
+
   pipelineDesc.vertexDescriptor = vertexDesc;
 
   NSError *error = nil;
@@ -142,13 +159,19 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
     return PipelineHandle{0};
   }
 
+  std::cerr << "  Render pipeline state created successfully" << std::endl;
+
   pipeline.depth_stencil_state = impl_->default_depth_stencil_;
+  if (!pipeline.depth_stencil_state) {
+    std::cerr << "  WARNING: Default depth stencil state is null" << std::endl;
+  }
 
   uint32_t handle_id = impl_->next_pipeline_id_++;
   impl_->pipelines_[handle_id] = pipeline;
 
   PipelineHandle handle{handle_id};
   impl_->pipeline_cache_[cacheKey] = handle;
+  std::cerr << "  Pipeline handle allocated: " << handle.id << std::endl;
   return handle;
 }
 

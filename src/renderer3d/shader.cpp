@@ -10,6 +10,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+#include <iostream>
 
 namespace pixel::renderer3d {
 
@@ -508,9 +509,18 @@ std::unique_ptr<Shader> Shader::create(rhi::Device *device,
   auto shader = std::unique_ptr<Shader>(new Shader());
   shader->device_ = device;
 
+  std::cout << "Shader::create() loading files:" << std::endl;
+  std::cout << "  Vertex:   " << vert_path << std::endl;
+  std::cout << "  Fragment: " << frag_path << std::endl;
+
   auto [vert_src, frag_src] = platform::load_shader_pair(vert_path, frag_path);
   shader->vert_source_ = std::move(vert_src);
   shader->frag_source_ = std::move(frag_src);
+
+  std::cout << "  Vertex source size: " << shader->vert_source_.size()
+            << " bytes" << std::endl;
+  std::cout << "  Fragment source size: " << shader->frag_source_.size()
+            << " bytes" << std::endl;
 
   const bool is_instanced_shader =
       vert_path.find("instanced") != std::string::npos ||
@@ -519,9 +529,14 @@ std::unique_ptr<Shader> Shader::create(rhi::Device *device,
   shader->vs_stage_ = is_instanced_shader ? "vs_instanced" : "vs";
   shader->fs_stage_ = is_instanced_shader ? "fs_instanced" : "fs";
 
+  std::cout << "  Vertex stage label: " << shader->vs_stage_ << std::endl;
+  std::cout << "  Fragment stage label: " << shader->fs_stage_ << std::endl;
+
   ShaderVariantKey default_variant;
   shader->variant_cache_.emplace(default_variant.cache_key(),
                                  shader->build_variant(default_variant));
+
+  std::cout << "  Default shader variant compiled and cached" << std::endl;
 
   return shader;
 }
@@ -546,6 +561,10 @@ Shader::build_variant(const ShaderVariantKey &variant) const {
     throw std::runtime_error("Shader created without a valid device");
   }
 
+  std::string cache_key = variant.cache_key();
+  std::cout << "Shader::build_variant()" << std::endl;
+  std::cout << "  Variant cache key: '" << cache_key << "'" << std::endl;
+
   ShaderPreprocessor preprocessor(variant);
   std::string processed_vert = preprocessor.process(vert_source_);
   std::string processed_frag = preprocessor.process(frag_source_);
@@ -564,11 +583,23 @@ Shader::build_variant(const ShaderVariantKey &variant) const {
       reinterpret_cast<const uint8_t *>(processed_vert.data()),
       processed_vert.size());
   data.vs = device_->createShader(vs_stage_, vs_bytes);
+  if (data.vs.id == 0) {
+    std::cerr << "  ERROR: createShader returned invalid vertex shader handle"
+              << std::endl;
+  } else {
+    std::cout << "  Vertex shader handle: " << data.vs.id << std::endl;
+  }
 
   std::span<const uint8_t> fs_bytes(
       reinterpret_cast<const uint8_t *>(processed_frag.data()),
       processed_frag.size());
   data.fs = device_->createShader(fs_stage_, fs_bytes);
+  if (data.fs.id == 0) {
+    std::cerr << "  ERROR: createShader returned invalid fragment shader handle"
+              << std::endl;
+  } else {
+    std::cout << "  Fragment shader handle: " << data.fs.id << std::endl;
+  }
 
   auto build_desc = [&](const rhi::BlendState &blend) {
     rhi::PipelineDesc desc{};
@@ -582,12 +613,28 @@ Shader::build_variant(const ShaderVariantKey &variant) const {
 
   data.pipelines[static_cast<size_t>(Material::BlendMode::Alpha)] =
       device_->createPipeline(build_desc(rhi::make_alpha_blend_state()));
+  std::cout << "  Pipeline (Alpha) handle: "
+            << data.pipelines[static_cast<size_t>(Material::BlendMode::Alpha)].id
+            << std::endl;
   data.pipelines[static_cast<size_t>(Material::BlendMode::Additive)] =
       device_->createPipeline(build_desc(rhi::make_additive_blend_state()));
+  std::cout << "  Pipeline (Additive) handle: "
+            << data
+                   .pipelines[static_cast<size_t>(Material::BlendMode::Additive)]
+                   .id
+            << std::endl;
   data.pipelines[static_cast<size_t>(Material::BlendMode::Multiply)] =
       device_->createPipeline(build_desc(rhi::make_multiply_blend_state()));
+  std::cout << "  Pipeline (Multiply) handle: "
+            << data
+                   .pipelines[static_cast<size_t>(Material::BlendMode::Multiply)]
+                   .id
+            << std::endl;
   data.pipelines[static_cast<size_t>(Material::BlendMode::Opaque)] =
       device_->createPipeline(build_desc(rhi::make_disabled_blend_state()));
+  std::cout << "  Pipeline (Opaque) handle: "
+            << data.pipelines[static_cast<size_t>(Material::BlendMode::Opaque)].id
+            << std::endl;
 
   ShaderReflection vert_reflection =
       reflect_shader(processed_vert, ShaderStage::Vertex);
@@ -595,6 +642,9 @@ Shader::build_variant(const ShaderVariantKey &variant) const {
       reflect_shader(processed_frag, ShaderStage::Fragment);
   data.reflection = std::move(vert_reflection);
   data.reflection.merge(frag_reflection);
+  std::cout << "  Reflection summary: uniforms="
+            << data.reflection.uniforms().size()
+            << " samplers=" << data.reflection.samplers().size() << std::endl;
 
   return data;
 }

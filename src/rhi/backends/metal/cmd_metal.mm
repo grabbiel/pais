@@ -14,6 +14,7 @@ MetalCmdList::MetalCmdList(MetalDevice::Impl *device_impl)
 MetalCmdList::~MetalCmdList() = default;
 
 void MetalCmdList::begin() {
+  std::cerr << "MetalCmdList::begin()" << std::endl;
   if (impl_->uniform_allocator_) {
     impl_->uniform_allocator_->reset(*impl_->frame_index_);
   }
@@ -304,7 +305,9 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
 }
 
 void MetalCmdList::setPipeline(PipelineHandle handle) {
+  std::cerr << "MetalCmdList::setPipeline(): handle=" << handle.id << std::endl;
   if (handle.id == 0) {
+    std::cerr << "  WARNING: Attempted to bind null pipeline" << std::endl;
     return;
   }
 
@@ -330,10 +333,14 @@ void MetalCmdList::setPipeline(PipelineHandle handle) {
   [impl_->render_encoder_ setRenderPipelineState:pipeline.pipeline_state];
   if (pipeline.depth_stencil_state) {
     [impl_->render_encoder_ setDepthStencilState:pipeline.depth_stencil_state];
+    std::cerr << "  Depth stencil state bound" << std::endl;
+  } else {
+    std::cerr << "  WARNING: Pipeline missing depth stencil state" << std::endl;
   }
 
   impl_->current_pipeline_ = handle;
   impl_->current_compute_pipeline_ = PipelineHandle{0};
+  std::cerr << "  Pipeline bound successfully" << std::endl;
 }
 
 void MetalCmdList::setVertexBuffer(BufferHandle handle, size_t offset) {
@@ -806,6 +813,7 @@ void MetalCmdList::signalFence(FenceHandle handle) {
 }
 
 void MetalCmdList::endRender() {
+  std::cerr << "MetalCmdList::endRender()" << std::endl;
   impl_->resetEncoders();
   impl_->current_pipeline_ = PipelineHandle{0};
   impl_->current_compute_pipeline_ = PipelineHandle{0};

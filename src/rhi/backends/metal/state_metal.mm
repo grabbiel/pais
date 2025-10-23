@@ -5,6 +5,7 @@
 #include "pixel/rhi/backends/metal/metal_internal.hpp"
 
 #include <string>
+#include <iostream>
 
 namespace pixel::rhi {
 
@@ -164,8 +165,18 @@ MTLStoreAction toMTLStoreAction(StoreOp op) {
 }
 
 void MetalCmdList::setDepthStencilState(const DepthStencilState &state) {
+  std::cerr << "MetalCmdList::setDepthStencilState()" << std::endl;
+  std::cerr << "  depthTestEnable=" << (state.depthTestEnable ? "true" : "false")
+            << " depthWriteEnable="
+            << (state.depthWriteEnable ? "true" : "false")
+            << " depthCompare=" << static_cast<int>(state.depthCompare)
+            << std::endl;
+  std::cerr << "  stencilEnable=" << (state.stencilEnable ? "true" : "false")
+            << " compare=" << static_cast<int>(state.stencilCompare)
+            << " ref=" << state.stencilReference << std::endl;
   if (impl_->depth_stencil_state_initialized_ &&
       state == impl_->current_depth_stencil_state_) {
+    std::cerr << "  Skipping depth stencil update (state unchanged)" << std::endl;
     return;
   }
 
@@ -181,6 +192,7 @@ void MetalCmdList::setDepthStencilState(const DepthStencilState &state) {
 
   if (!state.depthTestEnable && !state.stencilEnable) {
     [impl_->render_encoder_ setDepthStencilState:nil];
+    std::cerr << "  Disabled depth/stencil state" << std::endl;
     return;
   }
 
@@ -188,6 +200,7 @@ void MetalCmdList::setDepthStencilState(const DepthStencilState &state) {
   id<MTLDepthStencilState> depth_state = nil;
   if (it != impl_->depth_stencil_cache_.end()) {
     depth_state = it->second;
+    std::cerr << "  Reusing cached depth stencil state" << std::endl;
   } else {
     MTLDepthStencilDescriptor *descriptor =
         [[MTLDepthStencilDescriptor alloc] init];
@@ -220,19 +233,27 @@ void MetalCmdList::setDepthStencilState(const DepthStencilState &state) {
     }
 
     impl_->depth_stencil_cache_[state] = depth_state;
+    std::cerr << "  Created new depth stencil state" << std::endl;
   }
 
   [impl_->render_encoder_ setDepthStencilState:depth_state];
   if (state.stencilEnable) {
     [impl_->render_encoder_ setStencilReferenceValue:state.stencilReference];
+    std::cerr << "  Stencil reference set to " << state.stencilReference
+              << std::endl;
   }
 }
 
 void MetalCmdList::setDepthBias(const DepthBiasState &state) {
+  std::cerr << "MetalCmdList::setDepthBias()" << std::endl;
+  std::cerr << "  enable=" << (state.enable ? "true" : "false")
+            << " constant=" << state.constantFactor
+            << " slope=" << state.slopeFactor << std::endl;
   if (impl_->depth_bias_initialized_ &&
       state.enable == impl_->current_depth_bias_state_.enable &&
       state.constantFactor == impl_->current_depth_bias_state_.constantFactor &&
       state.slopeFactor == impl_->current_depth_bias_state_.slopeFactor) {
+    std::cerr << "  Skipping depth bias update (state unchanged)" << std::endl;
     return;
   }
 
@@ -249,14 +270,18 @@ void MetalCmdList::setDepthBias(const DepthBiasState &state) {
     [impl_->render_encoder_ setDepthBias:state.constantFactor
                               slopeScale:state.slopeFactor
                                    clamp:0.0f];
+    std::cerr << "  Depth bias applied" << std::endl;
   } else {
     [impl_->render_encoder_ setDepthBias:0.0f slopeScale:0.0f clamp:0.0f];
+    std::cerr << "  Depth bias disabled" << std::endl;
   }
 }
 
 void MetalCmdList::setUniformMat4(const char *name, const float *mat4x4) {
+  std::cerr << "MetalCmdList::setUniformMat4(" << name << ")" << std::endl;
   Uniforms *uniforms = impl_->getCurrentUniformSlot();
   if (!uniforms) {
+    std::cerr << "  ERROR: No uniform slot available" << std::endl;
     return;
   }
   std::string name_str(name);
@@ -275,8 +300,11 @@ void MetalCmdList::setUniformMat4(const char *name, const float *mat4x4) {
 }
 
 void MetalCmdList::setUniformVec3(const char *name, const float *vec3) {
+  std::cerr << "MetalCmdList::setUniformVec3(" << name << ") value=" << vec3[0]
+            << "," << vec3[1] << "," << vec3[2] << std::endl;
   Uniforms *uniforms = impl_->getCurrentUniformSlot();
   if (!uniforms) {
+    std::cerr << "  ERROR: No uniform slot available" << std::endl;
     return;
   }
   std::string name_str(name);
@@ -291,17 +319,24 @@ void MetalCmdList::setUniformVec3(const char *name, const float *vec3) {
 }
 
 void MetalCmdList::setUniformVec4(const char *name, const float *vec4) {
+  std::cerr << "MetalCmdList::setUniformVec4(" << name << ") value=" << vec4[0]
+            << "," << vec4[1] << "," << vec4[2] << "," << vec4[3]
+            << std::endl;
   (void)name;
   (void)vec4;
   if (!impl_->getCurrentUniformSlot()) {
+    std::cerr << "  ERROR: No uniform slot available" << std::endl;
     return;
   }
   impl_->bindCurrentUniformBlock(impl_->render_encoder_);
 }
 
 void MetalCmdList::setUniformInt(const char *name, int value) {
+  std::cerr << "MetalCmdList::setUniformInt(" << name << ") value=" << value
+            << std::endl;
   Uniforms *uniforms = impl_->getCurrentUniformSlot();
   if (!uniforms) {
+    std::cerr << "  ERROR: No uniform slot available" << std::endl;
     return;
   }
   std::string name_str(name);
@@ -318,8 +353,11 @@ void MetalCmdList::setUniformInt(const char *name, int value) {
 }
 
 void MetalCmdList::setUniformFloat(const char *name, float value) {
+  std::cerr << "MetalCmdList::setUniformFloat(" << name << ") value=" << value
+            << std::endl;
   Uniforms *uniforms = impl_->getCurrentUniformSlot();
   if (!uniforms) {
+    std::cerr << "  ERROR: No uniform slot available" << std::endl;
     return;
   }
   std::string name_str(name);

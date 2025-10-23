@@ -3,10 +3,14 @@
 #ifdef __APPLE__
 
 #include "pixel/rhi/backends/metal/metal_internal.hpp"
+#include <iostream>
 
 namespace pixel::rhi {
 
 BufferHandle MetalDevice::createBuffer(const BufferDesc &desc) {
+  std::cerr << "MetalDevice::createBuffer() size=" << desc.size
+            << " hostVisible=" << (desc.hostVisible ? "true" : "false")
+            << " usage=" << static_cast<int>(desc.usage) << std::endl;
   MTLBufferResource buffer;
   buffer.size = desc.size;
   buffer.host_visible = desc.hostVisible;
@@ -26,10 +30,15 @@ BufferHandle MetalDevice::createBuffer(const BufferDesc &desc) {
 
   uint32_t handle_id = impl_->next_buffer_id_++;
   impl_->buffers_[handle_id] = buffer;
+  std::cerr << "  Buffer handle allocated: " << handle_id << std::endl;
   return BufferHandle{handle_id};
 }
 
 TextureHandle MetalDevice::createTexture(const TextureDesc &desc) {
+  std::cerr << "MetalDevice::createTexture() size=" << desc.size.w << "x"
+            << desc.size.h << " layers=" << desc.layers
+            << " format=" << static_cast<int>(desc.format)
+            << " mipLevels=" << desc.mipLevels << std::endl;
   MTLTextureResource tex;
   tex.width = desc.size.w;
   tex.height = desc.size.h;
@@ -74,10 +83,17 @@ TextureHandle MetalDevice::createTexture(const TextureDesc &desc) {
 
   uint32_t handle_id = impl_->next_texture_id_++;
   impl_->textures_[handle_id] = tex;
+  std::cerr << "  Texture handle allocated: " << handle_id << std::endl;
   return TextureHandle{handle_id};
 }
 
 SamplerHandle MetalDevice::createSampler(const SamplerDesc &desc) {
+  std::cerr << "MetalDevice::createSampler()" << std::endl;
+  std::cerr << "  linear=" << (desc.linear ? "true" : "false")
+            << " repeat=" << (desc.repeat ? "true" : "false")
+            << " maxAniso=" << desc.maxAnisotropy
+            << " compareEnable=" << (desc.compareEnable ? "true" : "false")
+            << std::endl;
   MTLSamplerResource sampler;
 
   MTLSamplerDescriptor *samplerDesc = [[MTLSamplerDescriptor alloc] init];
@@ -113,11 +129,14 @@ SamplerHandle MetalDevice::createSampler(const SamplerDesc &desc) {
 
   uint32_t handle_id = impl_->next_sampler_id_++;
   impl_->samplers_[handle_id] = sampler;
+  std::cerr << "  Sampler handle allocated: " << handle_id << std::endl;
   return SamplerHandle{handle_id};
 }
 
 ShaderHandle MetalDevice::createShader(std::string_view stage,
                                        std::span<const uint8_t> bytes) {
+  std::cerr << "MetalDevice::createShader() stage=" << stage
+            << " byteCount=" << bytes.size() << std::endl;
   (void)bytes;
   MTLShaderResource shader;
 
@@ -160,6 +179,7 @@ ShaderHandle MetalDevice::createShader(std::string_view stage,
 
   uint32_t handle_id = impl_->next_shader_id_++;
   impl_->shaders_[handle_id] = shader;
+  std::cerr << "  Shader handle allocated: " << handle_id << std::endl;
   return ShaderHandle{handle_id};
 }
 
