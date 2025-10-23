@@ -1,6 +1,7 @@
 #pragma once
 #include "pixel/platform/platform.hpp"
 #include "pixel/rhi/rhi.hpp"
+#include "pixel/renderer3d/shader_reflection.hpp"
 #include <glm/glm.hpp>
 #include <array>
 #include <cstdint>
@@ -259,6 +260,7 @@ private:
     std::array<rhi::PipelineHandle, Material::kBlendModeCount> pipelines{};
     rhi::ShaderHandle vs{0};
     rhi::ShaderHandle fs{0};
+    ShaderReflection reflection{};
   };
 
   VariantData &get_or_create_variant(const ShaderVariantKey &variant) const;
@@ -270,6 +272,10 @@ private:
   std::string vs_stage_;
   std::string fs_stage_;
   mutable std::unordered_map<std::string, VariantData> variant_cache_;
+
+public:
+  const ShaderReflection &reflection() const;
+  const ShaderReflection &reflection(const ShaderVariantKey &variant) const;
 };
 
 // ============================================================================

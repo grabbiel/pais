@@ -184,6 +184,9 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
   cmd->setVertexBuffer(mesh.vertex_buffer());
   cmd->setIndexBuffer(mesh.index_buffer());
 
+  const ShaderReflection &reflection =
+      shader->reflection(material.shader_variant);
+
   // Build model matrix
   glm::mat4 model = glm::mat4(1.0f);
   model = glm::translate(model, glm::vec3(position.x, position.y, position.z));
@@ -198,33 +201,49 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
   camera_.get_projection_matrix(projection, window_width(), window_height());
 
   // Set transformation uniforms
-  cmd->setUniformMat4("model", glm::value_ptr(model));
+  if (reflection.has_uniform("model")) {
+    cmd->setUniformMat4("model", glm::value_ptr(model));
+  }
   // Calculate and set normal matrix
   glm::mat3 normalMatrix3x3 = glm::transpose(glm::inverse(glm::mat3(model)));
   glm::mat4 normalMatrix4x4 = glm::mat4(normalMatrix3x3);
-  cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
-  cmd->setUniformMat4("view", view);
-  cmd->setUniformMat4("projection", projection);
+  if (reflection.has_uniform("normalMatrix")) {
+    cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
+  }
+  if (reflection.has_uniform("view")) {
+    cmd->setUniformMat4("view", view);
+  }
+  if (reflection.has_uniform("projection")) {
+    cmd->setUniformMat4("projection", projection);
+  }
 
   // Set lighting uniforms
   float light_pos[3] = {10.0f, 10.0f, 10.0f};
   float view_pos[3] = {camera_.position.x, camera_.position.y,
                        camera_.position.z};
-  cmd->setUniformVec3("lightPos", light_pos);
-  cmd->setUniformVec3("viewPos", view_pos);
+  if (reflection.has_uniform("lightPos")) {
+    cmd->setUniformVec3("lightPos", light_pos);
+  }
+  if (reflection.has_uniform("viewPos")) {
+    cmd->setUniformVec3("viewPos", view_pos);
+  }
 
   // Set material uniforms
-  cmd->setUniformInt("useTexture", (material.texture.id != 0) ? 1 : 0);
+  if (reflection.has_uniform("useTexture")) {
+    cmd->setUniformInt("useTexture", (material.texture.id != 0) ? 1 : 0);
+  }
 
   // Bind texture if available
-  if (material.texture.id != 0) {
+  if (material.texture.id != 0 && reflection.has_sampler("uTexture")) {
     cmd->setTexture("uTexture", material.texture, 0);
   }
 
   // Set material color
   float mat_color[4] = {material.color.r, material.color.g, material.color.b,
                         material.color.a};
-  cmd->setUniformVec4("materialColor", mat_color);
+  if (reflection.has_uniform("materialColor")) {
+    cmd->setUniformVec4("materialColor", mat_color);
+  }
 
   // Draw
   cmd->drawIndexed(mesh.index_count(), 0, 1);

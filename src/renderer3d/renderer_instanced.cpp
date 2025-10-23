@@ -158,41 +158,62 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
   glm::mat4 model = glm::mat4(1.0f);
 
   // Set model matrix
-  cmd->setUniformMat4("model", glm::value_ptr(model));
+  const ShaderReflection &reflection =
+      shader->reflection(base_material.shader_variant);
+  if (reflection.has_uniform("model")) {
+    cmd->setUniformMat4("model", glm::value_ptr(model));
+  }
 
   // Calculate and set normal matrix (identity in this case, but required by
   // shader) For identity matrix, normal matrix is also identity
   glm::mat3 normalMatrix3x3 = glm::mat3(1.0f);
   glm::mat4 normalMatrix4x4 = glm::mat4(normalMatrix3x3);
-  cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
+  if (reflection.has_uniform("normalMatrix")) {
+    cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
+  }
 
   // Set view and projection matrices
   float view[16], projection[16];
   renderer.camera().get_view_matrix(view);
   renderer.camera().get_projection_matrix(projection, renderer.window_width(),
                                           renderer.window_height());
-  cmd->setUniformMat4("view", view);
-  cmd->setUniformMat4("projection", projection);
+  if (reflection.has_uniform("view")) {
+    cmd->setUniformMat4("view", view);
+  }
+  if (reflection.has_uniform("projection")) {
+    cmd->setUniformMat4("projection", projection);
+  }
 
   // Set lighting uniforms
   float light_pos[3] = {10.0f, 10.0f, 10.0f};
   float view_pos[3] = {renderer.camera().position.x,
                        renderer.camera().position.y,
                        renderer.camera().position.z};
-  cmd->setUniformVec3("lightPos", light_pos);
-  cmd->setUniformVec3("viewPos", view_pos);
+  if (reflection.has_uniform("lightPos")) {
+    cmd->setUniformVec3("lightPos", light_pos);
+  }
+  if (reflection.has_uniform("viewPos")) {
+    cmd->setUniformVec3("viewPos", view_pos);
+  }
 
   // Set time uniform for animated dither (if shader supports it)
-  cmd->setUniformFloat("uTime", static_cast<float>(renderer.time()));
+  if (reflection.has_uniform("uTime")) {
+    cmd->setUniformFloat("uTime", static_cast<float>(renderer.time()));
+  }
 
   // Set dither mode (0 = off, 1 = static, 2 = animated)
-  cmd->setUniformInt("uDitherEnabled", 1);
+  if (reflection.has_uniform("uDitherEnabled")) {
+    cmd->setUniformInt("uDitherEnabled", 1);
+  }
 
   // Set texture array if available
-  if (base_material.texture_array.id != 0) {
+  if (base_material.texture_array.id != 0 &&
+      reflection.has_sampler("uTextureArray")) {
     cmd->setTexture("uTextureArray", base_material.texture_array, 1);
-    cmd->setUniformInt("useTextureArray", 1);
-  } else {
+    if (reflection.has_uniform("useTextureArray")) {
+      cmd->setUniformInt("useTextureArray", 1);
+    }
+  } else if (reflection.has_uniform("useTextureArray")) {
     cmd->setUniformInt("useTextureArray", 0);
   }
 

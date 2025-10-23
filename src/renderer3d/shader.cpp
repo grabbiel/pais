@@ -1,5 +1,6 @@
 #include "pixel/renderer3d/renderer.hpp"
 #include "pixel/platform/shader_loader.hpp"
+#include "pixel/renderer3d/shader_reflection.hpp"
 #include <cctype>
 #include <optional>
 #include <span>
@@ -588,6 +589,13 @@ Shader::build_variant(const ShaderVariantKey &variant) const {
   data.pipelines[static_cast<size_t>(Material::BlendMode::Opaque)] =
       device_->createPipeline(build_desc(rhi::make_disabled_blend_state()));
 
+  ShaderReflection vert_reflection =
+      reflect_glsl(processed_vert, ShaderStage::Vertex);
+  ShaderReflection frag_reflection =
+      reflect_glsl(processed_frag, ShaderStage::Fragment);
+  data.reflection = std::move(vert_reflection);
+  data.reflection.merge(frag_reflection);
+
   return data;
 }
 
@@ -610,6 +618,17 @@ rhi::PipelineHandle Shader::pipeline(const ShaderVariantKey &variant,
   }
 
   return data.pipelines[static_cast<size_t>(Material::BlendMode::Alpha)];
+}
+
+const ShaderReflection &Shader::reflection() const {
+  static const ShaderVariantKey kDefaultVariant{};
+  return reflection(kDefaultVariant);
+}
+
+const ShaderReflection &
+Shader::reflection(const ShaderVariantKey &variant) const {
+  VariantData &data = get_or_create_variant(variant);
+  return data.reflection;
 }
 
 } // namespace pixel::renderer3d
