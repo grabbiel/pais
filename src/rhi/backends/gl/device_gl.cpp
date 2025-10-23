@@ -91,6 +91,29 @@ GLenum to_gl_compare(CompareOp op) {
   }
 }
 
+GLenum to_gl_stencil_op(StencilOp op) {
+  switch (op) {
+  case StencilOp::Keep:
+    return GL_KEEP;
+  case StencilOp::Zero:
+    return GL_ZERO;
+  case StencilOp::Replace:
+    return GL_REPLACE;
+  case StencilOp::IncrementClamp:
+    return GL_INCR;
+  case StencilOp::DecrementClamp:
+    return GL_DECR;
+  case StencilOp::Invert:
+    return GL_INVERT;
+  case StencilOp::IncrementWrap:
+    return GL_INCR_WRAP;
+  case StencilOp::DecrementWrap:
+    return GL_DECR_WRAP;
+  default:
+    return GL_KEEP;
+  }
+}
+
 bool has_extension(const char *extension) {
   int major = 0;
   if (const char *version =
@@ -193,7 +216,11 @@ public:
         framebuffers_(framebuffers), queries_(queries), fences_(fences),
         window_(window) {}
 
-  void begin() override { recording_ = true; }
+  void begin() override {
+    recording_ = true;
+    depth_stencil_state_initialized_ = false;
+    depth_bias_initialized_ = false;
+  }
 
   void beginRender(const RenderPassDesc &desc) override {
     using_offscreen_fbo_ = false;
@@ -576,6 +603,57 @@ public:
     glVertexAttribDivisor(9, 1);
   }
 
+  void setDepthStencilState(const DepthStencilState &state) override {
+    if (depth_stencil_state_initialized_ &&
+        state == current_depth_stencil_state_)
+      return;
+
+    depth_stencil_state_initialized_ = true;
+    current_depth_stencil_state_ = state;
+
+    if (state.depthTestEnable) {
+      glEnable(GL_DEPTH_TEST);
+    } else {
+      glDisable(GL_DEPTH_TEST);
+    }
+
+    glDepthMask(state.depthWriteEnable ? GL_TRUE : GL_FALSE);
+    glDepthFunc(to_gl_compare(state.depthCompare));
+
+    if (state.stencilEnable) {
+      glEnable(GL_STENCIL_TEST);
+      glStencilMask(state.stencilWriteMask);
+      glStencilFuncSeparate(GL_FRONT_AND_BACK, to_gl_compare(state.stencilCompare),
+                            static_cast<GLint>(state.stencilReference),
+                            state.stencilReadMask);
+      const GLenum fail = to_gl_stencil_op(state.stencilFailOp);
+      const GLenum depth_fail = to_gl_stencil_op(state.stencilDepthFailOp);
+      const GLenum pass = to_gl_stencil_op(state.stencilPassOp);
+      glStencilOpSeparate(GL_FRONT_AND_BACK, fail, depth_fail, pass);
+    } else {
+      glDisable(GL_STENCIL_TEST);
+      glStencilMask(0xFF);
+    }
+  }
+
+  void setDepthBias(const DepthBiasState &state) override {
+    if (depth_bias_initialized_ && state.enable == current_depth_bias_state_.enable &&
+        state.constantFactor == current_depth_bias_state_.constantFactor &&
+        state.slopeFactor == current_depth_bias_state_.slopeFactor) {
+      return;
+    }
+
+    depth_bias_initialized_ = true;
+    current_depth_bias_state_ = state;
+
+    if (state.enable) {
+      glEnable(GL_POLYGON_OFFSET_FILL);
+      glPolygonOffset(state.slopeFactor, state.constantFactor);
+    } else {
+      glDisable(GL_POLYGON_OFFSET_FILL);
+    }
+  }
+
   void setUniformMat4(const char *name, const float *mat4x4) override {
     GLint loc = getUniformLocation(name);
     if (loc >= 0) {
@@ -909,6 +987,10 @@ private:
   GLuint current_fbo_ = 0;
   bool using_offscreen_fbo_ = false;
   bool current_fbo_owned_ = false;
+  DepthStencilState current_depth_stencil_state_{};
+  DepthBiasState current_depth_bias_state_{};
+  bool depth_stencil_state_initialized_ = false;
+  bool depth_bias_initialized_ = false;
 };
 
 // ============================================================================

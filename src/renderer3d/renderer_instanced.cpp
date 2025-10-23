@@ -151,6 +151,7 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
 
   auto *cmd = renderer.device()->getImmediate();
   cmd->setPipeline(shader->pipeline(base_material.blend_mode));
+  renderer.apply_material_state(cmd, base_material);
 
   // Build identity model matrix (instances handle their own transforms)
   glm::mat4 model = glm::mat4(1.0f);

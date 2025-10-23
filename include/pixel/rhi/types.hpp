@@ -133,6 +133,29 @@ struct ColorAttachmentDesc {
   bool operator==(const ColorAttachmentDesc &) const = default;
 };
 
+struct DepthStencilState {
+  bool depthTestEnable{true};
+  bool depthWriteEnable{true};
+  CompareOp depthCompare{CompareOp::Less};
+
+  bool stencilEnable{false};
+  CompareOp stencilCompare{CompareOp::Always};
+  StencilOp stencilFailOp{StencilOp::Keep};
+  StencilOp stencilDepthFailOp{StencilOp::Keep};
+  StencilOp stencilPassOp{StencilOp::Keep};
+  uint32_t stencilReadMask{0xFF};
+  uint32_t stencilWriteMask{0xFF};
+  uint32_t stencilReference{0};
+
+  bool operator==(const DepthStencilState &) const = default;
+};
+
+struct DepthBiasState {
+  bool enable{false};
+  float constantFactor{0.0f};
+  float slopeFactor{0.0f};
+};
+
 constexpr size_t kMaxColorAttachments = 4;
 
 inline BlendState make_disabled_blend_state() {
