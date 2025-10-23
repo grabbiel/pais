@@ -25,6 +25,9 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
   auto renderer = std::unique_ptr<Renderer>(new Renderer());
 
   try {
+    std::cout << "Initializing renderer with window spec: "
+              << spec.w << "x" << spec.h << " title='" << spec.title << "'"
+              << std::endl;
     // Step 1: Create the Window with appropriate Graphics API
 #ifdef PIXEL_USE_METAL
     auto window = platform::Window::create(spec, platform::GraphicsAPI::Metal);
@@ -39,14 +42,24 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
     }
 
     // Step 2: Create the Device from the Window
+    std::cout << "Creating RHI device from window..." << std::endl;
     auto device = rhi::create_device(window.get());
+    if (!device) {
+      std::cerr << "Failed to create RHI device" << std::endl;
+      throw std::runtime_error("RHI device creation failed");
+    }
+    std::cout << "RHI device created successfully" << std::endl;
 
     // Transfer ownership to renderer
     renderer->window_ = window.release();
     renderer->device_ = device.release();
 
+    std::cout << "Renderer backend name: " << renderer->backend_name()
+              << std::endl;
+
     // Initialize texture loader
     renderer->texture_loader_ = std::make_unique<resources::TextureLoader>(renderer->device_);
+    std::cout << "Texture loader initialized" << std::endl;
 
   } catch (const std::exception &e) {
     throw std::runtime_error(std::string("Failed to initialize renderer: ") +
@@ -72,14 +85,33 @@ Renderer::~Renderer() {
 }
 
 void Renderer::setup_default_shaders() {
+  std::cout << "Loading default shader pair: assets/shaders/default.vert &"
+            << " assets/shaders/default.frag" << std::endl;
   default_shader_ =
       load_shader("assets/shaders/default.vert", "assets/shaders/default.frag");
+  if (!default_shader_) {
+    std::cerr << "Failed to load default shader" << std::endl;
+  }
+  std::cout << "Loading instanced shader pair: assets/shaders/instanced.vert &"
+            << " assets/shaders/instanced.frag" << std::endl;
   instanced_shader_ = load_shader("assets/shaders/instanced.vert",
                                   "assets/shaders/instanced.frag");
+  if (!instanced_shader_) {
+    std::cerr << "Failed to load instanced shader" << std::endl;
+  }
   sprite_shader_ = default_shader_; // Use same for sprites
 }
 
 void Renderer::begin_frame(const Color &clear_color) {
+  std::cout << "\n============================================================" << std::endl;
+  std::cout << "Renderer::begin_frame()" << std::endl;
+  std::cout << "  Clear color: (" << clear_color.r << ", " << clear_color.g
+            << ", " << clear_color.b << ", " << clear_color.a << ")"
+            << std::endl;
+  if (render_pass_active_) {
+    std::cerr << "  WARNING: begin_frame called while render pass active"
+              << std::endl;
+  }
   auto *cmd = device_->getImmediate();
   cmd->begin();
 
@@ -106,17 +138,25 @@ void Renderer::begin_frame(const Color &clear_color) {
   current_pass_desc_ = pass;
   cmd->beginRender(current_pass_desc_);
   render_pass_active_ = true;
+  std::cout << "  Render pass begun successfully" << std::endl;
+  std::cout << "============================================================\n" << std::endl;
 }
 
 void Renderer::end_frame() {
+  std::cout << "Renderer::end_frame()" << std::endl;
   auto *cmd = device_->getImmediate();
   if (render_pass_active_) {
     cmd->endRender();
     render_pass_active_ = false;
+    std::cout << "  Render pass ended" << std::endl;
+  } else {
+    std::cerr << "  WARNING: end_frame called without active render pass"
+              << std::endl;
   }
   cmd->end();
 
   device_->present();
+  std::cout << "  Presented frame to swapchain" << std::endl;
 }
 
 void Renderer::pause_render_pass() {
@@ -141,8 +181,13 @@ bool Renderer::process_events() {
   if (!window_) {
     return false;
   }
+  bool was_should_close = window_->should_close();
   window_->poll_events();
-  return !window_->should_close();
+  bool should_close = window_->should_close();
+  if (!was_should_close && should_close) {
+    std::cout << "Window requested close" << std::endl;
+  }
+  return !should_close;
 }
 
 ShaderID Renderer::load_shader(const std::string &vert_path,
@@ -161,6 +206,18 @@ void Renderer::apply_material_state(rhi::CmdList *cmd,
                                     const Material &material) const {
   if (!cmd)
     return;
+
+  std::cout << "Applying material state:" << std::endl;
+  std::cout << "  Blend mode: "
+            << static_cast<int>(material.blend_mode) << std::endl;
+  std::cout << "  Depth test: " << (material.depth_test ? "ON" : "OFF")
+            << std::endl;
+  std::cout << "  Depth write: " << (material.depth_write ? "ON" : "OFF")
+            << std::endl;
+  std::cout << "  Depth compare: "
+            << static_cast<int>(material.depth_compare) << std::endl;
+  std::cout << "  Stencil enabled: "
+            << (material.stencil_enable ? "YES" : "NO") << std::endl;
 
   rhi::DepthStencilState depth_state{};
   depth_state.depthTestEnable = material.depth_test;
@@ -186,6 +243,8 @@ void Renderer::apply_material_state(rhi::CmdList *cmd,
 std::unique_ptr<Mesh> Renderer::create_quad(float size) {
   std::vector<Vertex> verts = primitives::create_quad_vertices(size);
   std::vector<uint32_t> indices = {0, 1, 2, 2, 3, 0};
+  std::cout << "Creating quad mesh: vertex_count=" << verts.size()
+            << " index_count=" << indices.size() << std::endl;
   return Mesh::create(device_, verts, indices);
 }
 
@@ -196,6 +255,9 @@ std::unique_ptr<Mesh> Renderer::create_cube(float size) {
   std::vector<uint32_t> indices;
   for (uint32_t i = 0; i < verts.size(); ++i)
     indices.push_back(i);
+  std::cout << "Creating cube mesh: vertex_count=" << verts.size()
+            << " index_count=" << indices.size()
+            << " size=" << size << std::endl;
   return Mesh::create(device_, verts, indices);
 }
 

@@ -2,6 +2,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <cstring>
+#include <iostream>
 // ============================================================================
 // Camera Implementation
 // ============================================================================
@@ -12,6 +13,14 @@ void Camera::get_view_matrix(float *out_mat4) const {
   glm::vec3 tgt(target.x, target.y, target.z);
   glm::vec3 u(up.x, up.y, up.z);
 
+  std::cout << "Camera::get_view_matrix()" << std::endl;
+  std::cout << "  position: (" << position.x << ", " << position.y << ", "
+            << position.z << ")" << std::endl;
+  std::cout << "  target:   (" << target.x << ", " << target.y << ", "
+            << target.z << ")" << std::endl;
+  std::cout << "  up:       (" << up.x << ", " << up.y << ", " << up.z
+            << ")" << std::endl;
+
   glm::mat4 view = glm::lookAt(pos, tgt, u);
   memcpy(out_mat4, glm::value_ptr(view), 16 * sizeof(float));
 }
@@ -19,6 +28,17 @@ void Camera::get_view_matrix(float *out_mat4) const {
 void Camera::get_projection_matrix(float *out_mat4, int w, int h) const {
   float aspect = static_cast<float>(w) / static_cast<float>(h);
   glm::mat4 proj;
+
+  std::cout << "Camera::get_projection_matrix()" << std::endl;
+  std::cout << "  viewport: " << w << "x" << h << " aspect=" << aspect
+            << std::endl;
+  std::cout << "  near/far: " << near_clip << " / " << far_clip << std::endl;
+
+  if (mode == ProjectionMode::Perspective) {
+    std::cout << "  mode: Perspective fov=" << fov << std::endl;
+  } else {
+    std::cout << "  mode: Orthographic size=" << ortho_size << std::endl;
+  }
 
   if (mode == ProjectionMode::Perspective) {
     proj = glm::perspective(glm::radians(fov), aspect, near_clip, far_clip);
