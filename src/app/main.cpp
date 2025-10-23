@@ -1,329 +1,265 @@
 #include "pixel/platform/platform.hpp"
-#include "pixel/input/input_manager.hpp"
-#include "pixel/renderer3d/mesh.hpp"
 #include "pixel/renderer3d/renderer.hpp"
-#include "pixel/renderer3d/types.hpp"
-
+#include "pixel/renderer3d/renderer_instanced.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdlib>
 #include <iomanip>
 #include <iostream>
-#include <random>
+#include <memory>
 #include <string>
 #include <vector>
 
-using namespace pixel::renderer3d;
+using pixel::renderer3d::Color;
+using pixel::renderer3d::InstanceData;
+using pixel::renderer3d::Material;
+using pixel::renderer3d::Renderer;
+using pixel::renderer3d::RendererInstanced;
+using pixel::renderer3d::Vec3;
 
 namespace {
+struct DemoDiagnostics {
+  bool renderer_initialized = false;
+  bool instanced_shader_loaded = false;
+  bool instanced_mesh_created = false;
+  std::string backend_name;
 
-constexpr float kPi = 3.14159265359f;
-constexpr float kTwoPi = 6.28318530718f;
+  size_t instance_count = 0;
+  size_t frames_rendered = 0;
+  size_t instance_updates = 0;
 
-struct SphereAnimation {
-  float base_height = 0.0f;
-  float amplitude = 0.0f;
-  float speed = 1.0f;
-  float phase = 0.0f;
-  float rotation_speed = 0.0f;
+  double last_log_time = 0.0;
+  bool reported_instance_mismatch = false;
+
+  std::vector<std::string> failures;
+
+  void log_success(const std::string &message) const {
+    std::cout << "[ok] " << message << std::endl;
+  }
+
+  void log_failure(const std::string &message) {
+    std::cerr << "[failure] " << message << std::endl;
+    failures.push_back(message);
+  }
+
+  void log_status(double time_seconds) {
+    last_log_time = time_seconds;
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "[status] t=" << time_seconds << "s"
+              << " | frames=" << frames_rendered
+              << " | instance_updates=" << instance_updates
+              << " | active_instances=" << instance_count << std::endl;
+
+    if (!failures.empty()) {
+      std::cout << "         Issues detected: " << failures.size() << std::endl;
+      for (const auto &failure : failures) {
+        std::cout << "           - " << failure << std::endl;
+      }
+    }
+  }
+
+  void log_final() const {
+    std::cout << "\n========================================" << std::endl;
+    std::cout << "Demo completed on backend: "
+              << (backend_name.empty() ? "unknown" : backend_name) << std::endl;
+    std::cout << "Total frames rendered: " << frames_rendered << std::endl;
+    std::cout << "Instance buffer updates: " << instance_updates << std::endl;
+    std::cout << "Tracked instance count: " << instance_count << std::endl;
+    if (failures.empty()) {
+      std::cout << "No failures detected." << std::endl;
+    } else {
+      std::cout << "Failures detected (" << failures.size()
+                << "):" << std::endl;
+      for (const auto &failure : failures) {
+        std::cout << "  - " << failure << std::endl;
+      }
+    }
+    std::cout << "========================================\n" << std::endl;
+  }
 };
 
-struct AnimatedSphere {
-  Vec3 position{0.0f, 0.0f, 0.0f};
-  Vec3 rotation{0.0f, 0.0f, 0.0f};
-  Vec3 scale{1.0f, 1.0f, 1.0f};
-  Color color = Color::White();
-  SphereAnimation animation{};
-};
-
-std::unique_ptr<Mesh> create_uv_sphere(Renderer &renderer, float radius,
-                                       int longitude_segments,
-                                       int latitude_segments) {
-  longitude_segments = std::max(3, longitude_segments);
-  latitude_segments = std::max(2, latitude_segments);
-
-  std::vector<Vertex> vertices;
-  std::vector<uint32_t> indices;
-
-  vertices.reserve(
-      static_cast<size_t>((latitude_segments + 1) * (longitude_segments + 1)));
-
-  for (int lat = 0; lat <= latitude_segments; ++lat) {
-    float v = static_cast<float>(lat) / static_cast<float>(latitude_segments);
-    float phi = v * kPi;
-    float sin_phi = std::sin(phi);
-    float cos_phi = std::cos(phi);
-
-    for (int lon = 0; lon <= longitude_segments; ++lon) {
-      float u =
-          static_cast<float>(lon) / static_cast<float>(longitude_segments);
-      float theta = u * kTwoPi;
-      float sin_theta = std::sin(theta);
-      float cos_theta = std::cos(theta);
-
-      Vec3 normal{cos_theta * sin_phi, cos_phi, sin_theta * sin_phi};
-      Vec3 position = normal * radius;
-      Vec2 texcoord{u, 1.0f - v};
-
-      vertices.push_back(Vertex{position, normal, texcoord, Color::White()});
-    }
-  }
-
-  indices.reserve(
-      static_cast<size_t>(latitude_segments * longitude_segments * 6));
-  for (int lat = 0; lat < latitude_segments; ++lat) {
-    for (int lon = 0; lon < longitude_segments; ++lon) {
-      uint32_t current =
-          static_cast<uint32_t>(lat * (longitude_segments + 1) + lon);
-      uint32_t next = current + static_cast<uint32_t>(longitude_segments + 1);
-
-      indices.push_back(current);
-      indices.push_back(next);
-      indices.push_back(current + 1);
-
-      indices.push_back(current + 1);
-      indices.push_back(next);
-      indices.push_back(next + 1);
-    }
-  }
-
-  return Mesh::create(renderer.device(), vertices, indices);
+Color palette_from_index(size_t index) {
+  const Color base_colors[] = {
+      {0.75f, 0.85f, 1.0f, 1.0f},  {0.85f, 0.75f, 1.0f, 1.0f},
+      {0.75f, 1.0f, 0.85f, 1.0f},  {1.0f, 0.85f, 0.75f, 1.0f},
+      {0.95f, 0.95f, 0.75f, 1.0f}, {0.85f, 0.95f, 1.0f, 1.0f}};
+  return base_colors[index % std::size(base_colors)];
 }
 
-void handle_camera_input(Renderer &renderer,
-                         const pixel::input::InputState &input,
-                         float delta_time) {
-  Camera &camera = renderer.camera();
-  const Vec3 cam_pos = camera.position;
-  const Vec3 cam_target = camera.target;
+std::vector<InstanceData> create_instance_cloud(size_t grid, size_t layers,
+                                                float spacing) {
+  std::vector<InstanceData> instances;
+  instances.reserve(grid * grid * layers);
 
-  auto squared = [](float value) { return value * value; };
-  float distance = std::sqrt(squared(cam_pos.x - cam_target.x) +
-                             squared(cam_pos.y - cam_target.y) +
-                             squared(cam_pos.z - cam_target.z));
-  distance = std::max(distance, 1.0f);
+  float half = static_cast<float>(grid - 1) * spacing * 0.5f;
 
-  if (input.mouse_buttons[0]) {
-    float dx = static_cast<float>(input.mouse_delta_x) * 1.15f;
-    float dy = static_cast<float>(input.mouse_delta_y) * 1.15f;
-    camera.orbit(dx, dy);
-  }
+  for (size_t layer = 0; layer < layers; ++layer) {
+    for (size_t x = 0; x < grid; ++x) {
+      for (size_t z = 0; z < grid; ++z) {
+        InstanceData data;
+        float world_x = static_cast<float>(x) * spacing - half;
+        float world_z = static_cast<float>(z) * spacing - half;
+        float world_y = static_cast<float>(layer) * spacing * 0.5f;
 
-  if (input.mouse_buttons[1]) {
-    float pan_speed = std::max(distance * 0.0025f, 0.0025f);
-    float dx = static_cast<float>(input.mouse_delta_x) * pan_speed;
-    float dy = static_cast<float>(input.mouse_delta_y) * pan_speed;
-    camera.pan(-dx, dy);
-  }
+        data.position = Vec3(world_x, world_y, world_z);
+        data.scale = Vec3(0.8f, 0.8f + 0.1f * static_cast<float>(layer), 0.8f);
+        data.rotation = Vec3(0.0f, 0.0f, 0.0f);
+        data.color = palette_from_index(layer + x + z);
+        data.culling_radius = spacing * 0.9f;
+        data.texture_index = 0.0f;
+        data.lod_transition_alpha = 1.0f;
 
-  if (input.scroll_delta != 0.0) {
-    float zoom_speed = std::max(distance * 0.08f, 0.4f);
-    camera.zoom(static_cast<float>(input.scroll_delta) * zoom_speed);
-  }
-
-  float dolly = 0.0f;
-  if (input.key_down('W'))
-    dolly -= 1.0f;
-  if (input.key_down('S'))
-    dolly += 1.0f;
-  if (dolly != 0.0f) {
-    camera.zoom(dolly * delta_time * distance);
-  }
-
-  float strafe = 0.0f;
-  if (input.key_down('D'))
-    strafe += 1.0f;
-  if (input.key_down('A'))
-    strafe -= 1.0f;
-  if (strafe != 0.0f) {
-    float strafe_speed = std::max(distance * 0.6f, 1.0f);
-    camera.pan(-strafe * strafe_speed * delta_time, 0.0f);
-  }
-
-  float vertical = 0.0f;
-  if (input.key_down('E'))
-    vertical += 1.0f;
-  if (input.key_down('Q'))
-    vertical -= 1.0f;
-  if (vertical != 0.0f) {
-    float vertical_speed = std::max(distance * 0.5f, 1.0f) * delta_time;
-    camera.position.y += vertical_speed * vertical;
-    camera.target.y += vertical_speed * vertical;
-  }
-}
-
-struct SphereField {
-  std::vector<AnimatedSphere> spheres;
-};
-
-SphereField create_sphere_field(int rows, int cols, float spacing,
-                                float base_height, float base_amplitude) {
-  SphereField field;
-  field.spheres.reserve(static_cast<size_t>(rows * cols));
-
-  std::mt19937 rng(1337);
-  std::uniform_real_distribution<float> scale_dist(0.65f, 1.35f);
-  std::uniform_real_distribution<float> speed_dist(0.6f, 1.6f);
-  std::uniform_real_distribution<float> phase_dist(0.0f, kTwoPi);
-  std::uniform_real_distribution<float> amplitude_dist(0.7f, 1.3f);
-  std::uniform_real_distribution<float> height_jitter(-0.4f, 0.4f);
-  std::uniform_real_distribution<float> rotation_dist(0.25f, 1.1f);
-
-  float start_x = -0.5f * static_cast<float>(cols - 1) * spacing;
-  float start_z = -0.5f * static_cast<float>(rows - 1) * spacing;
-
-  for (int row = 0; row < rows; ++row) {
-    float v = rows > 1 ? static_cast<float>(row) / static_cast<float>(rows - 1)
-                       : 0.0f;
-    for (int col = 0; col < cols; ++col) {
-      float u = cols > 1
-                    ? static_cast<float>(col) / static_cast<float>(cols - 1)
-                    : 0.0f;
-
-      float scale = scale_dist(rng);
-      SphereAnimation anim;
-      anim.speed = speed_dist(rng);
-      anim.phase = phase_dist(rng);
-      anim.amplitude = base_amplitude * amplitude_dist(rng);
-      anim.base_height = base_height + height_jitter(rng);
-      anim.rotation_speed = rotation_dist(rng);
-
-      AnimatedSphere sphere;
-      sphere.animation = anim;
-      sphere.scale = {scale, scale, scale};
-      sphere.position = {start_x + static_cast<float>(col) * spacing,
-                         anim.base_height +
-                             static_cast<float>(std::sin(anim.phase)) *
-                                 anim.amplitude,
-                         start_z + static_cast<float>(row) * spacing};
-      sphere.rotation = {
-          0.0f, static_cast<float>(std::fmod(anim.phase, kTwoPi)), 0.0f};
-      sphere.color = Color(std::clamp(0.65f + 0.35f * v, 0.0f, 1.0f),
-                           std::clamp(0.6f + 0.4f * (1.0f - v), 0.0f, 1.0f),
-                           std::clamp(0.7f + 0.3f * u, 0.0f, 1.0f), 1.0f);
-
-      field.spheres.push_back(sphere);
+        instances.push_back(data);
+      }
     }
   }
 
-  return field;
-}
-
-void update_sphere_field(SphereField &field, float elapsed_time,
-                         float delta_time) {
-  for (auto &sphere : field.spheres) {
-    const SphereAnimation &anim = sphere.animation;
-    float wave =
-        static_cast<float>(std::sin(elapsed_time * anim.speed + anim.phase));
-    sphere.position.y = anim.base_height + wave * anim.amplitude;
-
-    float yaw = sphere.rotation.y + delta_time * anim.rotation_speed;
-    if (yaw > kTwoPi) {
-      yaw = static_cast<float>(std::fmod(yaw, kTwoPi));
-    }
-    sphere.rotation.y = yaw;
-    sphere.rotation.x =
-        0.15f * static_cast<float>(
-                    std::cos((elapsed_time * anim.speed * 0.5f) + anim.phase));
-  }
+  return instances;
 }
 
 } // namespace
 
-int main(int, char **) {
-  pixel::platform::WindowSpec spec;
-  spec.w = 1600;
-  spec.h = 900;
-  spec.title = "Floating Sphere Field (non-instanced)";
+int main() {
+  DemoDiagnostics diagnostics;
 
-  auto renderer = Renderer::create(spec);
-  if (!renderer) {
-    std::cerr << "Failed to create renderer" << std::endl;
-    return 1;
-  }
+  try {
+    pixel::platform::WindowSpec spec;
+    spec.w = 1280;
+    spec.h = 720;
+    spec.title = "Pixel Life - Instanced Rendering Diagnostics";
 
-  pixel::input::InputManager input_manager(renderer->window());
-
-  auto sphere_texture = renderer->load_texture("assets/textures/brick.png");
-  if (sphere_texture.id == 0) {
-    std::cerr << "Failed to load sphere texture" << std::endl;
-    return 1;
-  }
-
-  auto sphere_mesh = create_uv_sphere(*renderer, 0.5f, 48, 24);
-  if (!sphere_mesh) {
-    std::cerr << "Failed to create sphere mesh" << std::endl;
-    return 1;
-  }
-
-  const int rows = 32;
-  const int cols = 32;
-  const float spacing = 2.25f;
-  const float base_height = 1.6f;
-  const float base_amplitude = 0.75f;
-
-  SphereField sphere_field =
-      create_sphere_field(rows, cols, spacing, base_height, base_amplitude);
-
-  Material base_material{};
-  base_material.blend_mode = Material::BlendMode::Opaque;
-  base_material.color = Color(1.0f, 1.0f, 1.0f, 1.0f);
-  base_material.texture = sphere_texture;
-  base_material.depth_test = true;
-  base_material.depth_write = true;
-
-  renderer->camera().mode = Camera::ProjectionMode::Perspective;
-  renderer->camera().position = {0.0f, 28.0f, 68.0f};
-  renderer->camera().target = {0.0f, 8.0f, 0.0f};
-  renderer->camera().fov = 50.0f;
-  renderer->camera().far_clip = 400.0f;
-
-  std::cout << "Floating sphere field demo (non-instanced)\n";
-  std::cout << "Controls: Left mouse drag = orbit, Right mouse drag = pan, "
-               "Scroll = zoom, WASD = move, Q/E = vertical, ESC = quit\n";
-  std::cout << "Spheres: " << sphere_field.spheres.size() << "\n";
-
-  double last_frame_time = renderer->time();
-  double stats_time = last_frame_time;
-  size_t frames_since_stats = 0;
-
-  while (renderer->process_events()) {
-    input_manager.update();
-    const auto &input = input_manager.state();
-    if (input.keys[256]) {
-      break; // ESC
+    auto renderer = Renderer::create(spec);
+    if (!renderer) {
+      diagnostics.log_failure("Renderer creation returned null");
+      diagnostics.log_final();
+      return EXIT_FAILURE;
     }
 
-    double current_time = renderer->time();
-    float delta_time = static_cast<float>(current_time - last_frame_time);
-    last_frame_time = current_time;
+    diagnostics.renderer_initialized = true;
+    diagnostics.backend_name = renderer->backend_name();
+    diagnostics.log_success("Renderer created successfully");
 
-    handle_camera_input(*renderer, input, delta_time);
+    auto &camera = renderer->camera();
+    camera.position = Vec3(0.0f, 25.0f, 35.0f);
+    camera.target = Vec3(0.0f, 0.0f, 0.0f);
+    camera.up = Vec3(0.0f, 1.0f, 0.0f);
+    camera.near_clip = 0.1f;
+    camera.far_clip = 500.0f;
 
-    float elapsed_time = static_cast<float>(current_time);
-    update_sphere_field(sphere_field, elapsed_time, delta_time);
+    auto base_mesh = renderer->create_cube(1.0f);
+    if (!base_mesh) {
+      diagnostics.log_failure("Failed to create base cube mesh");
+      diagnostics.log_final();
+      return EXIT_FAILURE;
+    }
+    diagnostics.log_success("Base mesh created (cube primitive)");
 
-    renderer->begin_frame(Color(0.03f, 0.04f, 0.07f, 1.0f));
+    constexpr size_t kGridDimension = 20;
+    constexpr size_t kLayerCount = 3;
+    constexpr float kSpacing = 2.5f;
+    std::vector<InstanceData> initial_instances =
+        create_instance_cloud(kGridDimension, kLayerCount, kSpacing);
 
-    for (const auto &sphere : sphere_field.spheres) {
-      Material material = base_material;
-      material.color = sphere.color;
-      renderer->draw_mesh(*sphere_mesh, sphere.position, sphere.rotation,
-                          sphere.scale, material);
+    diagnostics.instance_count = initial_instances.size();
+    diagnostics.log_success("Prepared " +
+                            std::to_string(diagnostics.instance_count) +
+                            " instances for instanced rendering");
+
+    auto *device = renderer->device();
+    if (!device) {
+      diagnostics.log_failure("Renderer returned a null device pointer");
+      diagnostics.log_final();
+      return EXIT_FAILURE;
     }
 
-    renderer->end_frame();
-
-    ++frames_since_stats;
-    if (current_time - stats_time >= 2.0) {
-      double fps =
-          static_cast<double>(frames_since_stats) / (current_time - stats_time);
-      std::cout << "FPS: " << std::fixed << std::setprecision(1) << fps
-                << std::defaultfloat
-                << " | Spheres drawn: " << sphere_field.spheres.size() << '\n';
-      stats_time = current_time;
-      frames_since_stats = 0;
+    auto instanced_mesh = RendererInstanced::create_instanced_mesh(
+        device, *base_mesh, diagnostics.instance_count);
+    if (!instanced_mesh) {
+      diagnostics.log_failure("Failed to allocate instanced mesh resources");
+      diagnostics.log_final();
+      return EXIT_FAILURE;
     }
+    diagnostics.instanced_mesh_created = true;
+    diagnostics.log_success("Instanced mesh allocated on GPU");
+
+    instanced_mesh->set_instances(initial_instances);
+
+    auto *instanced_shader = renderer->get_shader(renderer->instanced_shader());
+    diagnostics.instanced_shader_loaded = instanced_shader != nullptr;
+    if (!diagnostics.instanced_shader_loaded) {
+      diagnostics.log_failure("Instanced shader handle is invalid");
+      diagnostics.log_final();
+      return EXIT_FAILURE;
+    }
+
+    Material base_material;
+    base_material.blend_mode = Material::BlendMode::Opaque;
+    base_material.color = Color(0.9f, 0.95f, 1.0f, 1.0f);
+    base_material.depth_test = true;
+    base_material.depth_write = true;
+
+    const std::vector<InstanceData> baseline_instances = initial_instances;
+
+    diagnostics.log_status(0.0);
+
+    double last_time = renderer->time();
+    const size_t animated_instance_count =
+        std::min<size_t>(64, baseline_instances.size());
+
+    while (renderer->process_events()) {
+      double now = renderer->time();
+      double dt = now - last_time;
+      last_time = now;
+
+      if (instanced_mesh->instance_count() != diagnostics.instance_count &&
+          !diagnostics.reported_instance_mismatch) {
+        diagnostics.reported_instance_mismatch = true;
+        diagnostics.log_failure(
+            "Instance count mismatch detected: expected " +
+            std::to_string(diagnostics.instance_count) + ", got " +
+            std::to_string(instanced_mesh->instance_count()));
+      }
+
+      for (size_t i = 0; i < animated_instance_count; ++i) {
+        InstanceData animated = baseline_instances[i];
+        float angle =
+            static_cast<float>(now * 0.5 + static_cast<double>(i) * 0.1);
+        animated.rotation = Vec3(0.25f * std::sin(angle), angle, 0.0f);
+        animated.position.y = baseline_instances[i].position.y +
+                              0.5f * std::sin(static_cast<float>(now) +
+                                              static_cast<float>(i) * 0.25f);
+        animated.color = Color(0.6f + 0.4f * std::sin(angle),
+                               0.6f + 0.4f * std::sin(angle * 0.7f + 1.3f),
+                               0.8f + 0.2f * std::cos(angle * 0.5f), 1.0f);
+        animated.lod_transition_alpha =
+            0.5f + 0.5f * std::sin(static_cast<float>(now) * 0.8f +
+                                   static_cast<float>(i) * 0.2f);
+
+        instanced_mesh->update_instance(i, animated);
+        diagnostics.instance_updates++;
+      }
+
+      renderer->begin_frame(Color(0.02f, 0.02f, 0.05f, 1.0f));
+      RendererInstanced::draw_instanced(*renderer, *instanced_mesh,
+                                        base_material);
+      renderer->end_frame();
+
+      diagnostics.frames_rendered++;
+
+      if (now - diagnostics.last_log_time >= 2.0) {
+        diagnostics.log_status(now);
+      }
+
+      (void)dt; // dt is currently unused but kept for potential debugging.
+    }
+
+    diagnostics.log_final();
+    return diagnostics.failures.empty() ? EXIT_SUCCESS : EXIT_FAILURE;
+
+  } catch (const std::exception &e) {
+    diagnostics.log_failure(std::string("Unhandled exception: ") + e.what());
+    diagnostics.log_final();
+    return EXIT_FAILURE;
   }
-
-  return 0;
 }
