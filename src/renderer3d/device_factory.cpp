@@ -10,16 +10,8 @@
 
 namespace pixel::rhi {
 
-// GraphicsAPI enum to match platform::GraphicsAPI
-enum class GraphicsAPI {
-  Default,
-  OpenGL,
-  Metal
-};
-
-std::unique_ptr<Device> create_device(
-    platform::Window* window,
-    GraphicsAPI preferred_api) {
+std::unique_ptr<Device> create_device(platform::Window *window,
+                                      GraphicsAPI preferred_api) {
 
   if (!window) {
     throw std::invalid_argument("Window pointer cannot be null");
@@ -31,7 +23,7 @@ std::unique_ptr<Device> create_device(
   // ============================================================================
   std::cout << "Creating Metal device..." << std::endl;
 
-  Device* device = create_metal_device(window->native_handle());
+  Device *device = create_metal_device(window->native_handle());
   if (!device) {
     throw std::runtime_error("Failed to create Metal device. Metal is required "
                              "but initialization failed.");
@@ -46,7 +38,7 @@ std::unique_ptr<Device> create_device(
   // ============================================================================
   std::cout << "Creating OpenGL device..." << std::endl;
 
-  Device* device = create_gl_device(window->native_handle());
+  Device *device = create_gl_device(window->native_handle());
   if (!device) {
     throw std::runtime_error("Failed to create OpenGL device");
   }
