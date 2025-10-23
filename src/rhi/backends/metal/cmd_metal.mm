@@ -154,13 +154,13 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     colorDesc.level = mipLevel;
     colorDesc.slice = arraySlice;
 
-    if (attachment && desc.colorAttachmentsOps &&
-        i < desc.colorAttachmentCount) {
-      const auto &ops = desc.colorAttachmentsOps[i];
-      colorDesc.loadAction = toMTLLoadAction(ops.loadOp);
-      colorDesc.storeAction = toMTLStoreAction(ops.storeOp);
-      colorDesc.clearColor = MTLClearColorMake(ops.clearColor.r, ops.clearColor.g,
-                                               ops.clearColor.b, ops.clearColor.a);
+    if (attachment) {
+      colorDesc.loadAction = toMTLLoadAction(attachment->loadOp);
+      colorDesc.storeAction = toMTLStoreAction(attachment->storeOp);
+      colorDesc.clearColor = MTLClearColorMake(attachment->clearColor[0],
+                                               attachment->clearColor[1],
+                                               attachment->clearColor[2],
+                                               attachment->clearColor[3]);
     } else {
       colorDesc.loadAction = MTLLoadActionLoad;
       colorDesc.storeAction = MTLStoreActionStore;
@@ -174,10 +174,19 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
   }
 
   if (hasDepthAttachment) {
-    const RenderPassDepthStencilAttachment *attachment =
-        framebuffer ? &framebuffer->desc.depthAttachment
-                    : &desc.depthAttachment;
-    TextureHandle textureHandle = attachment->texture;
+    const FramebufferDepthAttachmentDesc *fbAttachment =
+        (framebuffer && framebuffer->desc.hasDepthAttachment)
+            ? &framebuffer->desc.depthAttachment
+            : nullptr;
+    const RenderPassDepthAttachment *attachment =
+        desc.hasDepthAttachment ? &desc.depthAttachment : nullptr;
+    RenderPassDepthAttachment defaultAttachment{};
+    const RenderPassDepthAttachment *opsAttachment =
+        attachment ? attachment : &defaultAttachment;
+
+    TextureHandle textureHandle = fbAttachment
+                                       ? fbAttachment->texture
+                                       : opsAttachment->texture;
 
     id<MTLTexture> depthTexture = nil;
     if (textureHandle.id == 0) {
@@ -194,26 +203,42 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
 
     if (depthTexture) {
       renderPassDesc.depthAttachment.texture = depthTexture;
-      renderPassDesc.depthAttachment.level = attachment->mipLevel;
-      renderPassDesc.depthAttachment.slice = attachment->arraySlice;
+      renderPassDesc.depthAttachment.level =
+          fbAttachment ? fbAttachment->mipLevel : opsAttachment->mipLevel;
+      renderPassDesc.depthAttachment.slice =
+          fbAttachment ? fbAttachment->arraySlice : opsAttachment->arraySlice;
+
+      LoadOp depthLoadOp = opsAttachment->depthLoadOp;
+      StoreOp depthStoreOp = opsAttachment->depthStoreOp;
+      float clearDepth = opsAttachment->clearDepth;
 
       renderPassDesc.depthAttachment.loadAction =
-          toMTLLoadAction(desc.depthStencilOps.depthLoadOp);
+          toMTLLoadAction(depthLoadOp);
       renderPassDesc.depthAttachment.storeAction =
-          toMTLStoreAction(desc.depthStencilOps.depthStoreOp);
-      renderPassDesc.depthAttachment.clearDepth =
-          desc.depthStencilOps.clearDepth;
+          toMTLStoreAction(depthStoreOp);
+      renderPassDesc.depthAttachment.clearDepth = clearDepth;
 
-      if (desc.depthStencilOps.hasStencil) {
+      bool hasStencil = opsAttachment->hasStencil ||
+                        (fbAttachment ? fbAttachment->hasStencil : false);
+
+      if (hasStencil) {
         renderPassDesc.stencilAttachment.texture = depthTexture;
-        renderPassDesc.stencilAttachment.level = attachment->mipLevel;
-        renderPassDesc.stencilAttachment.slice = attachment->arraySlice;
+        renderPassDesc.stencilAttachment.level = fbAttachment
+                                                     ? fbAttachment->mipLevel
+                                                     : opsAttachment->mipLevel;
+        renderPassDesc.stencilAttachment.slice = fbAttachment
+                                                     ? fbAttachment->arraySlice
+                                                     : opsAttachment->arraySlice;
+
+        LoadOp stencilLoadOp = opsAttachment->stencilLoadOp;
+        StoreOp stencilStoreOp = opsAttachment->stencilStoreOp;
+        uint32_t clearStencil = opsAttachment->clearStencil;
+
         renderPassDesc.stencilAttachment.loadAction =
-            toMTLLoadAction(desc.depthStencilOps.stencilLoadOp);
+            toMTLLoadAction(stencilLoadOp);
         renderPassDesc.stencilAttachment.storeAction =
-            toMTLStoreAction(desc.depthStencilOps.stencilStoreOp);
-        renderPassDesc.stencilAttachment.clearStencil =
-            desc.depthStencilOps.clearStencil;
+            toMTLStoreAction(stencilStoreOp);
+        renderPassDesc.stencilAttachment.clearStencil = clearStencil;
       }
     }
   }
