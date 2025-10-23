@@ -1,8 +1,8 @@
 #pragma once
 #include "pixel/platform/platform.hpp"
 #include "pixel/rhi/rhi.hpp"
+#include "pixel/renderer3d/mesh.hpp"
 #include "pixel/renderer3d/shader_reflection.hpp"
-#include "pixel/math/math.hpp"
 #include <glm/glm.hpp>
 #include <array>
 #include <cstdint>
@@ -23,20 +23,6 @@ namespace pixel::resources {
 }
 
 namespace pixel::renderer3d {
-
-// ============================================================================
-// Math Types (imported from pixel::math)
-// ============================================================================
-
-// Type aliases for backward compatibility
-using Vec2 = pixel::math::Vec2;
-using Vec3 = pixel::math::Vec3;
-using Vec4 = pixel::math::Vec4;
-using Color = pixel::math::Color;
-
-// ============================================================================
-// Camera
-// ============================================================================
 
 // ============================================================================
 // Camera
@@ -128,49 +114,6 @@ struct Material {
   uint32_t stencil_read_mask = 0xFF;
   uint32_t stencil_write_mask = 0xFF;
   uint32_t stencil_reference = 0;
-};
-
-// ============================================================================
-// Vertex Structure
-// ============================================================================
-
-struct Vertex {
-  Vec3 position;
-  Vec3 normal;
-  Vec2 texcoord;
-  Color color;
-};
-
-// ============================================================================
-// Mesh
-// ============================================================================
-
-class Mesh {
-public:
-  static std::unique_ptr<Mesh> create(rhi::Device *device,
-                                      const std::vector<Vertex> &vertices,
-                                      const std::vector<uint32_t> &indices);
-  ~Mesh();
-
-  rhi::BufferHandle vertex_buffer() const { return vertex_buffer_; }
-  rhi::BufferHandle index_buffer() const { return index_buffer_; }
-
-  size_t vertex_count() const { return vertex_count_; }
-  size_t index_count() const { return index_count_; }
-
-  const std::vector<Vertex> &vertices() const { return vertices_; }
-  const std::vector<uint32_t> &indices() const { return indices_; }
-
-private:
-  Mesh() = default;
-
-  rhi::BufferHandle vertex_buffer_{0};
-  rhi::BufferHandle index_buffer_{0};
-  size_t vertex_count_ = 0;
-  size_t index_count_ = 0;
-
-  std::vector<Vertex> vertices_;
-  std::vector<uint32_t> indices_;
 };
 
 // ============================================================================
@@ -303,11 +246,5 @@ protected:
   rhi::RenderPassDesc current_pass_desc_{};
   bool render_pass_active_ = false;
 };
-
-namespace primitives {
-std::vector<Vertex> create_quad_vertices(float size);
-std::vector<Vertex> create_cube_vertices(float size);
-std::vector<Vertex> create_plane_vertices(float width, float depth, int segs);
-} // namespace primitives
 
 } // namespace pixel::renderer3d
