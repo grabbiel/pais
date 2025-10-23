@@ -1,4 +1,4 @@
-// src/rhi/backends/metal/device_metal.hpp
+// include/pixel/rhi/backends/metal/device_metal.hpp
 #pragma once
 
 #ifdef __APPLE__
@@ -55,8 +55,7 @@ public:
   FramebufferHandle createFramebuffer(const FramebufferDesc &desc) override;
   QueryHandle createQuery(QueryType type) override;
   void destroyQuery(QueryHandle handle) override;
-  bool getQueryResult(QueryHandle handle, uint64_t &result,
-                      bool wait) override;
+  bool getQueryResult(QueryHandle handle, uint64_t &result, bool wait) override;
   FenceHandle createFence(bool signaled = false) override;
   void destroyFence(FenceHandle handle) override;
   void waitFence(FenceHandle handle, uint64_t timeout_ns = ~0ull) override;

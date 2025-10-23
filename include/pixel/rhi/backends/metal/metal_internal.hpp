@@ -1,4 +1,4 @@
-// src/rhi/backends/metal/metal_internal.hpp
+// include/pixel/rhi/backends/metal/metal_internal.hpp
 #pragma once
 
 #ifdef __APPLE__
@@ -34,8 +34,7 @@ MTLStoreAction toMTLStoreAction(StoreOp op);
 
 constexpr uint32_t kFramesInFlight = 3;          // Triple buffering
 constexpr uint32_t kMaxDrawCallsPerFrame = 1024; // Maximum draws per frame
-constexpr uint32_t kTotalUniformSlots =
-    kFramesInFlight * kMaxDrawCallsPerFrame;
+constexpr uint32_t kTotalUniformSlots = kFramesInFlight * kMaxDrawCallsPerFrame;
 
 struct Uniforms {
   float model[16];
@@ -74,9 +73,10 @@ struct UniformAllocator {
     if (frame_size == 0) {
       frame_size = size;
     }
-    buffer = [device newBufferWithLength:size
-                                  options:(MTLResourceStorageModeShared |
-                                           MTLResourceCPUCacheModeWriteCombined)];
+    buffer =
+        [device newBufferWithLength:size
+                            options:(MTLResourceStorageModeShared |
+                                     MTLResourceCPUCacheModeWriteCombined)];
     if (!buffer) {
       return false;
     }

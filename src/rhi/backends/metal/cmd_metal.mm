@@ -2,7 +2,7 @@
 // Metal command list core implementation
 #ifdef __APPLE__
 
-#include "metal_internal.hpp"
+#include "pixel/rhi/backends/metal/metal_internal.hpp"
 
 namespace pixel::rhi {
 
@@ -130,8 +130,8 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
 
     id<MTLTexture> targetTexture = nil;
     if (textureHandle.id == 0) {
-      targetTexture = impl_->current_drawable_ ? impl_->current_drawable_.texture
-                                               : nil;
+      targetTexture =
+          impl_->current_drawable_ ? impl_->current_drawable_.texture : nil;
     } else {
       auto tex_it = impl_->textures_->find(textureHandle.id);
       if (tex_it == impl_->textures_->end()) {
@@ -157,10 +157,9 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     if (attachment) {
       colorDesc.loadAction = toMTLLoadAction(attachment->loadOp);
       colorDesc.storeAction = toMTLStoreAction(attachment->storeOp);
-      colorDesc.clearColor = MTLClearColorMake(attachment->clearColor[0],
-                                               attachment->clearColor[1],
-                                               attachment->clearColor[2],
-                                               attachment->clearColor[3]);
+      colorDesc.clearColor = MTLClearColorMake(
+          attachment->clearColor[0], attachment->clearColor[1],
+          attachment->clearColor[2], attachment->clearColor[3]);
     } else {
       colorDesc.loadAction = MTLLoadActionLoad;
       colorDesc.storeAction = MTLStoreActionStore;
@@ -184,9 +183,8 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     const RenderPassDepthAttachment *opsAttachment =
         attachment ? attachment : &defaultAttachment;
 
-    TextureHandle textureHandle = fbAttachment
-                                       ? fbAttachment->texture
-                                       : opsAttachment->texture;
+    TextureHandle textureHandle =
+        fbAttachment ? fbAttachment->texture : opsAttachment->texture;
 
     id<MTLTexture> depthTexture = nil;
     if (textureHandle.id == 0) {
@@ -212,8 +210,7 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
       StoreOp depthStoreOp = opsAttachment->depthStoreOp;
       float clearDepth = opsAttachment->clearDepth;
 
-      renderPassDesc.depthAttachment.loadAction =
-          toMTLLoadAction(depthLoadOp);
+      renderPassDesc.depthAttachment.loadAction = toMTLLoadAction(depthLoadOp);
       renderPassDesc.depthAttachment.storeAction =
           toMTLStoreAction(depthStoreOp);
       renderPassDesc.depthAttachment.clearDepth = clearDepth;
@@ -223,12 +220,10 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
 
       if (hasStencil) {
         renderPassDesc.stencilAttachment.texture = depthTexture;
-        renderPassDesc.stencilAttachment.level = fbAttachment
-                                                     ? fbAttachment->mipLevel
-                                                     : opsAttachment->mipLevel;
-        renderPassDesc.stencilAttachment.slice = fbAttachment
-                                                     ? fbAttachment->arraySlice
-                                                     : opsAttachment->arraySlice;
+        renderPassDesc.stencilAttachment.level =
+            fbAttachment ? fbAttachment->mipLevel : opsAttachment->mipLevel;
+        renderPassDesc.stencilAttachment.slice =
+            fbAttachment ? fbAttachment->arraySlice : opsAttachment->arraySlice;
 
         LoadOp stencilLoadOp = opsAttachment->stencilLoadOp;
         StoreOp stencilStoreOp = opsAttachment->stencilStoreOp;
@@ -243,8 +238,8 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     }
   }
 
-  impl_->render_encoder_ =
-      [impl_->command_buffer_ renderCommandEncoderWithDescriptor:renderPassDesc];
+  impl_->render_encoder_ = [impl_->command_buffer_
+      renderCommandEncoderWithDescriptor:renderPassDesc];
 
   if (!impl_->render_encoder_) {
     std::cerr << "Failed to create Metal render encoder" << std::endl;
@@ -261,8 +256,7 @@ void MetalCmdList::setPipeline(PipelineHandle handle) {
 
   auto it = impl_->pipelines_->find(handle.id);
   if (it == impl_->pipelines_->end()) {
-    std::cerr << "Attempted to bind invalid Metal pipeline handle"
-              << std::endl;
+    std::cerr << "Attempted to bind invalid Metal pipeline handle" << std::endl;
     return;
   }
 

@@ -2,7 +2,7 @@
 // Metal state conversion and binding helpers
 #ifdef __APPLE__
 
-#include "metal_internal.hpp"
+#include "pixel/rhi/backends/metal/metal_internal.hpp"
 
 #include <string>
 
@@ -189,20 +189,19 @@ void MetalCmdList::setDepthStencilState(const DepthStencilState &state) {
   if (it != impl_->depth_stencil_cache_.end()) {
     depth_state = it->second;
   } else {
-    MTLDepthStencilDescriptor *descriptor = [[MTLDepthStencilDescriptor alloc] init];
-    descriptor.depthCompareFunction =
-        state.depthTestEnable ? to_mtl_compare(state.depthCompare)
-                              : MTLCompareFunctionAlways;
+    MTLDepthStencilDescriptor *descriptor =
+        [[MTLDepthStencilDescriptor alloc] init];
+    descriptor.depthCompareFunction = state.depthTestEnable
+                                          ? to_mtl_compare(state.depthCompare)
+                                          : MTLCompareFunctionAlways;
     descriptor.depthWriteEnabled = state.depthWriteEnable;
 
     if (state.stencilEnable) {
       MTLStencilDescriptor *front = [[MTLStencilDescriptor alloc] init];
       front.stencilCompareFunction = to_mtl_compare(state.stencilCompare);
       front.stencilFailureOperation = to_mtl_stencil(state.stencilFailOp);
-      front.depthFailureOperation =
-          to_mtl_stencil(state.stencilDepthFailOp);
-      front.depthStencilPassOperation =
-          to_mtl_stencil(state.stencilPassOp);
+      front.depthFailureOperation = to_mtl_stencil(state.stencilDepthFailOp);
+      front.depthStencilPassOperation = to_mtl_stencil(state.stencilPassOp);
       front.readMask = state.stencilReadMask;
       front.writeMask = state.stencilWriteMask;
 
@@ -212,7 +211,8 @@ void MetalCmdList::setDepthStencilState(const DepthStencilState &state) {
       descriptor.backFaceStencil = back;
     }
 
-    depth_state = [impl_->device_ newDepthStencilStateWithDescriptor:descriptor];
+    depth_state =
+        [impl_->device_ newDepthStencilStateWithDescriptor:descriptor];
 
     if (!depth_state) {
       std::cerr << "Failed to create Metal depth stencil state" << std::endl;

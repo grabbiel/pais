@@ -1,5 +1,5 @@
 // src/rhi/backends/gl/device_gl.cpp
-#include "device_gl.hpp"
+#include "pixel/rhi/backends/gl/device_gl.hpp"
 
 #include <GLFW/glfw3.h>
 #include <algorithm>
@@ -92,9 +92,9 @@ GLDevice::GLDevice(GLFWwindow *window) : window_(window) {
   caps_.samplerCompare =
       has_extension("GL_ARB_shadow") || has_extension("GL_EXT_shadow");
 
-  cmd_list_ = std::make_unique<GLCmdList>(&buffers_, &textures_, &pipelines_,
-                                          &framebuffers_, &queries_, &fences_,
-                                          window_);
+  cmd_list_ =
+      std::make_unique<GLCmdList>(&buffers_, &textures_, &pipelines_,
+                                  &framebuffers_, &queries_, &fences_, window_);
 }
 
 GLDevice::~GLDevice() {
@@ -145,6 +145,8 @@ void GLDevice::present() {
 
 namespace pixel::rhi {
 
-Device *create_gl_device(GLFWwindow *window) { return new gl::GLDevice(window); }
+Device *create_gl_device(GLFWwindow *window) {
+  return new gl::GLDevice(window);
+}
 
 } // namespace pixel::rhi

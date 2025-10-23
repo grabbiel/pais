@@ -2,7 +2,7 @@
 // Metal resource creation and management
 #ifdef __APPLE__
 
-#include "metal_internal.hpp"
+#include "pixel/rhi/backends/metal/metal_internal.hpp"
 
 namespace pixel::rhi {
 
@@ -153,8 +153,8 @@ ShaderHandle MetalDevice::createShader(std::string_view stage,
   shader.stage = std::string(stage);
 
   if (!shader.function) {
-    std::cerr << "Failed to load shader function: "
-              << [functionName UTF8String] << std::endl;
+    std::cerr << "Failed to load shader function: " << [functionName UTF8String]
+              << std::endl;
     return ShaderHandle{0};
   }
 
@@ -324,7 +324,8 @@ void MetalDevice::resetFence(FenceHandle handle) {
     return;
   if (!it->second.semaphore)
     return;
-  while (dispatch_semaphore_wait(it->second.semaphore, DISPATCH_TIME_NOW) == 0) {
+  while (dispatch_semaphore_wait(it->second.semaphore, DISPATCH_TIME_NOW) ==
+         0) {
   }
   it->second.signaled = false;
 }

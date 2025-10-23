@@ -1,5 +1,5 @@
 // src/rhi/backends/gl/resources_gl.cpp
-#include "device_gl.hpp"
+#include "pixel/rhi/backends/gl/device_gl.hpp"
 
 #include <GLFW/glfw3.h>
 #include <iostream>
@@ -8,7 +8,6 @@
 #ifndef GL_TEXTURE_MAX_ANISOTROPY_EXT
 #define GL_TEXTURE_MAX_ANISOTROPY_EXT 0x84FE
 #endif
-
 
 #ifdef _WIN32
 #include <windows.h>
@@ -133,10 +132,14 @@ SamplerHandle GLDevice::createSampler(const SamplerDesc &desc) {
   GLSampler sampler;
   glGenSamplers(1, &sampler.id);
 
-  GLenum min_filter = desc.minFilter == FilterMode::Linear ? GL_LINEAR : GL_NEAREST;
-  GLenum mag_filter = desc.magFilter == FilterMode::Linear ? GL_LINEAR : GL_NEAREST;
-  GLenum wrap_s = desc.addressU == AddressMode::Repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE;
-  GLenum wrap_t = desc.addressV == AddressMode::Repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE;
+  GLenum min_filter =
+      desc.minFilter == FilterMode::Linear ? GL_LINEAR : GL_NEAREST;
+  GLenum mag_filter =
+      desc.magFilter == FilterMode::Linear ? GL_LINEAR : GL_NEAREST;
+  GLenum wrap_s =
+      desc.addressU == AddressMode::Repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE;
+  GLenum wrap_t =
+      desc.addressV == AddressMode::Repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE;
 
   glSamplerParameteri(sampler.id, GL_TEXTURE_MIN_FILTER, min_filter);
   glSamplerParameteri(sampler.id, GL_TEXTURE_MAG_FILTER, mag_filter);
@@ -175,7 +178,8 @@ SamplerHandle GLDevice::createSampler(const SamplerDesc &desc) {
 
 ShaderHandle GLDevice::createShader(std::string_view stage,
                                     std::span<const uint8_t> bytes) {
-  std::string source(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+  std::string source(reinterpret_cast<const char *>(bytes.data()),
+                     bytes.size());
 
   GLenum shader_type;
   if (stage == "vs" || stage.rfind("vs_", 0) == 0) {
@@ -341,8 +345,8 @@ FramebufferHandle GLDevice::createFramebuffer(const FramebufferDesc &desc) {
     GLenum attachment_point = GL_COLOR_ATTACHMENT0 + i;
 
     if (tex.target == GL_TEXTURE_2D) {
-      glFramebufferTexture2D(GL_FRAMEBUFFER, attachment_point, tex.target, tex.id,
-                             attachment.mipLevel);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, attachment_point, tex.target,
+                             tex.id, attachment.mipLevel);
     } else if (tex.target == GL_TEXTURE_2D_ARRAY) {
       glFramebufferTextureLayer(GL_FRAMEBUFFER, attachment_point, tex.id,
                                 attachment.mipLevel, attachment.arraySlice);
@@ -366,7 +370,8 @@ FramebufferHandle GLDevice::createFramebuffer(const FramebufferDesc &desc) {
     glDrawBuffer(GL_NONE);
     glReadBuffer(GL_NONE);
   } else if (!draw_buffers.empty()) {
-    glDrawBuffers(static_cast<GLsizei>(draw_buffers.size()), draw_buffers.data());
+    glDrawBuffers(static_cast<GLsizei>(draw_buffers.size()),
+                  draw_buffers.data());
   } else {
     glDrawBuffer(GL_NONE);
     glReadBuffer(GL_NONE);
@@ -396,8 +401,8 @@ FramebufferHandle GLDevice::createFramebuffer(const FramebufferDesc &desc) {
         depth.hasStencil ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
 
     if (tex.target == GL_TEXTURE_2D) {
-      glFramebufferTexture2D(GL_FRAMEBUFFER, attachment_point, tex.target, tex.id,
-                             depth.mipLevel);
+      glFramebufferTexture2D(GL_FRAMEBUFFER, attachment_point, tex.target,
+                             tex.id, depth.mipLevel);
     } else if (tex.target == GL_TEXTURE_2D_ARRAY) {
       glFramebufferTextureLayer(GL_FRAMEBUFFER, attachment_point, tex.id,
                                 depth.mipLevel, depth.arraySlice);

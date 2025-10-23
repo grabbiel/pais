@@ -93,15 +93,15 @@ public:
             std::unordered_map<uint32_t, GLPipeline> *pipelines,
             std::unordered_map<uint32_t, GLFramebuffer> *framebuffers,
             std::unordered_map<uint32_t, GLQueryObject> *queries,
-            std::unordered_map<uint32_t, GLFence> *fences,
-            GLFWwindow *window);
+            std::unordered_map<uint32_t, GLFence> *fences, GLFWwindow *window);
 
   void begin() override;
   void beginRender(const RenderPassDesc &desc) override;
   void setPipeline(PipelineHandle) override;
   void setVertexBuffer(BufferHandle, size_t offset = 0) override;
   void setIndexBuffer(BufferHandle, size_t offset = 0) override;
-  void setInstanceBuffer(BufferHandle, size_t stride, size_t offset = 0) override;
+  void setInstanceBuffer(BufferHandle, size_t stride,
+                         size_t offset = 0) override;
   void setDepthStencilState(const DepthStencilState &state) override;
   void setDepthBias(const DepthBiasState &state) override;
   void setUniformMat4(const char *name, const float *mat4x4) override;
@@ -109,8 +109,8 @@ public:
   void setUniformVec4(const char *name, const float *vec4) override;
   void setUniformInt(const char *name, int value) override;
   void setUniformFloat(const char *name, float value) override;
-  void setUniformBuffer(uint32_t binding, BufferHandle buffer, size_t offset = 0,
-                        size_t size = 0) override;
+  void setUniformBuffer(uint32_t binding, BufferHandle buffer,
+                        size_t offset = 0, size_t size = 0) override;
   void setTexture(const char *name, TextureHandle texture,
                   uint32_t slot = 0) override;
   void copyToTexture(TextureHandle texture, uint32_t mipLevel,

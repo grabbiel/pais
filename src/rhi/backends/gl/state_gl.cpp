@@ -1,5 +1,5 @@
 // src/rhi/backends/gl/state_gl.cpp
-#include "device_gl.hpp"
+#include "pixel/rhi/backends/gl/device_gl.hpp"
 
 #include <GLFW/glfw3.h>
 
@@ -103,9 +103,9 @@ void GLCmdList::setDepthStencilState(const DepthStencilState &state) {
   if (state.stencilEnable) {
     glEnable(GL_STENCIL_TEST);
     glStencilMask(state.stencilWriteMask);
-    glStencilFuncSeparate(GL_FRONT_AND_BACK, to_gl_compare(state.stencilCompare),
-                          static_cast<GLint>(state.stencilReference),
-                          state.stencilReadMask);
+    glStencilFuncSeparate(
+        GL_FRONT_AND_BACK, to_gl_compare(state.stencilCompare),
+        static_cast<GLint>(state.stencilReference), state.stencilReadMask);
     const GLenum fail = to_gl_stencil_op(state.stencilFailOp);
     const GLenum depth_fail = to_gl_stencil_op(state.stencilDepthFailOp);
     const GLenum pass = to_gl_stencil_op(state.stencilPassOp);
@@ -117,7 +117,8 @@ void GLCmdList::setDepthStencilState(const DepthStencilState &state) {
 }
 
 void GLCmdList::setDepthBias(const DepthBiasState &state) {
-  if (depth_bias_initialized_ && state.enable == current_depth_bias_state_.enable &&
+  if (depth_bias_initialized_ &&
+      state.enable == current_depth_bias_state_.enable &&
       state.constantFactor == current_depth_bias_state_.constantFactor &&
       state.slopeFactor == current_depth_bias_state_.slopeFactor) {
     return;

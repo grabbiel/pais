@@ -1,5 +1,5 @@
 // src/rhi/backends/gl/cmd_gl.cpp
-#include "device_gl.hpp"
+#include "pixel/rhi/backends/gl/device_gl.hpp"
 
 #include <GLFW/glfw3.h>
 #include <algorithm>
@@ -68,8 +68,8 @@ void GLCmdList::beginRender(const RenderPassDesc &desc) {
     using_offscreen_fbo_ = true;
     current_fbo_ = framebuffer.id;
 
-    uint32_t attachment_count =
-        std::min(desc.colorAttachmentCount, framebuffer.desc.colorAttachmentCount);
+    uint32_t attachment_count = std::min(desc.colorAttachmentCount,
+                                         framebuffer.desc.colorAttachmentCount);
     for (uint32_t i = 0; i < attachment_count; ++i) {
       const auto &attachment = desc.colorAttachments[i];
       if (attachment.loadOp == LoadOp::Clear) {
@@ -80,7 +80,8 @@ void GLCmdList::beginRender(const RenderPassDesc &desc) {
     if (framebuffer.desc.hasDepthAttachment && desc.hasDepthAttachment) {
       const auto &depth = desc.depthAttachment;
       bool clearDepth = depth.depthLoadOp == LoadOp::Clear;
-      bool clearStencil = depth.hasStencil && depth.stencilLoadOp == LoadOp::Clear;
+      bool clearStencil =
+          depth.hasStencil && depth.stencilLoadOp == LoadOp::Clear;
       if (clearDepth && clearStencil) {
         glClearBufferfi(GL_DEPTH_STENCIL, 0, depth.clearDepth,
                         static_cast<GLint>(depth.clearStencil));
@@ -119,8 +120,9 @@ void GLCmdList::beginRender(const RenderPassDesc &desc) {
     }
 
     if (has_swapchain_attachment && has_offscreen_attachment) {
-      std::cerr << "OpenGL render pass cannot mix swapchain and offscreen attachments"
-                << std::endl;
+      std::cerr
+          << "OpenGL render pass cannot mix swapchain and offscreen attachments"
+          << std::endl;
       return;
     }
 
@@ -163,7 +165,8 @@ void GLCmdList::beginRender(const RenderPassDesc &desc) {
       }
 
       if (!draw_buffers.empty()) {
-        glDrawBuffers(static_cast<GLsizei>(draw_buffers.size()), draw_buffers.data());
+        glDrawBuffers(static_cast<GLsizei>(draw_buffers.size()),
+                      draw_buffers.data());
       } else {
         glDrawBuffer(GL_NONE);
         glReadBuffer(GL_NONE);
@@ -193,8 +196,8 @@ void GLCmdList::beginRender(const RenderPassDesc &desc) {
 
       GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
       if (status != GL_FRAMEBUFFER_COMPLETE) {
-        std::cerr << "Temporary framebuffer incomplete: 0x" << std::hex << status
-                  << std::dec << std::endl;
+        std::cerr << "Temporary framebuffer incomplete: 0x" << std::hex
+                  << status << std::dec << std::endl;
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glDeleteFramebuffers(1, &current_fbo_);
         current_fbo_ = 0;
@@ -202,7 +205,8 @@ void GLCmdList::beginRender(const RenderPassDesc &desc) {
         return;
       }
 
-      if (desc.colorAttachmentCount > 0 && desc.colorAttachments[0].texture.id != 0) {
+      if (desc.colorAttachmentCount > 0 &&
+          desc.colorAttachments[0].texture.id != 0) {
         auto tex_it = textures_->find(desc.colorAttachments[0].texture.id);
         if (tex_it != textures_->end()) {
           glViewport(0, 0, tex_it->second.width, tex_it->second.height);
@@ -279,7 +283,8 @@ void GLCmdList::setIndexBuffer(BufferHandle handle, size_t offset) {
   current_ib_offset_ = offset;
 }
 
-void GLCmdList::setInstanceBuffer(BufferHandle handle, size_t stride, size_t offset) {
+void GLCmdList::setInstanceBuffer(BufferHandle handle, size_t stride,
+                                  size_t offset) {
   auto pit = pipelines_->find(current_pipeline_.id);
   if (pit == pipelines_->end())
     return;
@@ -417,8 +422,8 @@ void GLCmdList::copyToTexture(TextureHandle texture, uint32_t mipLevel,
   }
 
   glBindTexture(tex.target, tex.id);
-  glTexSubImage2D(tex.target, mipLevel, 0, 0, tex.width, tex.height, format, type,
-                  data.data());
+  glTexSubImage2D(tex.target, mipLevel, 0, 0, tex.width, tex.height, format,
+                  type, data.data());
   glBindTexture(tex.target, 0);
 }
 
@@ -504,7 +509,9 @@ void GLCmdList::dispatch(uint32_t groupCountX, uint32_t groupCountY,
   glDispatchCompute(groupCountX, groupCountY, groupCountZ);
 }
 
-void GLCmdList::memoryBarrier() { glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT); }
+void GLCmdList::memoryBarrier() {
+  glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+}
 
 void GLCmdList::resourceBarrier(std::span<const ResourceBarrierDesc> barriers) {
   if (barriers.empty())
@@ -564,9 +571,9 @@ void GLCmdList::signalFence(FenceHandle handle) {
 void GLCmdList::drawIndexed(uint32_t indexCount, uint32_t firstIndex,
                             uint32_t instanceCount) {
   if (instanceCount > 1) {
-    glDrawElementsInstanced(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT,
-                            reinterpret_cast<void *>(firstIndex * sizeof(uint32_t)),
-                            instanceCount);
+    glDrawElementsInstanced(
+        GL_TRIANGLES, indexCount, GL_UNSIGNED_INT,
+        reinterpret_cast<void *>(firstIndex * sizeof(uint32_t)), instanceCount);
   } else {
     glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT,
                    reinterpret_cast<void *>(firstIndex * sizeof(uint32_t)));

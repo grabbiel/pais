@@ -2,7 +2,7 @@
 // Metal pipeline construction
 #ifdef __APPLE__
 
-#include "metal_internal.hpp"
+#include "pixel/rhi/backends/metal/metal_internal.hpp"
 
 namespace pixel::rhi {
 
@@ -29,8 +29,8 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
                                       error:&error];
 
     if (!pipeline.compute_pipeline_state) {
-      std::cerr << "Failed to create compute pipeline: "
-                << [[error localizedDescription] UTF8String] << std::endl;
+      std::cerr << "Failed to create compute pipeline: " <<
+          [[error localizedDescription] UTF8String] << std::endl;
       return PipelineHandle{0};
     }
 
@@ -137,8 +137,8 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
                                                      error:&error];
 
   if (!pipeline.pipeline_state) {
-    std::cerr << "Failed to create render pipeline: "
-              << [[error localizedDescription] UTF8String] << std::endl;
+    std::cerr << "Failed to create render pipeline: " <<
+        [[error localizedDescription] UTF8String] << std::endl;
     return PipelineHandle{0};
   }
 
