@@ -4,6 +4,7 @@
 #include <cctype>
 #include <charconv>
 #include <regex>
+#include <unordered_map>
 
 namespace pixel::renderer3d {
 
@@ -123,11 +124,12 @@ std::optional<uint32_t> parse_binding(std::string_view layout_str) {
 
 bool is_qualifier(std::string_view token) {
   static constexpr std::string_view qualifiers[] = {
-      "const",   "in",     "out",     "inout",   "centroid",
-      "flat",    "smooth", "noperspective", "patch",   "sample",
-      "uniform", "buffer", "shared",  "coherent", "volatile",
-      "restrict","readonly","writeonly", "precise",  "highp",
-      "mediump", "lowp"};
+      "const",   "in",     "out",         "inout",    "centroid",
+      "flat",    "smooth", "noperspective", "patch",    "sample",
+      "uniform", "buffer", "shared",       "coherent", "volatile",
+      "restrict","readonly","writeonly",   "precise",  "highp",
+      "mediump", "lowp",   "constant",     "device",   "thread",
+      "threadgroup",        "constexpr"};
 
   std::string lower = to_lower(token);
   for (auto qualifier : qualifiers) {
@@ -141,15 +143,17 @@ ShaderUniformType to_uniform_type(std::string_view type_name) {
   std::string lower = to_lower(type_name);
   if (lower == "float")
     return ShaderUniformType::Float;
-  if (lower == "vec2")
+  if (lower == "vec2" || lower == "float2")
     return ShaderUniformType::Vec2;
-  if (lower == "vec3")
+  if (lower == "vec3" || lower == "float3")
     return ShaderUniformType::Vec3;
-  if (lower == "vec4")
+  if (lower == "vec4" || lower == "float4")
     return ShaderUniformType::Vec4;
-  if (lower == "mat3")
+  if (lower == "mat3" || lower == "float3x3" ||
+      lower == "matrix_float3x3")
     return ShaderUniformType::Mat3;
-  if (lower == "mat4")
+  if (lower == "mat4" || lower == "float4x4" ||
+      lower == "matrix_float4x4")
     return ShaderUniformType::Mat4;
   if (lower == "int")
     return ShaderUniformType::Int;
@@ -165,12 +169,24 @@ ShaderUniformType to_uniform_type(std::string_view type_name) {
     return ShaderUniformType::Sampler2DArray;
   if (lower == "sampler3d")
     return ShaderUniformType::Sampler3D;
-  if (lower == "samplercube")
+  if (lower == "samplercube" || lower == "texturecube")
     return ShaderUniformType::SamplerCube;
   if (lower == "sampler2dshadow")
     return ShaderUniformType::Sampler2DShadow;
   if (lower == "image2d")
     return ShaderUniformType::Image2D;
+  if (lower.rfind("texture1d", 0) == 0)
+    return ShaderUniformType::Sampler1D;
+  if (lower.rfind("texture2d_array", 0) == 0)
+    return ShaderUniformType::Sampler2DArray;
+  if (lower.rfind("texture2d", 0) == 0)
+    return ShaderUniformType::Sampler2D;
+  if (lower.rfind("texture3d", 0) == 0)
+    return ShaderUniformType::Sampler3D;
+  if (lower.rfind("texturecube", 0) == 0)
+    return ShaderUniformType::SamplerCube;
+  if (lower.rfind("sampler", 0) == 0)
+    return ShaderUniformType::Sampler2D;
   return ShaderUniformType::Unknown;
 }
 
@@ -178,6 +194,7 @@ struct DeclarationParseResult {
   std::string type;
   std::string name;
   uint32_t array_size{1};
+  std::vector<std::string> qualifiers;
 };
 
 std::optional<DeclarationParseResult> parse_declaration(std::string_view decl) {
@@ -232,7 +249,9 @@ std::optional<DeclarationParseResult> parse_declaration(std::string_view decl) {
     start = end + 1;
   }
 
+  std::vector<std::string> qualifiers;
   while (!tokens.empty() && is_qualifier(tokens.front())) {
+    qualifiers.push_back(to_lower(tokens.front()));
     tokens.erase(tokens.begin());
   }
 
@@ -240,9 +259,102 @@ std::optional<DeclarationParseResult> parse_declaration(std::string_view decl) {
     return std::nullopt;
 
   std::string type = tokens.back();
+  while (!type.empty() && (type.back() == '&' || type.back() == '*')) {
+    type.pop_back();
+  }
+  type = trim_copy(type);
 
-  return DeclarationParseResult{type, name, array_size};
+  return DeclarationParseResult{type, name, array_size, qualifiers};
 }
+
+struct MetalAttribute {
+  std::string kind;
+  std::optional<uint32_t> index;
+};
+
+std::optional<MetalAttribute> parse_metal_attribute(std::string_view value) {
+  value = trim_view(value);
+  if (value.empty())
+    return std::nullopt;
+
+  MetalAttribute attr;
+  size_t paren = value.find('(');
+  if (paren == std::string::npos) {
+    attr.kind = to_lower(value);
+    return attr;
+  }
+
+  std::string kind = trim_copy(value.substr(0, paren));
+  attr.kind = to_lower(kind);
+
+  size_t close = value.find(')', paren + 1);
+  if (close == std::string::npos)
+    return attr;
+
+  std::string_view number = value.substr(paren + 1, close - paren - 1);
+  number = trim_view(number);
+  if (number.empty())
+    return attr;
+
+  uint32_t parsed = 0;
+  auto conv = std::from_chars(number.data(), number.data() + number.size(), parsed);
+  if (conv.ec == std::errc{})
+    attr.index = parsed;
+  return attr;
+}
+
+std::vector<std::string> split_parameters(std::string_view params) {
+  std::vector<std::string> result;
+  size_t start = 0;
+  int angle_depth = 0;
+  int paren_depth = 0;
+  int bracket_depth = 0;
+
+  for (size_t i = 0; i < params.size(); ++i) {
+    char c = params[i];
+    switch (c) {
+    case '<':
+      ++angle_depth;
+      break;
+    case '>':
+      if (angle_depth > 0)
+        --angle_depth;
+      break;
+    case '(':
+      ++paren_depth;
+      break;
+    case ')':
+      if (paren_depth > 0)
+        --paren_depth;
+      break;
+    case '[':
+      ++bracket_depth;
+      break;
+    case ']':
+      if (bracket_depth > 0)
+        --bracket_depth;
+      break;
+    case ',':
+      if (angle_depth == 0 && paren_depth == 0 && bracket_depth == 0) {
+        std::string part = trim_copy(params.substr(start, i - start));
+        if (!part.empty())
+          result.push_back(std::move(part));
+        start = i + 1;
+      }
+      break;
+    default:
+      break;
+    }
+  }
+
+  std::string last = trim_copy(params.substr(start));
+  if (!last.empty())
+    result.push_back(std::move(last));
+  return result;
+}
+
+ShaderReflection reflect_glsl_impl(std::string_view source, ShaderStage stage);
+ShaderReflection reflect_metal_impl(std::string_view source, ShaderStage stage);
 
 } // namespace
 
@@ -404,7 +516,7 @@ ShaderReflection::binding_for_block(std::string_view name,
   return block->binding;
 }
 
-ShaderReflection reflect_glsl(std::string_view source, ShaderStage stage) {
+ShaderReflection reflect_glsl_impl(std::string_view source, ShaderStage stage) {
   ShaderReflection reflection;
   std::string no_comments = remove_comments(source);
   std::string sanitized = no_comments;
@@ -502,6 +614,237 @@ ShaderReflection reflect_glsl(std::string_view source, ShaderStage stage) {
   }
 
   return reflection;
+}
+
+ShaderReflection reflect_metal_impl(std::string_view source,
+                                    ShaderStage stage) {
+  ShaderReflection reflection;
+  std::string no_comments = remove_comments(source);
+
+  std::unordered_map<std::string, std::vector<ShaderBlockMember>> struct_members;
+  std::regex struct_regex(
+      R"(struct\s+([A-Za-z_]\w*)\s*\{([^}]*)\}\s*;)", std::regex::optimize);
+  for (auto it = std::sregex_iterator(no_comments.begin(), no_comments.end(),
+                                      struct_regex);
+       it != std::sregex_iterator(); ++it) {
+    const std::smatch &match = *it;
+    std::string struct_name = match[1].str();
+    std::string members_src = match[2].str();
+
+    std::vector<ShaderBlockMember> members;
+    size_t cursor = 0;
+    while (cursor < members_src.size()) {
+      size_t semicolon = members_src.find(';', cursor);
+      if (semicolon == std::string::npos)
+        break;
+      std::string_view decl(members_src.data() + cursor, semicolon - cursor);
+      cursor = semicolon + 1;
+      auto parsed = parse_declaration(decl);
+      if (!parsed)
+        continue;
+      ShaderBlockMember member;
+      member.name = parsed->name;
+      member.type = to_uniform_type(parsed->type);
+      member.array_size = parsed->array_size;
+      members.push_back(std::move(member));
+    }
+
+    struct_members.emplace(std::move(struct_name), std::move(members));
+  }
+
+  std::string keyword;
+  switch (stage) {
+  case ShaderStage::Vertex:
+    keyword = "vertex";
+    break;
+  case ShaderStage::Fragment:
+    keyword = "fragment";
+    break;
+  case ShaderStage::Compute:
+    keyword = "kernel";
+    break;
+  default:
+    return reflection;
+  }
+
+  size_t pos = 0;
+  while ((pos = no_comments.find(keyword, pos)) != std::string::npos) {
+    if (pos > 0) {
+      char prev = no_comments[pos - 1];
+      if (std::isalnum(static_cast<unsigned char>(prev)) || prev == '_') {
+        pos += keyword.size();
+        continue;
+      }
+    }
+
+    size_t open_paren = no_comments.find('(', pos + keyword.size());
+    if (open_paren == std::string::npos)
+      break;
+
+    size_t i = open_paren + 1;
+    int depth = 1;
+    while (i < no_comments.size() && depth > 0) {
+      char c = no_comments[i];
+      if (c == '(')
+        ++depth;
+      else if (c == ')')
+        --depth;
+      ++i;
+    }
+    if (depth != 0)
+      break;
+
+    size_t close_paren = i - 1;
+    std::string params =
+        no_comments.substr(open_paren + 1, close_paren - open_paren - 1);
+    auto param_list = split_parameters(params);
+
+    for (std::string &param : param_list) {
+      std::vector<MetalAttribute> attributes;
+      size_t attr_pos = 0;
+      while ((attr_pos = param.find("[[")) != std::string::npos) {
+        size_t attr_end = param.find("]]", attr_pos);
+        if (attr_end == std::string::npos)
+          break;
+        std::string attr_content =
+            param.substr(attr_pos + 2, attr_end - attr_pos - 2);
+        if (auto parsed_attr = parse_metal_attribute(attr_content))
+          attributes.push_back(*parsed_attr);
+        param.erase(attr_pos, attr_end - attr_pos + 2);
+      }
+
+      std::string declaration = trim_copy(param);
+      if (declaration.empty())
+        continue;
+
+      auto parsed = parse_declaration(declaration);
+      if (!parsed)
+        continue;
+
+      auto has_qualifier = [&](std::string_view qualifier) {
+        std::string lower = to_lower(qualifier);
+        for (const std::string &q : parsed->qualifiers) {
+          if (q == lower)
+            return true;
+        }
+        return false;
+      };
+
+      ShaderUniformType base_type = to_uniform_type(parsed->type);
+      auto struct_it = struct_members.find(parsed->type);
+      bool has_struct = struct_it != struct_members.end();
+
+      for (const MetalAttribute &attr : attributes) {
+        if (attr.kind.empty())
+          continue;
+        if (attr.kind == "stage_in" || attr.kind == "attribute" ||
+            attr.kind == "position" || attr.kind == "thread_position_in_grid" ||
+            attr.kind == "thread_position_in_threadgroup" ||
+            attr.kind == "threadgroup_position_in_grid") {
+          continue;
+        }
+
+        if (attr.kind == "buffer") {
+          bool is_storage = has_qualifier("device") ||
+                            has_qualifier("threadgroup") ||
+                            has_qualifier("threadgroup_image");
+
+          if (!has_struct && base_type != ShaderUniformType::Unknown &&
+              !is_storage) {
+            ShaderUniform uniform;
+            uniform.name = parsed->name;
+            uniform.type = base_type;
+            uniform.array_size = parsed->array_size;
+            uniform.binding = attr.index;
+            uniform.add_stage(stage);
+            reflection.add_uniform(std::move(uniform));
+            continue;
+          }
+
+          ShaderBlock block;
+          block.type = is_storage ? ShaderBlockType::Storage
+                                  : ShaderBlockType::Uniform;
+          block.block_name = has_struct ? parsed->type : parsed->name;
+          block.instance_name = parsed->name;
+          block.binding = attr.index;
+          block.add_stage(stage);
+          if (has_struct)
+            block.members = struct_it->second;
+          reflection.add_block(block);
+
+          if (block.type == ShaderBlockType::Uniform && has_struct) {
+            for (const auto &member : struct_it->second) {
+              ShaderUniform uniform;
+              uniform.name = member.name;
+              uniform.type = member.type;
+              uniform.array_size = member.array_size;
+              uniform.binding = block.binding;
+              uniform.add_stage(stage);
+              reflection.add_uniform(std::move(uniform));
+            }
+          }
+        } else if (attr.kind == "texture") {
+          ShaderUniform uniform;
+          uniform.name = parsed->name;
+          ShaderUniformType type = to_uniform_type(parsed->type);
+          uniform.type = type == ShaderUniformType::Unknown
+                             ? ShaderUniformType::Sampler2D
+                             : type;
+          uniform.array_size = parsed->array_size;
+          uniform.binding = attr.index;
+          uniform.add_stage(stage);
+          reflection.add_uniform(std::move(uniform));
+        } else if (attr.kind == "sampler") {
+          ShaderUniform uniform;
+          uniform.name = parsed->name;
+          ShaderUniformType type = to_uniform_type(parsed->type);
+          if (type == ShaderUniformType::Unknown)
+            type = ShaderUniformType::Sampler2D;
+          uniform.type = type;
+          uniform.array_size = parsed->array_size;
+          uniform.binding = attr.index;
+          uniform.add_stage(stage);
+          reflection.add_uniform(std::move(uniform));
+        }
+      }
+    }
+
+    pos = close_paren + 1;
+  }
+
+  return reflection;
+}
+
+ShaderLanguage detect_shader_language(std::string_view source) {
+  if (source.find("[[") != std::string::npos ||
+      source.find("using namespace metal") != std::string::npos ||
+      source.find("#include <metal") != std::string::npos) {
+    return ShaderLanguage::Metal;
+  }
+  return ShaderLanguage::GLSL;
+}
+
+ShaderReflection reflect_shader(std::string_view source, ShaderStage stage,
+                                ShaderLanguage language) {
+  switch (language) {
+  case ShaderLanguage::GLSL:
+    return reflect_glsl_impl(source, stage);
+  case ShaderLanguage::Metal:
+    return reflect_metal_impl(source, stage);
+  }
+  return ShaderReflection{};
+}
+
+ShaderReflection reflect_shader(std::string_view source, ShaderStage stage) {
+  return reflect_shader(source, stage, detect_shader_language(source));
+}
+
+ShaderReflection reflect_glsl(std::string_view source, ShaderStage stage) {
+  return reflect_shader(source, stage, ShaderLanguage::GLSL);
+}
+
+ShaderReflection reflect_metal(std::string_view source, ShaderStage stage) {
+  return reflect_shader(source, stage, ShaderLanguage::Metal);
 }
 
 } // namespace pixel::renderer3d
