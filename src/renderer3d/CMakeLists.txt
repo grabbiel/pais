@@ -11,7 +11,7 @@ set(RENDERER3D_SOURCES
   mesh.cpp
   shader.cpp
   shader_reflection.cpp
-  renderer_primitives.cpp
+  primitives.cpp
   renderer_instanced.cpp
   lod.cpp
 )
@@ -138,7 +138,7 @@ source_group("Renderer\\Resources" FILES
 )
 
 source_group("Renderer\\Primitives" FILES
-  renderer_primitives.cpp
+  primitives.cpp
 )
 
 source_group("Renderer\\Advanced" FILES
