@@ -5,7 +5,6 @@
 
 # Core renderer sources
 set(RENDERER3D_SOURCES
-  vectormath.cpp
   device_factory.cpp
   renderer.cpp
   camera.cpp
@@ -41,6 +40,7 @@ target_include_directories(pixel_renderer3d
 target_link_libraries(pixel_renderer3d
   PUBLIC
     pixel::core      # Alias created in src/core/CMakeLists.txt
+    pixel::math      # Alias created in src/math/CMakeLists.txt
     pixel::platform  # Alias created in src/platform/common/CMakeLists.txt
     pixel::rhi       # Alias created in src/rhi/CMakeLists.txt
     ext::glfw        # Alias created in third_party/CMakeLists.txt
@@ -130,7 +130,6 @@ target_compile_definitions(pixel_renderer3d
 source_group("Renderer\\Core" FILES
   renderer.cpp
   camera.cpp
-  vectormath.cpp
   device_factory.cpp
 )
 
