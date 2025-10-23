@@ -780,7 +780,8 @@ void RendererLOD::draw_lod(Renderer &renderer, LODMesh &mesh,
     return;
 
   auto *cmd = renderer.device()->getImmediate();
-  cmd->setPipeline(shader->pipeline(base_material.blend_mode));
+  cmd->setPipeline(shader->pipeline(base_material.shader_variant,
+                                    base_material.blend_mode));
 
   glm::mat4 model = glm::mat4(1.0f);
   cmd->setUniformMat4("model", glm::value_ptr(model));

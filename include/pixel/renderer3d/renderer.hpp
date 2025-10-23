@@ -4,8 +4,11 @@
 #include <glm/glm.hpp>
 #include <array>
 #include <cstdint>
+#include <initializer_list>
+#include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -129,6 +132,30 @@ struct InputState {
 };
 
 // ============================================================================
+// Shader Variants
+// ============================================================================
+
+class ShaderVariantKey {
+public:
+  using DefineMap = std::map<std::string, std::string, std::less<>>;
+
+  ShaderVariantKey() = default;
+
+  void set_define(std::string name, std::string value = "1");
+  void clear_define(std::string_view name);
+  bool has_define(std::string_view name) const;
+  bool empty() const { return defines_.empty(); }
+  const DefineMap &defines() const { return defines_; }
+  std::string cache_key() const;
+
+  static ShaderVariantKey from_defines(
+      std::initializer_list<std::pair<std::string, std::string>> defines);
+
+private:
+  DefineMap defines_{};
+};
+
+// ============================================================================
 // Material
 // ============================================================================
 
@@ -148,6 +175,7 @@ struct Material {
   float roughness = 0.5f;
   float metallic = 0.0f;
   BlendMode blend_mode = BlendMode::Alpha;
+  ShaderVariantKey shader_variant{};
   bool depth_test = true;
   bool depth_write = true;
   rhi::CompareOp depth_compare = rhi::CompareOp::Less;
@@ -222,12 +250,26 @@ public:
   ~Shader() = default;
 
   rhi::PipelineHandle pipeline(Material::BlendMode mode) const;
+  rhi::PipelineHandle pipeline(const ShaderVariantKey &variant,
+                               Material::BlendMode mode) const;
 
 private:
   Shader() = default;
-  std::array<rhi::PipelineHandle, Material::kBlendModeCount> pipelines_{};
-  rhi::ShaderHandle vs_{0};
-  rhi::ShaderHandle fs_{0};
+  struct VariantData {
+    std::array<rhi::PipelineHandle, Material::kBlendModeCount> pipelines{};
+    rhi::ShaderHandle vs{0};
+    rhi::ShaderHandle fs{0};
+  };
+
+  VariantData &get_or_create_variant(const ShaderVariantKey &variant) const;
+  VariantData build_variant(const ShaderVariantKey &variant) const;
+
+  rhi::Device *device_{nullptr};
+  std::string vert_source_;
+  std::string frag_source_;
+  std::string vs_stage_;
+  std::string fs_stage_;
+  mutable std::unordered_map<std::string, VariantData> variant_cache_;
 };
 
 // ============================================================================

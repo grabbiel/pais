@@ -150,7 +150,8 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
     return;
 
   auto *cmd = renderer.device()->getImmediate();
-  cmd->setPipeline(shader->pipeline(base_material.blend_mode));
+  cmd->setPipeline(shader->pipeline(base_material.shader_variant,
+                                    base_material.blend_mode));
   renderer.apply_material_state(cmd, base_material);
 
   // Build identity model matrix (instances handle their own transforms)
