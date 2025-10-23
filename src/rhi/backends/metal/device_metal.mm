@@ -458,7 +458,8 @@ struct MetalDevice::Impl {
 
     if (instanced) {
       // Per-instance attributes (buffer 2, locations 4-9)
-      // Matches pixel::renderer3d::InstanceGPUData layout used by the GL backend
+      // Matches pixel::renderer3d::InstanceGPUData layout used by the GL
+      // backend
       vertexDesc.attributes[4].format = MTLVertexFormatFloat3; // position
       vertexDesc.attributes[4].offset = 0;
       vertexDesc.attributes[4].bufferIndex = 2;
@@ -541,8 +542,8 @@ const Caps &MetalDevice::caps() const {
   static Caps caps;
   caps.instancing = true;
   caps.samplerAniso = true;
-  caps.maxSamplerAnisotropy = std::max(
-      1.0f, static_cast<float>([impl_->device_ maxSamplerAnisotropy]));
+  caps.maxSamplerAnisotropy =
+      std::max(1.0f, static_cast<float>([impl_->device_ maxSamplerAnisotropy]));
   caps.samplerCompare = true;
   caps.uniformBuffers = true;
   caps.clipSpaceYDown = true; // Metal uses Y-down clip space
@@ -641,12 +642,15 @@ SamplerHandle MetalDevice::createSampler(const SamplerDesc &desc) {
                                          : MTLSamplerAddressModeClampToEdge;
 
   if (desc.aniso || desc.maxAnisotropy > 1.0f) {
-    float requested = desc.maxAnisotropy > 1.0f
-                          ? desc.maxAnisotropy
-                          : static_cast<float>([impl_->device_ maxSamplerAnisotropy]);
-    float device_max = static_cast<float>([impl_->device_ maxSamplerAnisotropy]);
+    float requested =
+        desc.maxAnisotropy > 1.0f
+            ? desc.maxAnisotropy
+            : static_cast<float>([impl_->device_ maxSamplerAnisotropy]);
+    float device_max =
+        static_cast<float>([impl_->device_ maxSamplerAnisotropy]);
     requested = std::min(requested, device_max);
-    samplerDesc.maxAnisotropy = std::max<NSUInteger>(1, static_cast<NSUInteger>(requested));
+    samplerDesc.maxAnisotropy =
+        std::max<NSUInteger>(1, static_cast<NSUInteger>(requested));
   }
 
   samplerDesc.compareFunction = desc.compareEnable
@@ -1009,10 +1013,10 @@ void MetalDevice::waitFence(FenceHandle handle, uint64_t timeout_ns) {
     return;
   if (!it->second.semaphore)
     return;
-  dispatch_time_t timeout = timeout_ns == ~0ull
-                                 ? DISPATCH_TIME_FOREVER
-                                 : dispatch_time(DISPATCH_TIME_NOW,
-                                                 static_cast<int64_t>(timeout_ns));
+  dispatch_time_t timeout =
+      timeout_ns == ~0ull
+          ? DISPATCH_TIME_FOREVER
+          : dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(timeout_ns));
   long status = dispatch_semaphore_wait(it->second.semaphore, timeout);
   if (status == 0) {
     it->second.signaled = true;
@@ -1025,7 +1029,8 @@ void MetalDevice::resetFence(FenceHandle handle) {
     return;
   if (!it->second.semaphore)
     return;
-  while (dispatch_semaphore_wait(it->second.semaphore, DISPATCH_TIME_NOW) == 0) {
+  while (dispatch_semaphore_wait(it->second.semaphore, DISPATCH_TIME_NOW) ==
+         0) {
   }
   it->second.signaled = false;
 }
@@ -1253,8 +1258,8 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
   uint32_t colorAttachmentCount = framebuffer
                                       ? framebuffer->desc.colorAttachmentCount
                                       : desc.colorAttachmentCount;
-  bool hasDepthAttachment =
-      framebuffer ? framebuffer->desc.hasDepthAttachment : desc.hasDepthAttachment;
+  bool hasDepthAttachment = framebuffer ? framebuffer->desc.hasDepthAttachment
+                                        : desc.hasDepthAttachment;
 
   if (colorAttachmentCount > kMaxColorAttachments) {
     std::cerr << "Metal render pass exceeds maximum color attachments"
@@ -1272,7 +1277,8 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
   bool usesSwapchainDepth = false;
 
   if (!framebuffer) {
-    usesSwapchainDepth = hasDepthAttachment && desc.depthAttachment.texture.id == 0;
+    usesSwapchainDepth =
+        hasDepthAttachment && desc.depthAttachment.texture.id == 0;
     if (colorAttachmentCount == 0) {
       requiresDrawable = usesSwapchainDepth;
     } else {
@@ -1315,14 +1321,15 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
   for (uint32_t i = 0; i < colorAttachmentCount; ++i) {
     const RenderPassColorAttachment *ops =
         (i < desc.colorAttachmentCount) ? &desc.colorAttachments[i] : nullptr;
-    TextureHandle textureHandle = framebuffer
-                                      ? framebuffer->desc.colorAttachments[i].texture
-                                      : (ops ? ops->texture : TextureHandle{0});
-    uint32_t mipLevel = framebuffer ? framebuffer->desc.colorAttachments[i].mipLevel
-                                    : (ops ? ops->mipLevel : 0);
+    TextureHandle textureHandle =
+        framebuffer ? framebuffer->desc.colorAttachments[i].texture
+                    : (ops ? ops->texture : TextureHandle{0});
+    uint32_t mipLevel = framebuffer
+                            ? framebuffer->desc.colorAttachments[i].mipLevel
+                            : (ops ? ops->mipLevel : 0);
     uint32_t arraySlice = framebuffer
-                               ? framebuffer->desc.colorAttachments[i].arraySlice
-                               : (ops ? ops->arraySlice : 0);
+                              ? framebuffer->desc.colorAttachments[i].arraySlice
+                              : (ops ? ops->arraySlice : 0);
 
     MTLRenderPassColorAttachmentDescriptor *colorDesc =
         renderPassDesc.colorAttachments[i];
@@ -1414,8 +1421,8 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
                                  ? framebuffer->desc.depthAttachment.mipLevel
                                  : depthOps.mipLevel;
     uint32_t depthSlice = framebuffer
-                               ? framebuffer->desc.depthAttachment.arraySlice
-                               : depthOps.arraySlice;
+                              ? framebuffer->desc.depthAttachment.arraySlice
+                              : depthOps.arraySlice;
     bool depthHasStencil = framebuffer
                                ? framebuffer->desc.depthAttachment.hasStencil
                                : depthOps.hasStencil;
