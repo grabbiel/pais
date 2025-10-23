@@ -1,20 +1,30 @@
 #include "pixel/input/input_manager.hpp"
+#include "pixel/platform/window.hpp"
 #include <GLFW/glfw3.h>
 #include <cstring>
 
 namespace pixel::input {
 
-InputManager::InputManager(GLFWwindow* window)
+InputManager::InputManager(platform::Window* window)
     : window_(window) {
   // Initialize mouse position
-  glfwGetCursorPos(window_, &last_mouse_x_, &last_mouse_y_);
-  state_.mouse_x = last_mouse_x_;
-  state_.mouse_y = last_mouse_y_;
-  state_.prev_mouse_x = last_mouse_x_;
-  state_.prev_mouse_y = last_mouse_y_;
+  if (window_) {
+    GLFWwindow* glfw_window = window_->native_handle();
+    glfwGetCursorPos(glfw_window, &last_mouse_x_, &last_mouse_y_);
+    state_.mouse_x = last_mouse_x_;
+    state_.mouse_y = last_mouse_y_;
+    state_.prev_mouse_x = last_mouse_x_;
+    state_.prev_mouse_y = last_mouse_y_;
+  }
 }
 
 void InputManager::update() {
+  if (!window_) {
+    return;
+  }
+
+  GLFWwindow* glfw_window = window_->native_handle();
+
   // Copy current state to previous state
   std::memcpy(state_.prev_keys, state_.keys, sizeof(state_.keys));
   std::memcpy(state_.prev_mouse_buttons, state_.mouse_buttons,
@@ -24,18 +34,18 @@ void InputManager::update() {
 
   // Read current keyboard state
   for (int key = 32; key <= 348; ++key) {
-    state_.keys[key] = (glfwGetKey(window_, key) == GLFW_PRESS);
+    state_.keys[key] = (glfwGetKey(glfw_window, key) == GLFW_PRESS);
   }
 
   // Read current mouse button state
   for (int btn = 0; btn < 8; ++btn) {
     state_.mouse_buttons[btn] =
-        (glfwGetMouseButton(window_, btn) == GLFW_PRESS);
+        (glfwGetMouseButton(glfw_window, btn) == GLFW_PRESS);
   }
 
   // Read current mouse position and calculate delta
   double x, y;
-  glfwGetCursorPos(window_, &x, &y);
+  glfwGetCursorPos(glfw_window, &x, &y);
   state_.mouse_delta_x = x - last_mouse_x_;
   state_.mouse_delta_y = y - last_mouse_y_;
   state_.mouse_x = x;

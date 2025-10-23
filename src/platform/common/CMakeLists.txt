@@ -7,6 +7,7 @@ set(PLATFORM_SOURCES
   platform.cpp
   resources.cpp
   shader_loader.cpp
+  window.cpp
 )
 
 # Add platform-specific sources
@@ -25,6 +26,12 @@ target_include_directories(pixel_platform
     ${CMAKE_SOURCE_DIR}/include
   PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+# Link GLFW for window management
+target_link_libraries(pixel_platform
+  PUBLIC
+    ext::glfw
 )
 
 # Platform-specific dependencies

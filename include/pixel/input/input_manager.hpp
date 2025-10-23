@@ -2,7 +2,9 @@
 
 #include "pixel/math/math.hpp"
 
-struct GLFWwindow;
+namespace pixel::platform {
+  class Window;
+}
 
 namespace pixel::input {
 
@@ -50,7 +52,7 @@ struct InputState {
 
 class InputManager {
 public:
-  explicit InputManager(GLFWwindow* window);
+  explicit InputManager(platform::Window* window);
 
   // Call once per frame to update input state
   void update();
@@ -74,7 +76,7 @@ public:
   const InputState& state() const { return state_; }
 
 private:
-  GLFWwindow* window_;
+  platform::Window* window_;
   InputState state_;
   double last_mouse_x_ = 0.0;
   double last_mouse_y_ = 0.0;

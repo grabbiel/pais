@@ -14,7 +14,9 @@
 #include <unordered_map>
 #include <vector>
 
-struct GLFWwindow;
+namespace pixel::platform {
+  class Window;
+}
 
 namespace pixel::renderer3d {
 
@@ -272,14 +274,14 @@ public:
   rhi::Device *device() { return device_; }
   const rhi::Device *device() const { return device_; }
 
-  GLFWwindow *window() { return window_; }
-  const GLFWwindow *window() const { return window_; }
+  platform::Window *window() { return window_; }
+  const platform::Window *window() const { return window_; }
 
 protected:
   Renderer() = default;
   void setup_default_shaders();
 
-  struct GLFWwindow *window_ = nullptr;
+  platform::Window *window_ = nullptr;
   rhi::Device *device_ = nullptr;
 
   std::unordered_map<ShaderID, std::unique_ptr<Shader>> shaders_;

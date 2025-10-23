@@ -1,8 +1,9 @@
 #ifdef __APPLE__
 #define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
 
 #include "pixel/rhi/rhi.hpp"
+#include "pixel/platform/window.hpp"
+#include "pixel/platform/platform.hpp"
 
 #include <cassert>
 #include <cstdint>
@@ -12,16 +13,15 @@
 using namespace pixel::rhi;
 
 int main() {
-  if (!glfwInit()) {
-    return 1;
-  }
+  pixel::platform::WindowSpec spec;
+  spec.w = 128;
+  spec.h = 128;
+  spec.title = "MetalComputeTest";
 
-  glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-  GLFWwindow *window =
-      glfwCreateWindow(128, 128, "MetalComputeTest", nullptr, nullptr);
+  auto window = pixel::platform::Window::create(spec, pixel::platform::GraphicsAPI::Metal);
   assert(window != nullptr);
 
-  Device *device = create_metal_device(window);
+  Device *device = create_metal_device(window->native_handle());
   assert(device != nullptr);
 
   constexpr uint32_t kElementCount = 128;
@@ -105,8 +105,7 @@ int main() {
   cmd->end();
 
   delete device;
-  glfwDestroyWindow(window);
-  glfwTerminate();
+  // Window cleanup is automatic via RAII
   return 0;
 }
 

@@ -3,7 +3,7 @@
 #include "pixel/renderer3d/renderer_fwd.hpp"
 #include "pixel/rhi/rhi.hpp"
 #include "pixel/platform/shader_loader.hpp"
-#include <GLFW/glfw3.h>
+#include "pixel/platform/window.hpp"
 #include <cmath>
 #include <cstring>
 #include <glm/gtc/matrix_transform.hpp>
@@ -12,20 +12,14 @@
 #include <stdexcept>
 #include <cstdlib>
 
-struct GLFWwindow;
-
 namespace pixel::renderer3d {
 
 struct DeviceCreationResult {
   rhi::Device *device = nullptr;
-  GLFWwindow *window = nullptr;
+  platform::Window *window = nullptr;
   std::string backend_name;
 };
 DeviceCreationResult create_renderer_device(const platform::WindowSpec &spec);
-
-static void glfw_error_callback(int error, const char *description) {
-  std::cerr << "GLFW Error " << error << ": " << description << std::endl;
-}
 
 // ============================================================================
 // Renderer Implementation
@@ -33,15 +27,11 @@ static void glfw_error_callback(int error, const char *description) {
 
 std::unique_ptr<Renderer>
 Renderer::create(const pixel::platform::WindowSpec &spec) {
-  glfwSetErrorCallback(glfw_error_callback);
-
-  if (!glfwInit())
-    throw std::runtime_error("Failed to initialize GLFW");
-
   auto renderer = std::unique_ptr<Renderer>(new Renderer());
 
   try {
     // Use the device factory helper - it handles all backend selection logic
+    // Window initialization is now handled by the Window class
     auto result = create_renderer_device(spec);
 
     renderer->window_ = result.window;
@@ -50,7 +40,6 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
     std::cout << "Renderer Backend: " << result.backend_name << std::endl;
 
   } catch (const std::exception &e) {
-    glfwTerminate();
     throw std::runtime_error(std::string("Failed to initialize renderer: ") +
                              e.what());
   }
@@ -67,9 +56,10 @@ Renderer::~Renderer() {
     device_ = nullptr;
   }
 
-  if (window_)
-    glfwDestroyWindow(window_);
-  glfwTerminate();
+  if (window_) {
+    delete window_;
+    window_ = nullptr;
+  }
 }
 
 void Renderer::setup_default_shaders() {
@@ -139,8 +129,11 @@ void Renderer::resume_render_pass() {
 }
 
 bool Renderer::process_events() {
-  glfwPollEvents();
-  return !glfwWindowShouldClose(window_);
+  if (!window_) {
+    return false;
+  }
+  window_->poll_events();
+  return !window_->should_close();
 }
 
 ShaderID Renderer::load_shader(const std::string &vert_path,
@@ -156,18 +149,16 @@ Shader *Renderer::get_shader(ShaderID id) {
 }
 
 int Renderer::window_width() const {
-  int w;
-  glfwGetWindowSize(window_, &w, nullptr);
-  return w;
+  return window_ ? window_->width() : 0;
 }
 
 int Renderer::window_height() const {
-  int h;
-  glfwGetWindowSize(window_, nullptr, &h);
-  return h;
+  return window_ ? window_->height() : 0;
 }
 
-double Renderer::time() const { return glfwGetTime(); }
+double Renderer::time() const {
+  return window_ ? window_->time() : 0.0;
+}
 
 const char *Renderer::backend_name() const { return "OpenGL 3.3 Core"; }
 
