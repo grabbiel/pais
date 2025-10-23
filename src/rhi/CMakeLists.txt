@@ -46,6 +46,8 @@ elseif(WIN32)
   message(STATUS "RHI: Configuring for Windows")
   set(RHI_BACKEND_SOURCES
     backends/gl/device_gl.cpp
+    backends/gl/resources_gl.cpp
+    backends/gl/state_gl.cpp
     backends/gl/cmd_gl.cpp
     backends/gl/pipeline_gl.cpp
   )
@@ -56,6 +58,8 @@ elseif(UNIX)
   message(STATUS "RHI: Configuring for Linux")
   set(RHI_BACKEND_SOURCES
     backends/gl/device_gl.cpp
+    backends/gl/resources_gl.cpp
+    backends/gl/state_gl.cpp
     backends/gl/cmd_gl.cpp
     backends/gl/pipeline_gl.cpp
   )
