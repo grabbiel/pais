@@ -12,17 +12,19 @@ namespace pixel::renderer3d {
 
 // GPU instance data layout (68 bytes total) - matches instanced shader
 struct InstanceGPUData {
-  float position[3];             // World position (12 bytes, offset 0)
-  float rotation[3];             // Euler rotation (XYZ) (12 bytes, offset 12)
-  float scale[3];                // Non-uniform scale (12 bytes, offset 24)
-  float color[4];                // Per-instance color (RGBA) (16 bytes, offset 36)
-  float texture_index;           // Texture array index (4 bytes, offset 52)
-  float culling_radius;          // Bounding sphere radius for LOD/culling (4 bytes, offset 56)
-  float lod_transition_alpha;    // LOD crossfade alpha (4 bytes, offset 60)
-  float _padding;                // Padding to 68 bytes (4 bytes, offset 64)
+  float position[3];    // World position (12 bytes, offset 0)
+  float rotation[3];    // Euler rotation (XYZ) (12 bytes, offset 12)
+  float scale[3];       // Non-uniform scale (12 bytes, offset 24)
+  float color[4];       // Per-instance color (RGBA) (16 bytes, offset 36)
+  float texture_index;  // Texture array index (4 bytes, offset 52)
+  float culling_radius; // Bounding sphere radius for LOD/culling (4 bytes,
+                        // offset 56)
+  float lod_transition_alpha; // LOD crossfade alpha (4 bytes, offset 60)
+  float _padding;             // Padding to 68 bytes (4 bytes, offset 64)
 };
 
-// CPU instance data - includes convenience fields for LOD and culling calculations
+// CPU instance data - includes convenience fields for LOD and culling
+// calculations
 struct InstanceData {
   // CPU-side convenience fields for LOD, culling, and other calculations
   Vec3 position{0, 0, 0};
@@ -41,7 +43,7 @@ struct InstanceData {
   InstanceGPUData to_gpu_data() const;
 
   // Helper: Set transform parameters
-  void set_transform(const Vec3& pos, const Vec3& rot, const Vec3& scl) {
+  void set_transform(const Vec3 &pos, const Vec3 &rot, const Vec3 &scl) {
     position = pos;
     rotation = rot;
     scale = scl;
@@ -64,6 +66,8 @@ public:
   void draw(rhi::CmdList *cmd) const;
 
   size_t instance_count() const { return instance_count_; }
+  size_t vertex_count() const { return vertex_count_; }
+  size_t index_count() const { return index_count_; }
   size_t max_instances() const { return max_instances_; }
 
   rhi::BufferHandle vertex_buffer() const { return vertex_buffer_; }

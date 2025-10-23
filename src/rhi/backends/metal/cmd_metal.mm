@@ -37,8 +37,13 @@ void MetalCmdList::begin() {
 }
 
 void MetalCmdList::beginRender(const RenderPassDesc &desc) {
-  std::cerr << "DEBUG: beginRender() called on frame " << *impl_->frame_index_
+  std::cerr << "\n" << std::string(60, '=') << std::endl;
+  std::cerr << "beginRender() CALLED" << std::endl;
+  std::cerr << "  Color attachments: " << desc.colorAttachmentCount
             << std::endl;
+  std::cerr << "  Depth attachment:  "
+            << (desc.depthAttachment.clearDepth ? "YES" : "NO") << std::endl;
+  std::cerr << std::string(60, '=') << "\n" << std::endl;
   impl_->endComputeEncoderIfNeeded();
 
   impl_->resetUniformBlock();
@@ -115,9 +120,10 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
 
   if (requiresDrawable) {
     if (!impl_->layer_) {
-      std::cerr << "Metal render pass requested swapchain drawable but layer was"
-                   " null"
-                << std::endl;
+      std::cerr
+          << "Metal render pass requested swapchain drawable but layer was"
+             " null"
+          << std::endl;
       return;
     }
 
@@ -331,6 +337,11 @@ void MetalCmdList::setPipeline(PipelineHandle handle) {
 }
 
 void MetalCmdList::setVertexBuffer(BufferHandle handle, size_t offset) {
+  // === DIAGNOSTIC LOGGING ===
+  std::cerr << "setVertexBuffer(): handle=" << handle.id
+            << ", offset=" << offset << std::endl;
+  // === END ===
+
   impl_->current_vb_ = handle;
   impl_->current_vb_offset_ = offset;
 
@@ -339,17 +350,30 @@ void MetalCmdList::setVertexBuffer(BufferHandle handle, size_t offset) {
   }
 
   auto it = impl_->buffers_->find(handle.id);
-  if (it == impl_->buffers_->end())
+  if (it == impl_->buffers_->end()) {
+    // === DIAGNOSTIC LOGGING ===
+    std::cerr << "  ERROR: Vertex buffer " << handle.id << " not found!"
+              << std::endl;
+    // === END ===
     return;
+  }
 
   if (impl_->render_encoder_) {
     [impl_->render_encoder_ setVertexBuffer:it->second.buffer
                                      offset:offset
                                     atIndex:0];
+    // === DIAGNOSTIC LOGGING ===
+    std::cerr << "  ✓ Vertex buffer bound to index 0" << std::endl;
+    // === END ===
   }
 }
 
 void MetalCmdList::setIndexBuffer(BufferHandle handle, size_t offset) {
+  // === DIAGNOSTIC LOGGING ===
+  std::cerr << "setIndexBuffer(): handle=" << handle.id << ", offset=" << offset
+            << std::endl;
+  // === END ===
+
   impl_->current_ib_ = handle;
   impl_->current_ib_offset_ = offset;
 
@@ -358,30 +382,75 @@ void MetalCmdList::setIndexBuffer(BufferHandle handle, size_t offset) {
   }
 
   auto it = impl_->buffers_->find(handle.id);
-  if (it == impl_->buffers_->end())
+  if (it == impl_->buffers_->end()) {
+    // === DIAGNOSTIC LOGGING ===
+    std::cerr << "  ERROR: Index buffer " << handle.id << " not found!"
+              << std::endl;
+    // === END ===
     return;
+  }
 
   if (impl_->render_encoder_) {
     [impl_->render_encoder_ setVertexBuffer:it->second.buffer
                                      offset:offset
                                     atIndex:3];
+    // === DIAGNOSTIC LOGGING ===
+    std::cerr << "  ✓ Index buffer bound to index 3" << std::endl;
+    // === END ===
   }
 }
 
 void MetalCmdList::setInstanceBuffer(BufferHandle handle, size_t stride,
                                      size_t offset) {
+  // === DIAGNOSTIC LOGGING START ===
+  std::cerr << "\n" << std::string(60, '=') << std::endl;
+  std::cerr << "setInstanceBuffer() CALLED" << std::endl;
+  std::cerr << std::string(60, '=') << std::endl;
+  std::cerr << "  handle.id:      " << handle.id << std::endl;
+  std::cerr << "  stride:         " << stride << " bytes" << std::endl;
+  std::cerr << "  offset:         " << offset << " bytes" << std::endl;
+  std::cerr << "  encoder active: " << (impl_->render_encoder_ ? "YES" : "NO")
+            << std::endl;
+  // === DIAGNOSTIC LOGGING END ===
+
   (void)stride;
   if (handle.id == 0) {
+    // === DIAGNOSTIC LOGGING ===
+    std::cerr << "  ERROR: Invalid buffer handle (0)!" << std::endl;
+    std::cerr << std::string(60, '=') << "\n" << std::endl;
+    // === END ===
     return;
   }
 
   auto it = impl_->buffers_->find(handle.id);
-  if (it == impl_->buffers_->end())
+  if (it == impl_->buffers_->end()) {
+    // === DIAGNOSTIC LOGGING ===
+    std::cerr << "  ERROR: Buffer " << handle.id << " not found in buffer map!"
+              << std::endl;
+    std::cerr << std::string(60, '=') << "\n" << std::endl;
+    // === END ===
     return;
+  }
+
+  // === DIAGNOSTIC LOGGING ===
+  std::cerr << "  ✓ Buffer found:" << std::endl;
+  std::cerr << "    - size:        " << it->second.size << " bytes"
+            << std::endl;
+  std::cerr << "    - host_visible: "
+            << (it->second.host_visible ? "YES" : "NO") << std::endl;
+  std::cerr << "  Setting vertex buffer at index 2 (instance data)..."
+            << std::endl;
+  // === END ===
 
   [impl_->render_encoder_ setVertexBuffer:it->second.buffer
                                    offset:offset
                                   atIndex:2];
+
+  // === DIAGNOSTIC LOGGING ===
+  std::cerr << "  ✓ SUCCESS: Instance buffer bound to buffer index 2"
+            << std::endl;
+  std::cerr << std::string(60, '=') << "\n" << std::endl;
+  // === END ===
 }
 
 void MetalCmdList::copyToTexture(TextureHandle texture, uint32_t mipLevel,
@@ -436,26 +505,89 @@ void MetalCmdList::copyToTextureLayer(TextureHandle texture, uint32_t layer,
 
 void MetalCmdList::drawIndexed(uint32_t indexCount, uint32_t firstIndex,
                                uint32_t instanceCount) {
-  if (impl_->current_pipeline_.id == 0 || impl_->current_ib_.id == 0)
+  // === DIAGNOSTIC LOGGING START ===
+  std::cerr << "\n" << std::string(60, '=') << std::endl;
+  std::cerr << "drawIndexed() CALLED" << std::endl;
+  std::cerr << std::string(60, '=') << std::endl;
+  std::cerr << "Draw Parameters:" << std::endl;
+  std::cerr << "  indexCount:     " << indexCount << std::endl;
+  std::cerr << "  firstIndex:     " << firstIndex << std::endl;
+  std::cerr << "  instanceCount:  " << instanceCount << std::endl;
+  std::cerr << "\nPipeline State:" << std::endl;
+  std::cerr << "  pipeline.id:    " << impl_->current_pipeline_.id << std::endl;
+  std::cerr << "  index_buf.id:   " << impl_->current_ib_.id << std::endl;
+  std::cerr << "  index_offset:   " << impl_->current_ib_offset_ << std::endl;
+  std::cerr << "\nEncoder State:" << std::endl;
+  std::cerr << "  render_encoder: "
+            << (impl_->render_encoder_ ? "ACTIVE" : "NULL") << std::endl;
+  std::cerr << "  encoder_state:  ";
+  switch (impl_->active_encoder_) {
+  case Impl::EncoderState::None:
+    std::cerr << "None";
+    break;
+  case Impl::EncoderState::Render:
+    std::cerr << "Render";
+    break;
+  case Impl::EncoderState::Compute:
+    std::cerr << "Compute";
+    break;
+  }
+  std::cerr << std::endl;
+  // === DIAGNOSTIC LOGGING END ===
+
+  if (impl_->current_pipeline_.id == 0 || impl_->current_ib_.id == 0) {
+    // === DIAGNOSTIC LOGGING ===
+    std::cerr << "\n❌ FATAL ERROR: Pipeline or index buffer not set!"
+              << std::endl;
+    if (impl_->current_pipeline_.id == 0) {
+      std::cerr << "   - Pipeline ID is 0 (not set)" << std::endl;
+    }
+    if (impl_->current_ib_.id == 0) {
+      std::cerr << "   - Index buffer ID is 0 (not set)" << std::endl;
+    }
+    std::cerr << std::string(60, '=') << "\n" << std::endl;
+    // === END ===
     return;
+  }
 
   if (!impl_->render_encoder_) {
-    std::cerr << "Attempted to draw without an active render pass" << std::endl;
+    // === DIAGNOSTIC LOGGING ===
+    std::cerr << "\n❌ FATAL ERROR: No active render pass!" << std::endl;
+    std::cerr << "   - beginRender() must be called before drawing"
+              << std::endl;
+    std::cerr << std::string(60, '=') << "\n" << std::endl;
+    // === END ===
     return;
   }
 
   if (impl_->active_encoder_ != Impl::EncoderState::Render) {
-    std::cerr << "Attempted to draw when encoder is not in render state"
-              << std::endl;
+    // === DIAGNOSTIC LOGGING ===
+    std::cerr << "\n❌ FATAL ERROR: Encoder not in render state!" << std::endl;
+    std::cerr << "   - Current state: "
+              << static_cast<int>(impl_->active_encoder_) << std::endl;
+    std::cerr << std::string(60, '=') << "\n" << std::endl;
+    // === END ===
     return;
   }
 
   auto ib_it = impl_->buffers_->find(impl_->current_ib_.id);
-  if (ib_it == impl_->buffers_->end())
+  if (ib_it == impl_->buffers_->end()) {
+    // === DIAGNOSTIC LOGGING ===
+    std::cerr << "\n❌ FATAL ERROR: Index buffer not found!" << std::endl;
+    std::cerr << "   - Requested buffer ID: " << impl_->current_ib_.id
+              << std::endl;
+    std::cerr << std::string(60, '=') << "\n" << std::endl;
+    // === END ===
     return;
+  }
 
   size_t indexOffset =
       impl_->current_ib_offset_ + firstIndex * sizeof(uint32_t);
+
+  // === DIAGNOSTIC LOGGING ===
+  std::cerr << "\n✓ All preconditions met, issuing draw call..." << std::endl;
+  std::cerr << "  Final indexOffset: " << indexOffset << " bytes" << std::endl;
+  // === END ===
 
   [impl_->render_encoder_ drawIndexedPrimitives:MTLPrimitiveTypeTriangle
                                      indexCount:indexCount
@@ -463,6 +595,11 @@ void MetalCmdList::drawIndexed(uint32_t indexCount, uint32_t firstIndex,
                                     indexBuffer:ib_it->second.buffer
                               indexBufferOffset:indexOffset
                                   instanceCount:instanceCount];
+
+  // === DIAGNOSTIC LOGGING ===
+  std::cerr << "✓ SUCCESS: Draw call issued to Metal" << std::endl;
+  std::cerr << std::string(60, '=') << "\n" << std::endl;
+  // === END ===
 
   impl_->resetUniformBlock();
 }
@@ -503,9 +640,9 @@ void MetalCmdList::setStorageBuffer(uint32_t binding, BufferHandle buffer,
   const MTLBufferResource &buf = it->second;
 
   if (!impl_->compute_encoder_) {
-    std::cerr
-        << "Attempted to bind storage buffer without an active compute encoder"
-        << std::endl;
+    std::cerr << "Attempted to bind storage buffer without an active compute "
+                 "encoder"
+              << std::endl;
     return;
   }
 
