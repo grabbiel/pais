@@ -4,6 +4,8 @@
 
 #include "pixel/rhi/backends/metal/metal_internal.hpp"
 
+#include <GLFW/glfw3.h>
+
 namespace pixel::rhi {
 
 MetalCmdList::MetalCmdList(MetalDevice::Impl *device_impl)
@@ -88,8 +90,49 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     }
   }
 
+  NSUInteger targetWidth = framebuffer ? framebuffer->width : 0;
+  NSUInteger targetHeight = framebuffer ? framebuffer->height : 0;
+
+  if (!framebuffer && impl_->glfw_window_) {
+    int fbWidth = 0;
+    int fbHeight = 0;
+    glfwGetFramebufferSize(impl_->glfw_window_, &fbWidth, &fbHeight);
+    if (fbWidth > 0 && fbHeight > 0) {
+      targetWidth = static_cast<NSUInteger>(fbWidth);
+      targetHeight = static_cast<NSUInteger>(fbHeight);
+    }
+  }
+
+  if (!framebuffer && impl_->layer_) {
+    CGSize drawableSize = impl_->layer_.drawableSize;
+    if (targetWidth == 0) {
+      targetWidth = static_cast<NSUInteger>(drawableSize.width);
+    }
+    if (targetHeight == 0) {
+      targetHeight = static_cast<NSUInteger>(drawableSize.height);
+    }
+  }
+
   if (requiresDrawable) {
-    std::cerr << "DEBUG: Attempting to acquire drawable..." << std::endl;
+    if (!impl_->layer_) {
+      std::cerr << "Metal render pass requested swapchain drawable but layer was"
+                   " null"
+                << std::endl;
+      return;
+    }
+
+    if (targetWidth == 0 || targetHeight == 0) {
+      std::cerr << "Metal drawable size unresolved before acquisition ("
+                << targetWidth << "x" << targetHeight
+                << ") - forcing minimum size" << std::endl;
+      targetWidth = std::max<NSUInteger>(targetWidth, 1);
+      targetHeight = std::max<NSUInteger>(targetHeight, 1);
+    }
+
+    impl_->updateSwapchainSize(targetWidth, targetHeight);
+
+    std::cerr << "DEBUG: Attempting to acquire drawable for " << targetWidth
+              << "x" << targetHeight << std::endl;
     impl_->current_drawable_ = [impl_->layer_ nextDrawable];
 
     if (!impl_->current_drawable_) {
@@ -97,7 +140,12 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
                 << *impl_->frame_index_ << std::endl;
       return;
     }
-    std::cerr << "DEBUG: Successfully acquired drawable" << std::endl;
+
+    id<MTLTexture> drawableTex = impl_->current_drawable_.texture;
+    NSUInteger drawableWidth = drawableTex ? drawableTex.width : 0;
+    NSUInteger drawableHeight = drawableTex ? drawableTex.height : 0;
+    std::cerr << "DEBUG: Successfully acquired drawable (" << drawableWidth
+              << "x" << drawableHeight << ")" << std::endl;
   } else {
     impl_->current_drawable_ = nil;
   }
@@ -111,9 +159,6 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
         << std::endl;
     return;
   }
-
-  NSUInteger targetWidth = framebuffer ? framebuffer->width : 0;
-  NSUInteger targetHeight = framebuffer ? framebuffer->height : 0;
 
   for (uint32_t i = 0; i < colorAttachmentCount; ++i) {
     const RenderPassColorAttachment *attachment =

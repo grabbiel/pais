@@ -10,10 +10,12 @@
 
 namespace pixel::rhi {
 
-MetalDevice::MetalDevice(void *device, void *layer, void *depth_texture)
+MetalDevice::MetalDevice(void *device, void *layer, void *depth_texture,
+                         void *window)
     : impl_(std::make_unique<Impl>((__bridge id<MTLDevice>)device,
                                    (__bridge CAMetalLayer *)layer,
-                                   (__bridge id<MTLTexture>)depth_texture)) {}
+                                   (__bridge id<MTLTexture>)depth_texture,
+                                   static_cast<GLFWwindow *>(window))) {}
 
 MetalDevice::~MetalDevice() = default;
 
@@ -52,20 +54,51 @@ Device *create_metal_device(void *window) {
 
   std::cout << "Metal device: " << [[device name] UTF8String] << std::endl;
 
-  // Create Metal layer
-  CAMetalLayer *metalLayer = [CAMetalLayer layer];
+  // Query (or create) the CAMetalLayer associated with this GLFW window
+  CAMetalLayer *metalLayer = glfwGetMetalLayer(glfwWindow);
+  if (!metalLayer) {
+    metalLayer = [CAMetalLayer layer];
+    nsWindow.contentView.layer = metalLayer;
+    nsWindow.contentView.wantsLayer = YES;
+  }
+
   metalLayer.device = device;
   metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
   metalLayer.framebufferOnly = NO;
 
-  // Set layer on the window
-  nsWindow.contentView.layer = metalLayer;
-  nsWindow.contentView.wantsLayer = YES;
+  CGFloat backingScale = 1.0;
+  if (nsWindow.screen) {
+    backingScale = nsWindow.screen.backingScaleFactor;
+  } else if ([NSScreen mainScreen]) {
+    backingScale = [NSScreen mainScreen].backingScaleFactor;
+  }
+  if (backingScale <= 0.0) {
+    backingScale = 1.0;
+  }
+
+  metalLayer.contentsScale = backingScale;
+  metalLayer.maximumDrawableCount = 3;
+  metalLayer.allowsNextDrawableTimeout = NO;
 
   // Get window size
   int width, height;
   glfwGetFramebufferSize(glfwWindow, &width, &height);
+  if (width <= 0 || height <= 0) {
+    NSRect bounds = nsWindow.contentView.bounds;
+    width = static_cast<int>(bounds.size.width * backingScale);
+    height = static_cast<int>(bounds.size.height * backingScale);
+  }
+
+  if (width <= 0 || height <= 0) {
+    std::cerr << "Metal layer drawable size is zero (" << width << "x" << height
+              << ")" << std::endl;
+    width = 1;
+    height = 1;
+  }
+
   metalLayer.drawableSize = CGSizeMake(width, height);
+  std::cout << "Metal layer drawable size set to " << width << "x" << height
+            << " (scale " << backingScale << ")" << std::endl;
 
   // Create depth texture
   MTLTextureDescriptor *depthDesc = [MTLTextureDescriptor
@@ -85,7 +118,8 @@ Device *create_metal_device(void *window) {
 
   // Create and return device (bridging for C++ ownership)
   return new MetalDevice((__bridge void *)device, (__bridge void *)metalLayer,
-                         (__bridge void *)depthTexture);
+                         (__bridge void *)depthTexture,
+                         static_cast<void *>(glfwWindow));
 }
 
 } // namespace pixel::rhi

@@ -21,6 +21,8 @@
 #include <unordered_map>
 #include <vector>
 
+struct GLFWwindow;
+
 namespace pixel::rhi {
 
 MTLCompareFunction to_mtl_compare(CompareOp op);
@@ -263,6 +265,7 @@ struct MetalDevice::Impl {
   id<MTLCommandQueue> command_queue_ = nil;
   CAMetalLayer *layer_ = nil;
   id<MTLTexture> depth_texture_ = nil;
+  GLFWwindow *glfw_window_ = nullptr;
   id<MTLDepthStencilState> default_depth_stencil_ = nil;
   id<MTLLibrary> library_ = nil;
   UniformAllocator uniform_allocator_;
@@ -292,8 +295,10 @@ struct MetalDevice::Impl {
 
   std::unique_ptr<MetalCmdList> immediate_;
 
-  Impl(id<MTLDevice> device, CAMetalLayer *layer, id<MTLTexture> depth_texture)
-      : device_(device), layer_(layer), depth_texture_(depth_texture) {
+  Impl(id<MTLDevice> device, CAMetalLayer *layer, id<MTLTexture> depth_texture,
+       GLFWwindow *window)
+      : device_(device), layer_(layer), depth_texture_(depth_texture),
+        glfw_window_(window) {
     command_queue_ = [device_ newCommandQueue];
 
     // Create default depth stencil state
@@ -413,6 +418,41 @@ struct MetalDevice::Impl {
       }
     }
   }
+
+  void updateSwapchainSize(NSUInteger width, NSUInteger height) {
+    if (!layer_ || width == 0 || height == 0) {
+      return;
+    }
+
+    CGSize current = layer_.drawableSize;
+    if (static_cast<NSUInteger>(current.width) != width ||
+        static_cast<NSUInteger>(current.height) != height) {
+      layer_.drawableSize = CGSizeMake(width, height);
+      std::cerr << "DEBUG: CAMetalLayer drawable resized to " << width << "x"
+                << height << std::endl;
+    }
+
+    if (!depth_texture_ || depth_texture_.width != width ||
+        depth_texture_.height != height) {
+      MTLTextureDescriptor *depthDesc = [MTLTextureDescriptor
+          texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float
+                                       width:width
+                                      height:height
+                                   mipmapped:NO];
+      depthDesc.usage = MTLTextureUsageRenderTarget;
+      depthDesc.storageMode = MTLStorageModePrivate;
+
+      id<MTLTexture> newDepth = [device_ newTextureWithDescriptor:depthDesc];
+      if (!newDepth) {
+        std::cerr << "Failed to resize Metal depth texture to " << width << "x"
+                  << height << std::endl;
+      } else {
+        depth_texture_ = newDepth;
+        std::cerr << "DEBUG: Recreated depth texture for drawable size "
+                  << width << "x" << height << std::endl;
+      }
+    }
+  }
 };
 
 struct MetalCmdList::Impl {
@@ -420,6 +460,7 @@ struct MetalCmdList::Impl {
   id<MTLCommandQueue> command_queue_;
   CAMetalLayer *layer_;
   id<MTLTexture> depth_texture_;
+  GLFWwindow *glfw_window_;
   UniformAllocator *uniform_allocator_ = nullptr;
   UniformAllocator::Allocation current_uniform_{};
 
@@ -464,6 +505,7 @@ struct MetalCmdList::Impl {
         command_queue_(device_impl->command_queue_),
         layer_(device_impl->layer_),
         depth_texture_(device_impl->depth_texture_),
+        glfw_window_(device_impl->glfw_window_),
         uniform_allocator_(&device_impl->uniform_allocator_),
         buffers_(&device_impl->buffers_), textures_(&device_impl->textures_),
         pipelines_(&device_impl->pipelines_),

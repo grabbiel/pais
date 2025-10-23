@@ -41,7 +41,7 @@ class MetalCmdList;
 // ============================================================================
 class MetalDevice : public Device {
 public:
-  MetalDevice(void *device, void *layer, void *depth_texture);
+  MetalDevice(void *device, void *layer, void *depth_texture, void *window);
   ~MetalDevice() override;
 
   const Caps &caps() const override;
