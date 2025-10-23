@@ -178,7 +178,8 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
     return;
 
   auto *cmd = device_->getImmediate();
-  cmd->setPipeline(shader->pipeline(material.blend_mode));
+  cmd->setPipeline(shader->pipeline(material.shader_variant,
+                                    material.blend_mode));
   apply_material_state(cmd, material);
   cmd->setVertexBuffer(mesh.vertex_buffer());
   cmd->setIndexBuffer(mesh.index_buffer());
