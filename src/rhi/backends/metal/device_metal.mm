@@ -55,11 +55,15 @@ Device *create_metal_device(void *window) {
   std::cout << "Metal device: " << [[device name] UTF8String] << std::endl;
 
   // Query (or create) the CAMetalLayer associated with this GLFW window
-  CAMetalLayer *metalLayer = glfwGetMetalLayer(glfwWindow);
+  CAMetalLayer *metalLayer = nil;
+  if ([nsWindow.contentView.layer isKindOfClass:[CAMetalLayer class]]) {
+    metalLayer = (CAMetalLayer *)nsWindow.contentView.layer;
+  }
+
   if (!metalLayer) {
     metalLayer = [CAMetalLayer layer];
-    nsWindow.contentView.layer = metalLayer;
     nsWindow.contentView.wantsLayer = YES;
+    nsWindow.contentView.layer = metalLayer;
   }
 
   metalLayer.device = device;
