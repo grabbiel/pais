@@ -167,4 +167,33 @@ Device *create_gl_device(GLFWwindow *window);
 // Metal backend (macOS/iOS only)
 Device *create_metal_device(void *window);
 #endif
+
+// ============================================================================
+// Device Factory
+// ============================================================================
+
+// Forward declaration
+namespace platform {
+  class Window;
+}
+
+enum class GraphicsAPI {
+  Default,
+  OpenGL,
+  Metal
+};
+
+/**
+ * @brief Create a Device from an existing Window
+ * @param window Pointer to a platform::Window instance
+ * @param preferred_api Preferred graphics API (default selects based on platform)
+ * @return Unique pointer to the created Device
+ * @throws std::invalid_argument if window is null
+ * @throws std::runtime_error if device creation fails
+ */
+std::unique_ptr<Device> create_device(
+    platform::Window* window,
+    GraphicsAPI preferred_api = GraphicsAPI::Default
+);
+
 } // namespace pixel::rhi

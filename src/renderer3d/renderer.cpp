@@ -14,13 +14,6 @@
 
 namespace pixel::renderer3d {
 
-struct DeviceCreationResult {
-  rhi::Device *device = nullptr;
-  platform::Window *window = nullptr;
-  std::string backend_name;
-};
-DeviceCreationResult create_renderer_device(const platform::WindowSpec &spec);
-
 // ============================================================================
 // Renderer Implementation
 // ============================================================================
@@ -30,14 +23,25 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
   auto renderer = std::unique_ptr<Renderer>(new Renderer());
 
   try {
-    // Use the device factory helper - it handles all backend selection logic
-    // Window initialization is now handled by the Window class
-    auto result = create_renderer_device(spec);
+    // Step 1: Create the Window with appropriate Graphics API
+#ifdef PIXEL_USE_METAL
+    auto window = platform::Window::create(spec, platform::GraphicsAPI::Metal);
+    std::cout << "Created Window with Metal API" << std::endl;
+#else
+    auto window = platform::Window::create(spec, platform::GraphicsAPI::OpenGL);
+    std::cout << "Created Window with OpenGL API" << std::endl;
+#endif
 
-    renderer->window_ = result.window;
-    renderer->device_ = result.device;
+    if (!window) {
+      throw std::runtime_error("Failed to create window");
+    }
 
-    std::cout << "Renderer Backend: " << result.backend_name << std::endl;
+    // Step 2: Create the Device from the Window
+    auto device = rhi::create_device(window.get());
+
+    // Transfer ownership to renderer
+    renderer->window_ = window.release();
+    renderer->device_ = device.release();
 
   } catch (const std::exception &e) {
     throw std::runtime_error(std::string("Failed to initialize renderer: ") +
