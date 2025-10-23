@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <vector>
 #include <cstring>
+#include <algorithm>
 
 struct GLFWwindow;
 
@@ -62,6 +63,14 @@ struct GLPipeline {
   std::unordered_map<std::string, GLint> uniform_locations;
 };
 
+struct GLFramebuffer {
+  GLuint id = 0;
+  FramebufferDesc desc{};
+  int width = 0;
+  int height = 0;
+  std::vector<GLenum> draw_buffers;
+};
+
 // ============================================================================
 // OpenGL Command List
 // ============================================================================
@@ -72,153 +81,54 @@ public:
   GLCmdList(std::unordered_map<uint32_t, GLBuffer> *buffers,
             std::unordered_map<uint32_t, GLTexture> *textures,
             std::unordered_map<uint32_t, GLPipeline> *pipelines,
+            std::unordered_map<uint32_t, GLFramebuffer> *framebuffers,
             GLFWwindow *window)
       : buffers_(buffers), textures_(textures), pipelines_(pipelines),
-        window_(window) {}
+        framebuffers_(framebuffers), window_(window) {}
 
   void begin() override { recording_ = true; }
 
   void beginRender(const RenderPassDesc &desc) override {
-    bool has_swapchain_attachment = false;
-    bool has_offscreen_attachment = false;
-
-    for (uint32_t i = 0; i < desc.colorAttachmentCount; ++i) {
-      if (desc.colorAttachments[i].texture.id == 0) {
-        has_swapchain_attachment = true;
-      } else {
-        has_offscreen_attachment = true;
-      }
-    }
-
-    if (desc.hasDepthAttachment) {
-      if (desc.depthAttachment.texture.id == 0) {
-        has_swapchain_attachment = true;
-      } else {
-        has_offscreen_attachment = true;
-      }
-    }
-
-    if (!has_swapchain_attachment && !has_offscreen_attachment) {
-      has_swapchain_attachment = true;
-    }
-
-    if (has_swapchain_attachment && has_offscreen_attachment) {
-      std::cerr << "OpenGL render pass cannot mix swapchain and offscreen attachments"
-                << std::endl;
-      return;
-    }
-
-    using_offscreen_fbo_ = has_offscreen_attachment;
+    using_offscreen_fbo_ = false;
+    current_fbo_owned_ = false;
     current_fbo_ = 0;
 
-    if (has_offscreen_attachment) {
-      glGenFramebuffers(1, &current_fbo_);
-      glBindFramebuffer(GL_FRAMEBUFFER, current_fbo_);
-
-      std::vector<GLenum> draw_buffers;
-      draw_buffers.reserve(desc.colorAttachmentCount);
-      std::vector<bool> attachment_bound(desc.colorAttachmentCount, false);
-
-      int viewport_width = 0;
-      int viewport_height = 0;
-
-      for (uint32_t i = 0; i < desc.colorAttachmentCount; ++i) {
-        const auto &attachment = desc.colorAttachments[i];
-        auto tex_it = textures_->find(attachment.texture.id);
-        if (tex_it == textures_->end()) {
-          std::cerr << "Invalid color attachment texture at index " << i
-                    << std::endl;
-          continue;
-        }
-
-        const GLTexture &tex = tex_it->second;
-        GLenum attachment_point = GL_COLOR_ATTACHMENT0 + i;
-
-        if (tex.target == GL_TEXTURE_2D) {
-          glFramebufferTexture2D(GL_FRAMEBUFFER, attachment_point, tex.target,
-                                 tex.id, attachment.mipLevel);
-        } else if (tex.target == GL_TEXTURE_2D_ARRAY) {
-          glFramebufferTextureLayer(GL_FRAMEBUFFER, attachment_point, tex.id,
-                                    attachment.mipLevel, attachment.arraySlice);
-        } else {
-          glFramebufferTexture(GL_FRAMEBUFFER, attachment_point, tex.id,
-                               attachment.mipLevel);
-        }
-
-        attachment_bound[i] = true;
-        draw_buffers.push_back(attachment_point);
-
-        if (viewport_width == 0 && viewport_height == 0) {
-          viewport_width = tex.width;
-          viewport_height = tex.height;
-        } else if (viewport_width != tex.width || viewport_height != tex.height) {
-          std::cerr << "All color attachments must have matching dimensions in OpenGL"
-                    << std::endl;
-        }
-      }
-
-      if (desc.colorAttachmentCount == 0) {
-        glDrawBuffer(GL_NONE);
-        glReadBuffer(GL_NONE);
-      } else if (!draw_buffers.empty()) {
-        glDrawBuffers(static_cast<GLsizei>(draw_buffers.size()), draw_buffers.data());
-      } else {
-        glDrawBuffer(GL_NONE);
-        glReadBuffer(GL_NONE);
-      }
-
-      if (desc.hasDepthAttachment && desc.depthAttachment.texture.id != 0) {
-        const auto &depth = desc.depthAttachment;
-        auto tex_it = textures_->find(depth.texture.id);
-        if (tex_it == textures_->end()) {
-          std::cerr << "Invalid depth attachment texture" << std::endl;
-        } else {
-          const GLTexture &tex = tex_it->second;
-          GLenum attachment_point = depth.hasStencil ? GL_DEPTH_STENCIL_ATTACHMENT
-                                                     : GL_DEPTH_ATTACHMENT;
-
-          if (tex.target == GL_TEXTURE_2D) {
-            glFramebufferTexture2D(GL_FRAMEBUFFER, attachment_point, tex.target,
-                                   tex.id, depth.mipLevel);
-          } else if (tex.target == GL_TEXTURE_2D_ARRAY) {
-            glFramebufferTextureLayer(GL_FRAMEBUFFER, attachment_point, tex.id,
-                                      depth.mipLevel, depth.arraySlice);
-          } else {
-            glFramebufferTexture(GL_FRAMEBUFFER, attachment_point, tex.id,
-                                 depth.mipLevel);
-          }
-
-          if (viewport_width == 0 && viewport_height == 0) {
-            viewport_width = tex.width;
-            viewport_height = tex.height;
-          }
-        }
-      }
-
-      GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-      if (status != GL_FRAMEBUFFER_COMPLETE) {
-        std::cerr << "OpenGL framebuffer incomplete: 0x" << std::hex << status
-                  << std::dec << std::endl;
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glDeleteFramebuffers(1, &current_fbo_);
-        current_fbo_ = 0;
-        using_offscreen_fbo_ = false;
+    if (desc.framebuffer.id != 0) {
+      auto fb_it = framebuffers_->find(desc.framebuffer.id);
+      if (fb_it == framebuffers_->end()) {
+        std::cerr << "OpenGL beginRender called with invalid framebuffer handle"
+                  << std::endl;
         return;
       }
 
-      if (viewport_width > 0 && viewport_height > 0) {
-        glViewport(0, 0, viewport_width, viewport_height);
+      const GLFramebuffer &framebuffer = fb_it->second;
+      glBindFramebuffer(GL_FRAMEBUFFER, framebuffer.id);
+
+      if (!framebuffer.draw_buffers.empty()) {
+        glDrawBuffers(static_cast<GLsizei>(framebuffer.draw_buffers.size()),
+                      framebuffer.draw_buffers.data());
+      } else {
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
       }
 
-      for (uint32_t i = 0; i < desc.colorAttachmentCount; ++i) {
+      if (framebuffer.width > 0 && framebuffer.height > 0) {
+        glViewport(0, 0, framebuffer.width, framebuffer.height);
+      }
+
+      using_offscreen_fbo_ = true;
+      current_fbo_ = framebuffer.id;
+
+      uint32_t attachment_count =
+          std::min(desc.colorAttachmentCount, framebuffer.desc.colorAttachmentCount);
+      for (uint32_t i = 0; i < attachment_count; ++i) {
         const auto &attachment = desc.colorAttachments[i];
-        if (attachment.loadOp == LoadOp::Clear && i < attachment_bound.size() &&
-            attachment_bound[i]) {
+        if (attachment.loadOp == LoadOp::Clear) {
           glClearBufferfv(GL_COLOR, i, attachment.clearColor);
         }
       }
 
-      if (desc.hasDepthAttachment) {
+      if (framebuffer.desc.hasDepthAttachment && desc.hasDepthAttachment) {
         const auto &depth = desc.depthAttachment;
         bool clearDepth = depth.depthLoadOp == LoadOp::Clear;
         bool clearStencil = depth.hasStencil && depth.stencilLoadOp == LoadOp::Clear;
@@ -236,44 +146,206 @@ public:
         }
       }
     } else {
-      glBindFramebuffer(GL_FRAMEBUFFER, 0);
-      if (window_) {
-        int fbw = 0;
-        int fbh = 0;
-        glfwGetFramebufferSize(window_, &fbw, &fbh);
-        if (fbw > 0 && fbh > 0) {
-          glViewport(0, 0, fbw, fbh);
-        }
-      }
+      bool has_swapchain_attachment = false;
+      bool has_offscreen_attachment = false;
 
-      GLbitfield clearMask = 0;
-
-      if (desc.colorAttachmentCount > 0) {
-        const auto &color = desc.colorAttachments[0];
-        if (color.loadOp == LoadOp::Clear) {
-          glClearColor(color.clearColor[0], color.clearColor[1], color.clearColor[2],
-                       color.clearColor[3]);
-          clearMask |= GL_COLOR_BUFFER_BIT;
+      for (uint32_t i = 0; i < desc.colorAttachmentCount; ++i) {
+        if (desc.colorAttachments[i].texture.id == 0) {
+          has_swapchain_attachment = true;
+        } else {
+          has_offscreen_attachment = true;
         }
       }
 
       if (desc.hasDepthAttachment) {
-        const auto &depth = desc.depthAttachment;
-        if (depth.depthLoadOp == LoadOp::Clear) {
-          glClearDepth(depth.clearDepth);
-          clearMask |= GL_DEPTH_BUFFER_BIT;
-        }
-        if (depth.hasStencil && depth.stencilLoadOp == LoadOp::Clear) {
-          glClearStencil(depth.clearStencil);
-          clearMask |= GL_STENCIL_BUFFER_BIT;
+        if (desc.depthAttachment.texture.id == 0) {
+          has_swapchain_attachment = true;
+        } else {
+          has_offscreen_attachment = true;
         }
       }
 
-      if (clearMask != 0) {
-        glClear(clearMask);
+      if (!has_swapchain_attachment && !has_offscreen_attachment) {
+        has_swapchain_attachment = true;
+      }
+
+      if (has_swapchain_attachment && has_offscreen_attachment) {
+        std::cerr
+            << "OpenGL render pass cannot mix swapchain and offscreen attachments"
+            << std::endl;
+        return;
+      }
+
+      using_offscreen_fbo_ = has_offscreen_attachment;
+
+      if (has_offscreen_attachment) {
+        glGenFramebuffers(1, &current_fbo_);
+        glBindFramebuffer(GL_FRAMEBUFFER, current_fbo_);
+        current_fbo_owned_ = true;
+
+        std::vector<GLenum> draw_buffers;
+        draw_buffers.reserve(desc.colorAttachmentCount);
+        std::vector<bool> attachment_bound(desc.colorAttachmentCount, false);
+
+        int viewport_width = 0;
+        int viewport_height = 0;
+
+        for (uint32_t i = 0; i < desc.colorAttachmentCount; ++i) {
+          const auto &attachment = desc.colorAttachments[i];
+          auto tex_it = textures_->find(attachment.texture.id);
+          if (tex_it == textures_->end()) {
+            std::cerr << "Invalid color attachment texture at index " << i
+                      << std::endl;
+            continue;
+          }
+
+          const GLTexture &tex = tex_it->second;
+          GLenum attachment_point = GL_COLOR_ATTACHMENT0 + i;
+
+          if (tex.target == GL_TEXTURE_2D) {
+            glFramebufferTexture2D(GL_FRAMEBUFFER, attachment_point, tex.target,
+                                   tex.id, attachment.mipLevel);
+          } else if (tex.target == GL_TEXTURE_2D_ARRAY) {
+            glFramebufferTextureLayer(GL_FRAMEBUFFER, attachment_point, tex.id,
+                                      attachment.mipLevel, attachment.arraySlice);
+          } else {
+            glFramebufferTexture(GL_FRAMEBUFFER, attachment_point, tex.id,
+                                 attachment.mipLevel);
+          }
+
+          attachment_bound[i] = true;
+          draw_buffers.push_back(attachment_point);
+
+          if (viewport_width == 0 && viewport_height == 0) {
+            viewport_width = tex.width;
+            viewport_height = tex.height;
+          } else if (viewport_width != tex.width || viewport_height != tex.height) {
+            std::cerr
+                << "All color attachments must have matching dimensions in OpenGL"
+                << std::endl;
+          }
+        }
+
+        if (desc.colorAttachmentCount == 0) {
+          glDrawBuffer(GL_NONE);
+          glReadBuffer(GL_NONE);
+        } else if (!draw_buffers.empty()) {
+          glDrawBuffers(static_cast<GLsizei>(draw_buffers.size()),
+                        draw_buffers.data());
+        } else {
+          glDrawBuffer(GL_NONE);
+          glReadBuffer(GL_NONE);
+        }
+
+        if (desc.hasDepthAttachment && desc.depthAttachment.texture.id != 0) {
+          const auto &depth = desc.depthAttachment;
+          auto tex_it = textures_->find(depth.texture.id);
+          if (tex_it == textures_->end()) {
+            std::cerr << "Invalid depth attachment texture" << std::endl;
+          } else {
+            const GLTexture &tex = tex_it->second;
+            GLenum attachment_point =
+                depth.hasStencil ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
+
+            if (tex.target == GL_TEXTURE_2D) {
+              glFramebufferTexture2D(GL_FRAMEBUFFER, attachment_point, tex.target,
+                                     tex.id, depth.mipLevel);
+            } else if (tex.target == GL_TEXTURE_2D_ARRAY) {
+              glFramebufferTextureLayer(GL_FRAMEBUFFER, attachment_point, tex.id,
+                                        depth.mipLevel, depth.arraySlice);
+            } else {
+              glFramebufferTexture(GL_FRAMEBUFFER, attachment_point, tex.id,
+                                   depth.mipLevel);
+            }
+
+            if (viewport_width == 0 && viewport_height == 0) {
+              viewport_width = tex.width;
+              viewport_height = tex.height;
+            }
+          }
+        }
+
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+          std::cerr << "OpenGL framebuffer incomplete: 0x" << std::hex << status
+                    << std::dec << std::endl;
+          glBindFramebuffer(GL_FRAMEBUFFER, 0);
+          glDeleteFramebuffers(1, &current_fbo_);
+          current_fbo_ = 0;
+          using_offscreen_fbo_ = false;
+          current_fbo_owned_ = false;
+          return;
+        }
+
+        if (viewport_width > 0 && viewport_height > 0) {
+          glViewport(0, 0, viewport_width, viewport_height);
+        }
+
+        for (uint32_t i = 0; i < desc.colorAttachmentCount; ++i) {
+          const auto &attachment = desc.colorAttachments[i];
+          if (attachment.loadOp == LoadOp::Clear && i < attachment_bound.size() &&
+              attachment_bound[i]) {
+            glClearBufferfv(GL_COLOR, i, attachment.clearColor);
+          }
+        }
+
+        if (desc.hasDepthAttachment) {
+          const auto &depth = desc.depthAttachment;
+          bool clearDepth = depth.depthLoadOp == LoadOp::Clear;
+          bool clearStencil =
+              depth.hasStencil && depth.stencilLoadOp == LoadOp::Clear;
+          if (clearDepth && clearStencil) {
+            glClearBufferfi(GL_DEPTH_STENCIL, 0, depth.clearDepth,
+                            static_cast<GLint>(depth.clearStencil));
+          } else {
+            if (clearDepth) {
+              glClearBufferfv(GL_DEPTH, 0, &depth.clearDepth);
+            }
+            if (clearStencil) {
+              GLint value = static_cast<GLint>(depth.clearStencil);
+              glClearBufferiv(GL_STENCIL, 0, &value);
+            }
+          }
+        }
+      } else {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (window_) {
+          int fbw = 0;
+          int fbh = 0;
+          glfwGetFramebufferSize(window_, &fbw, &fbh);
+          if (fbw > 0 && fbh > 0) {
+            glViewport(0, 0, fbw, fbh);
+          }
+        }
+
+        GLbitfield clearMask = 0;
+
+        if (desc.colorAttachmentCount > 0) {
+          const auto &color = desc.colorAttachments[0];
+          if (color.loadOp == LoadOp::Clear) {
+            glClearColor(color.clearColor[0], color.clearColor[1],
+                         color.clearColor[2], color.clearColor[3]);
+            clearMask |= GL_COLOR_BUFFER_BIT;
+          }
+        }
+
+        if (desc.hasDepthAttachment) {
+          const auto &depth = desc.depthAttachment;
+          if (depth.depthLoadOp == LoadOp::Clear) {
+            glClearDepth(depth.clearDepth);
+            clearMask |= GL_DEPTH_BUFFER_BIT;
+          }
+          if (depth.hasStencil && depth.stencilLoadOp == LoadOp::Clear) {
+            glClearStencil(depth.clearStencil);
+            clearMask |= GL_STENCIL_BUFFER_BIT;
+          }
+        }
+
+        if (clearMask != 0) {
+          glClear(clearMask);
+        }
       }
     }
-
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glEnable(GL_BLEND);
@@ -615,9 +687,12 @@ public:
     glUseProgram(0);
     if (using_offscreen_fbo_ && current_fbo_ != 0) {
       glBindFramebuffer(GL_FRAMEBUFFER, 0);
-      glDeleteFramebuffers(1, &current_fbo_);
+      if (current_fbo_owned_) {
+        glDeleteFramebuffers(1, &current_fbo_);
+      }
       current_fbo_ = 0;
       using_offscreen_fbo_ = false;
+      current_fbo_owned_ = false;
     }
   }
 
@@ -657,6 +732,7 @@ private:
   std::unordered_map<uint32_t, GLBuffer> *buffers_;
   std::unordered_map<uint32_t, GLTexture> *textures_;
   std::unordered_map<uint32_t, GLPipeline> *pipelines_;
+  std::unordered_map<uint32_t, GLFramebuffer> *framebuffers_;
   GLFWwindow *window_ = nullptr;
 
   bool recording_ = false;
@@ -667,6 +743,7 @@ private:
   size_t current_ib_offset_ = 0;
   GLuint current_fbo_ = 0;
   bool using_offscreen_fbo_ = false;
+  bool current_fbo_owned_ = false;
 };
 
 // ============================================================================
@@ -692,7 +769,8 @@ public:
     caps_.samplerAniso = false;
     caps_.clipSpaceYDown = false;
 
-    cmd_list_ = std::make_unique<GLCmdList>(&buffers_, &textures_, &pipelines_, window_);
+    cmd_list_ = std::make_unique<GLCmdList>(&buffers_, &textures_, &pipelines_,
+                                            &framebuffers_, window_);
   }
 
   ~GLDevice() override {
@@ -709,6 +787,11 @@ public:
     for (auto &[id, pipe] : pipelines_) {
       glDeleteVertexArrays(1, &pipe.vao);
       glDeleteProgram(pipe.program);
+    }
+    for (auto &[id, fb] : framebuffers_) {
+      if (fb.id != 0) {
+        glDeleteFramebuffers(1, &fb.id);
+      }
     }
   }
 
@@ -989,6 +1072,140 @@ public:
     return PipelineHandle{handle_id};
   }
 
+  FramebufferHandle createFramebuffer(const FramebufferDesc &desc) override {
+    if (desc.colorAttachmentCount > kMaxColorAttachments) {
+      std::cerr << "OpenGL framebuffer creation exceeded attachment limit"
+                << std::endl;
+      return FramebufferHandle{0};
+    }
+
+    GLuint fbo = 0;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    std::vector<GLenum> draw_buffers;
+    draw_buffers.reserve(desc.colorAttachmentCount);
+
+    int width = 0;
+    int height = 0;
+
+    for (uint32_t i = 0; i < desc.colorAttachmentCount; ++i) {
+      const auto &attachment = desc.colorAttachments[i];
+      if (attachment.texture.id == 0) {
+        std::cerr << "Framebuffer color attachment " << i
+                  << " references swapchain texture" << std::endl;
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteFramebuffers(1, &fbo);
+        return FramebufferHandle{0};
+      }
+
+      auto tex_it = textures_.find(attachment.texture.id);
+      if (tex_it == textures_.end()) {
+        std::cerr << "Framebuffer color attachment " << i
+                  << " uses invalid texture handle" << std::endl;
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteFramebuffers(1, &fbo);
+        return FramebufferHandle{0};
+      }
+
+      const GLTexture &tex = tex_it->second;
+      GLenum attachment_point = GL_COLOR_ATTACHMENT0 + i;
+
+      if (tex.target == GL_TEXTURE_2D) {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, attachment_point, tex.target, tex.id,
+                               attachment.mipLevel);
+      } else if (tex.target == GL_TEXTURE_2D_ARRAY) {
+        glFramebufferTextureLayer(GL_FRAMEBUFFER, attachment_point, tex.id,
+                                  attachment.mipLevel, attachment.arraySlice);
+      } else {
+        glFramebufferTexture(GL_FRAMEBUFFER, attachment_point, tex.id,
+                             attachment.mipLevel);
+      }
+
+      draw_buffers.push_back(attachment_point);
+
+      if (width == 0 && height == 0) {
+        width = tex.width;
+        height = tex.height;
+      } else if (width != tex.width || height != tex.height) {
+        std::cerr << "Framebuffer color attachments must have matching dimensions"
+                  << std::endl;
+      }
+    }
+
+    if (desc.colorAttachmentCount == 0) {
+      glDrawBuffer(GL_NONE);
+      glReadBuffer(GL_NONE);
+    } else if (!draw_buffers.empty()) {
+      glDrawBuffers(static_cast<GLsizei>(draw_buffers.size()), draw_buffers.data());
+    } else {
+      glDrawBuffer(GL_NONE);
+      glReadBuffer(GL_NONE);
+    }
+
+    if (desc.hasDepthAttachment) {
+      const auto &depth = desc.depthAttachment;
+      if (depth.texture.id == 0) {
+        std::cerr << "Framebuffer depth attachment references swapchain texture"
+                  << std::endl;
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteFramebuffers(1, &fbo);
+        return FramebufferHandle{0};
+      }
+
+      auto tex_it = textures_.find(depth.texture.id);
+      if (tex_it == textures_.end()) {
+        std::cerr << "Framebuffer depth attachment uses invalid texture handle"
+                  << std::endl;
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDeleteFramebuffers(1, &fbo);
+        return FramebufferHandle{0};
+      }
+
+      const GLTexture &tex = tex_it->second;
+      GLenum attachment_point =
+          depth.hasStencil ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
+
+      if (tex.target == GL_TEXTURE_2D) {
+        glFramebufferTexture2D(GL_FRAMEBUFFER, attachment_point, tex.target, tex.id,
+                               depth.mipLevel);
+      } else if (tex.target == GL_TEXTURE_2D_ARRAY) {
+        glFramebufferTextureLayer(GL_FRAMEBUFFER, attachment_point, tex.id,
+                                  depth.mipLevel, depth.arraySlice);
+      } else {
+        glFramebufferTexture(GL_FRAMEBUFFER, attachment_point, tex.id,
+                             depth.mipLevel);
+      }
+
+      if (width == 0 && height == 0) {
+        width = tex.width;
+        height = tex.height;
+      }
+    }
+
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+      std::cerr << "OpenGL framebuffer incomplete: 0x" << std::hex << status
+                << std::dec << std::endl;
+      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+      glDeleteFramebuffers(1, &fbo);
+      return FramebufferHandle{0};
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    GLFramebuffer framebuffer;
+    framebuffer.id = fbo;
+    framebuffer.desc = desc;
+    framebuffer.width = width;
+    framebuffer.height = height;
+    framebuffer.draw_buffers = std::move(draw_buffers);
+
+    uint32_t handle_id = next_framebuffer_id_++;
+    framebuffers_[handle_id] = std::move(framebuffer);
+    return FramebufferHandle{handle_id};
+  }
+
   void readBuffer(BufferHandle handle, void *dst, size_t size,
                   size_t offset = 0) override {
     auto it = buffers_.find(handle.id);
@@ -1030,12 +1247,14 @@ private:
   std::unordered_map<uint32_t, GLSampler> samplers_;
   std::unordered_map<uint32_t, GLShader> shaders_;
   std::unordered_map<uint32_t, GLPipeline> pipelines_;
+  std::unordered_map<uint32_t, GLFramebuffer> framebuffers_;
 
   uint32_t next_buffer_id_ = 1;
   uint32_t next_texture_id_ = 1;
   uint32_t next_sampler_id_ = 1;
   uint32_t next_shader_id_ = 1;
   uint32_t next_pipeline_id_ = 1;
+  uint32_t next_framebuffer_id_ = 1;
 };
 
 } // namespace pixel::rhi::gl

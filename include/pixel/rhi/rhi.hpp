@@ -28,6 +28,26 @@ struct PipelineDesc {
   std::array<ColorAttachmentDesc, kMaxColorAttachments> colorAttachments{};
 };
 
+struct FramebufferAttachmentDesc {
+  TextureHandle texture{};
+  uint32_t mipLevel{0};
+  uint32_t arraySlice{0};
+};
+
+struct FramebufferDepthAttachmentDesc {
+  TextureHandle texture{};
+  uint32_t mipLevel{0};
+  uint32_t arraySlice{0};
+  bool hasStencil{false};
+};
+
+struct FramebufferDesc {
+  std::array<FramebufferAttachmentDesc, kMaxColorAttachments> colorAttachments{};
+  uint32_t colorAttachmentCount{0};
+  bool hasDepthAttachment{false};
+  FramebufferDepthAttachmentDesc depthAttachment{};
+};
+
 struct RenderPassColorAttachment {
   TextureHandle texture{};
   LoadOp loadOp{LoadOp::Clear};
@@ -49,6 +69,7 @@ struct RenderPassDepthAttachment {
 };
 
 struct RenderPassDesc {
+  FramebufferHandle framebuffer{};
   std::array<RenderPassColorAttachment, kMaxColorAttachments> colorAttachments{};
   uint32_t colorAttachmentCount{0};
   bool hasDepthAttachment{false};
@@ -110,6 +131,7 @@ struct Device {
   virtual ShaderHandle createShader(std::string_view stage,
                                     std::span<const uint8_t> bytes) = 0;
   virtual PipelineHandle createPipeline(const PipelineDesc &) = 0;
+  virtual FramebufferHandle createFramebuffer(const FramebufferDesc &) = 0;
 
   virtual CmdList *getImmediate() = 0;
   virtual void present() = 0;

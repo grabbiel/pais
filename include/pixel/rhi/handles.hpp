@@ -16,4 +16,7 @@ struct ShaderHandle {
 struct PipelineHandle {
   uint32_t id{0};
 };
+struct FramebufferHandle {
+  uint32_t id{0};
+};
 } // namespace pixel::rhi
