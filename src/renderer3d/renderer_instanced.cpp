@@ -304,28 +304,100 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
 
   // === DIAGNOSTIC LOGGING ===
   std::cerr << "\nUniforms:" << std::endl;
+  const bool has_model_uniform = reflection.has_uniform("model");
+  const bool has_normal_uniform = reflection.has_uniform("normalMatrix");
+  const bool has_view_uniform = reflection.has_uniform("view");
+  const bool has_projection_uniform = reflection.has_uniform("projection");
+  const bool has_light_uniform = reflection.has_uniform("lightPos");
+  const bool has_viewpos_uniform = reflection.has_uniform("viewPos");
+  const bool has_time_uniform = reflection.has_uniform("uTime");
+  const bool has_dither_uniform = reflection.has_uniform("uDitherEnabled");
+  const bool has_use_texture_array = reflection.has_uniform("useTextureArray");
+
   std::cerr << "  Has 'model' uniform:       "
-            << (reflection.has_uniform("model") ? "YES" : "NO") << std::endl;
+            << (has_model_uniform ? "YES" : "NO") << std::endl;
   std::cerr << "  Has 'normalMatrix' uniform:"
-            << (reflection.has_uniform("normalMatrix") ? "YES" : "NO")
-            << std::endl;
+            << (has_normal_uniform ? "YES" : "NO") << std::endl;
+  std::cerr << "  Has 'view' uniform:        "
+            << (has_view_uniform ? "YES" : "NO") << std::endl;
+  std::cerr << "  Has 'projection' uniform:  "
+            << (has_projection_uniform ? "YES" : "NO") << std::endl;
+  std::cerr << "  Has 'lightPos' uniform:    "
+            << (has_light_uniform ? "YES" : "NO") << std::endl;
+  std::cerr << "  Has 'viewPos' uniform:     "
+            << (has_viewpos_uniform ? "YES" : "NO") << std::endl;
+  std::cerr << "  Has 'uTime' uniform:       "
+            << (has_time_uniform ? "YES" : "NO") << std::endl;
+  std::cerr << "  Has 'uDitherEnabled':      "
+            << (has_dither_uniform ? "YES" : "NO") << std::endl;
+  std::cerr << "  Has 'useTextureArray':     "
+            << (has_use_texture_array ? "YES" : "NO") << std::endl;
   // === END ===
 
-  if (reflection.has_uniform("model")) {
+  if (has_model_uniform) {
     cmd->setUniformMat4("model", glm::value_ptr(model));
-    // === DIAGNOSTIC LOGGING ===
     std::cerr << "  ✓ Model matrix set (identity)" << std::endl;
-    // === END ===
   }
 
   // Calculate and set normal matrix (identity in this case, but required by
   // shader)
   glm::mat4 normalMatrix = glm::transpose(glm::inverse(model));
-  if (reflection.has_uniform("normalMatrix")) {
+  if (has_normal_uniform) {
     cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix));
-    // === DIAGNOSTIC LOGGING ===
     std::cerr << "  ✓ Normal matrix set (identity)" << std::endl;
-    // === END ===
+  }
+
+  float view[16];
+  float projection[16];
+  renderer.camera().get_view_matrix(view);
+  renderer.camera().get_projection_matrix(projection, renderer.window_width(),
+                                          renderer.window_height());
+  if (has_view_uniform) {
+    cmd->setUniformMat4("view", view);
+    std::cerr << "  ✓ View matrix uploaded" << std::endl;
+  }
+  if (has_projection_uniform) {
+    cmd->setUniformMat4("projection", projection);
+    std::cerr << "  ✓ Projection matrix uploaded" << std::endl;
+  }
+
+  float light_pos[3] = {10.0f, 10.0f, 10.0f};
+  float view_pos[3] = {renderer.camera().position.x,
+                       renderer.camera().position.y,
+                       renderer.camera().position.z};
+  if (has_light_uniform) {
+    cmd->setUniformVec3("lightPos", light_pos);
+    std::cerr << "  ✓ lightPos set" << std::endl;
+  }
+  if (has_viewpos_uniform) {
+    cmd->setUniformVec3("viewPos", view_pos);
+    std::cerr << "  ✓ viewPos set" << std::endl;
+  }
+
+  if (has_time_uniform) {
+    cmd->setUniformFloat("uTime", static_cast<float>(renderer.time()));
+    std::cerr << "  ✓ uTime set" << std::endl;
+  }
+
+  if (has_dither_uniform) {
+    const bool dither_enabled =
+        base_material.shader_variant.has_define("USE_DITHER") ||
+        base_material.shader_variant.has_define("DITHER_ON");
+    cmd->setUniformInt("uDitherEnabled", dither_enabled ? 1 : 0);
+    std::cerr << "  ✓ uDitherEnabled set to "
+              << (dither_enabled ? "ON" : "OFF") << std::endl;
+  }
+
+  if (has_use_texture_array) {
+    const int use_array = base_material.texture_array.id != 0 ? 1 : 0;
+    cmd->setUniformInt("useTextureArray", use_array);
+    std::cerr << "  ✓ useTextureArray set to " << use_array << std::endl;
+  }
+
+  if (base_material.texture_array.id != 0 &&
+      reflection.has_sampler("uTextureArray")) {
+    cmd->setTexture("uTextureArray", base_material.texture_array, 1);
+    std::cerr << "  ✓ Texture array bound to slot 1" << std::endl;
   }
 
   // Draw the instanced mesh
