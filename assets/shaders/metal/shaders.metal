@@ -1,4 +1,3 @@
-// src/rhi/backends/metal/shaders.metal
 #include <metal_stdlib>
 #include <simd/simd.h>
 

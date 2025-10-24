@@ -63,8 +63,8 @@ struct DemoLogger {
     if (failures.empty()) {
       std::cout << "Status: success" << std::endl;
     } else {
-      std::cout << "Status: issues detected (" << failures.size()
-                << ")" << std::endl;
+      std::cout << "Status: issues detected (" << failures.size() << ")"
+                << std::endl;
       for (const auto &failure : failures) {
         std::cout << "  - " << failure << std::endl;
       }
@@ -96,7 +96,8 @@ std::unique_ptr<Mesh> create_uv_sphere(Renderer &renderer, float radius,
   const int lon_segments = std::max(3, longitude_segments);
 
   std::vector<pixel::renderer3d::Vertex> vertices;
-  vertices.reserve(static_cast<size_t>((lat_segments + 1) * (lon_segments + 1)));
+  vertices.reserve(
+      static_cast<size_t>((lat_segments + 1) * (lon_segments + 1)));
 
   for (int y = 0; y <= lat_segments; ++y) {
     float v = static_cast<float>(y) / static_cast<float>(lat_segments);
@@ -116,7 +117,8 @@ std::unique_ptr<Mesh> create_uv_sphere(Renderer &renderer, float radius,
       Vec3 position = normal * radius;
       pixel::renderer3d::Vec2 texcoord{u, 1.0f - v};
 
-      vertices.push_back({position, normal, texcoord, Color(1.0f, 1.0f, 1.0f, 1.0f)});
+      vertices.push_back(
+          {position, normal, texcoord, Color(1.0f, 1.0f, 1.0f, 1.0f)});
     }
   }
 
@@ -273,7 +275,7 @@ int main() {
         ++instance_updates;
       }
 
-      renderer->begin_frame(Color(0.01f, 0.015f, 0.03f, 1.0f));
+      renderer->begin_frame(Color::Red());
       RendererInstanced::draw_instanced(*renderer, *instanced_mesh,
                                         base_material);
       renderer->end_frame();

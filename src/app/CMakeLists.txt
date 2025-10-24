@@ -84,7 +84,7 @@ if(APPLE)
 
 
   if(PIXEL_HAS_METAL)
-    set(METAL_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/src/rhi/backends/metal/shaders.metal")
+    set(METAL_SHADER_SOURCE "${CMAKE_SOURCE_DIR}/assets/shaders/metal/shaders.metal")
     set(METAL_AIR_FILE "${CMAKE_BINARY_DIR}/shaders.air")
     set(METAL_LIB_FILE "${CMAKE_BINARY_DIR}/default.metallib")
 
