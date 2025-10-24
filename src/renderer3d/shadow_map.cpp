@@ -2,6 +2,7 @@
 #include "pixel/renderer3d/clip_space.hpp"
 #include "pixel/math/vec3.hpp"
 #include <glm/gtc/matrix_transform.hpp>
+#include <iostream>
 
 namespace pixel::renderer3d {
 
@@ -15,7 +16,18 @@ bool ShadowMap::initialize(rhi::Device *device, const Settings &settings,
   settings_ = settings;
   light_ = light;
 
+  std::cout << "[ShadowMap] Initializing shadow map" << std::endl;
+  std::cout << "  Resolution: " << settings_.resolution << "x"
+            << settings_.resolution << std::endl;
+  std::cout << "  Depth bias (constant/slope): " << settings_.depth_bias_constant
+            << " / " << settings_.depth_bias_slope << std::endl;
+  std::cout << "  Near/Far planes: " << settings_.near_plane << " / "
+            << settings_.far_plane << std::endl;
+  std::cout << "  Ortho size: " << settings_.ortho_size << std::endl;
+
   if (!device_) {
+    std::cerr << "[ShadowMap] Initialization failed: device is null"
+              << std::endl;
     return false;
   }
 
@@ -27,6 +39,7 @@ bool ShadowMap::initialize(rhi::Device *device, const Settings &settings,
   depth_desc.renderTarget = true;
   depth_texture_ = device_->createTexture(depth_desc);
   if (depth_texture_.id == 0) {
+    std::cerr << "[ShadowMap] Failed to create depth texture" << std::endl;
     return false;
   }
 
@@ -39,6 +52,7 @@ bool ShadowMap::initialize(rhi::Device *device, const Settings &settings,
   fb_desc.depthAttachment.hasStencil = false;
   framebuffer_ = device_->createFramebuffer(fb_desc);
   if (framebuffer_.id == 0) {
+    std::cerr << "[ShadowMap] Failed to create framebuffer" << std::endl;
     return false;
   }
 
@@ -56,39 +70,75 @@ bool ShadowMap::initialize(rhi::Device *device, const Settings &settings,
   sampler_desc.borderColor[3] = 1.0f;
   sampler_ = device_->createSampler(sampler_desc);
   if (sampler_.id == 0) {
+    std::cerr << "[ShadowMap] Failed to create sampler" << std::endl;
     return false;
   }
+
+  std::cout << "[ShadowMap] Sampler compare support: "
+            << (sampler_desc.compareEnable ? "enabled" : "disabled")
+            << std::endl;
 
   rebuild_pass_desc();
   compute_matrices();
 
   initialized_ = depth_texture_.id != 0 && framebuffer_.id != 0 && sampler_.id != 0;
+  std::cout << "[ShadowMap] Initialization "
+            << (initialized_ ? "succeeded" : "failed") << std::endl;
   return initialized_;
 }
 
 void ShadowMap::update_light(const DirectionalLight &light) {
   light_ = light;
+  std::cout << "[ShadowMap] Updating light" << std::endl;
+  std::cout << "  Position: (" << light_.position.x << ", " << light_.position.y
+            << ", " << light_.position.z << ")" << std::endl;
+  std::cout << "  Direction: (" << light_.direction.x << ", "
+            << light_.direction.y << ", " << light_.direction.z << ")"
+            << std::endl;
   compute_matrices();
 }
 
 void ShadowMap::update_settings(const Settings &settings) {
   settings_ = settings;
+  std::cout << "[ShadowMap] Updating settings" << std::endl;
+  std::cout << "  New resolution: " << settings_.resolution << std::endl;
+  std::cout << "  New depth bias (constant/slope): "
+            << settings_.depth_bias_constant << " / "
+            << settings_.depth_bias_slope << std::endl;
+  std::cout << "  New ortho size: " << settings_.ortho_size << std::endl;
   compute_matrices();
   rebuild_pass_desc();
 }
 
 void ShadowMap::begin(rhi::CmdList *cmd) {
-  if (!initialized_ || !cmd)
+  if (!initialized_) {
+    std::cerr << "[ShadowMap] Cannot begin pass: not initialized" << std::endl;
     return;
+  }
 
+  if (!cmd) {
+    std::cerr << "[ShadowMap] Cannot begin pass: command list is null"
+              << std::endl;
+    return;
+  }
+
+  std::cout << "[ShadowMap] Beginning shadow pass" << std::endl;
   pass_desc_.depthAttachment.clearDepth = 1.0f;
   cmd->beginRender(pass_desc_);
 }
 
 void ShadowMap::end(rhi::CmdList *cmd) {
-  if (!initialized_ || !cmd)
+  if (!initialized_) {
+    std::cerr << "[ShadowMap] Cannot end pass: not initialized" << std::endl;
     return;
+  }
 
+  if (!cmd) {
+    std::cerr << "[ShadowMap] Cannot end pass: command list is null" << std::endl;
+    return;
+  }
+
+  std::cout << "[ShadowMap] Ending shadow pass" << std::endl;
   cmd->endRender();
 }
 
@@ -101,6 +151,7 @@ rhi::DepthBiasState ShadowMap::depth_bias_state() const {
 }
 
 void ShadowMap::rebuild_pass_desc() {
+  std::cout << "[ShadowMap] Rebuilding pass description" << std::endl;
   pass_desc_ = {};
   pass_desc_.framebuffer = framebuffer_;
   pass_desc_.colorAttachmentCount = 0;
@@ -118,6 +169,7 @@ void ShadowMap::rebuild_pass_desc() {
 }
 
 void ShadowMap::compute_matrices() {
+  std::cout << "[ShadowMap] Computing matrices" << std::endl;
   glm::vec3 light_position = to_glm(light_.position);
   glm::vec3 light_direction = glm::normalize(to_glm(light_.direction));
   glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
@@ -132,11 +184,15 @@ void ShadowMap::compute_matrices() {
   light_projection_ =
       glm::ortho(-ortho, ortho, -ortho, ortho, settings_.near_plane,
                  settings_.far_plane);
+  std::cout << "  Ortho bounds: +/-" << ortho << std::endl;
+  std::cout << "  Near/Far: " << settings_.near_plane << " / "
+            << settings_.far_plane << std::endl;
   if (device_) {
     light_projection_ =
         clip_space_correction_matrix(device_->caps()) * light_projection_;
   }
   light_view_projection_ = light_projection_ * light_view_;
+  std::cout << "[ShadowMap] light_view_projection matrix computed" << std::endl;
 }
 
 } // namespace pixel::renderer3d
