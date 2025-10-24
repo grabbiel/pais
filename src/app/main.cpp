@@ -15,6 +15,7 @@
 #include <vector>
 
 using pixel::renderer3d::Color;
+using pixel::renderer3d::DirectionalLight;
 using pixel::renderer3d::InstanceData;
 using pixel::renderer3d::Material;
 using pixel::renderer3d::Mesh;
@@ -226,6 +227,25 @@ int main() {
   renderer->camera().near_clip = 0.1f;
   renderer->camera().far_clip = 500.0f;
 
+  DirectionalLight sunlight;
+  sunlight.direction = Vec3{-0.35f, -1.0f, -0.25f}.normalized();
+  sunlight.position = Vec3{-sunlight.direction.x * 60.0f, 60.0f,
+                           -sunlight.direction.z * 60.0f};
+  sunlight.color = Color(1.0f, 0.96f, 0.88f, 1.0f);
+  sunlight.intensity = 1.25f;
+  renderer->set_directional_light(sunlight);
+
+  if (auto *shadow_map = renderer->shadow_map()) {
+    auto settings = shadow_map->settings();
+    settings.near_plane = 0.5f;
+    settings.far_plane = 150.0f;
+    settings.ortho_size = 80.0f;
+    settings.depth_bias_constant = 2.0f;
+    settings.depth_bias_slope = 2.5f;
+    settings.shadow_bias = 0.0015f;
+    shadow_map->update_settings(settings);
+  }
+
   FlyCameraController camera_controller;
   camera_controller.apply(renderer->camera());
 
@@ -259,6 +279,8 @@ int main() {
   base_instances.reserve(kGrassBladeCount);
   std::vector<GrassWindState> wind_states;
   wind_states.reserve(kGrassBladeCount);
+  std::vector<InstanceData> current_instances;
+  current_instances.reserve(kGrassBladeCount);
 
   std::mt19937 rng(42);
   std::uniform_real_distribution<float> position_dist(-(kTerrainSize * 0.5f),
@@ -293,6 +315,7 @@ int main() {
     wind_state.sway_speed = sway_speed_dist(rng);
     wind_state.sway_strength = sway_strength_dist(rng);
     wind_states.push_back(wind_state);
+    current_instances.push_back(data);
   }
 
   grass_instanced->set_instances(base_instances);
@@ -331,6 +354,12 @@ int main() {
     camera_controller.update(glfw_window, delta_time);
     camera_controller.apply(renderer->camera());
 
+    DirectionalLight active_light = renderer->directional_light();
+    Vec3 camera_position = renderer->camera().position;
+    Vec3 light_offset = active_light.direction * -60.0f;
+    active_light.position = camera_position + light_offset + Vec3{0.0f, 25.0f, 0.0f};
+    renderer->set_directional_light(active_light);
+
     for (size_t i = 0; i < base_instances.size(); ++i) {
       const GrassWindState &wind = wind_states[i];
       InstanceData updated = base_instances[i];
@@ -339,8 +368,19 @@ int main() {
                    wind.sway_strength;
       updated.rotation.x = sway;
       updated.rotation.z = sway * 0.5f;
+      current_instances[i] = updated;
       grass_instanced->update_instance(i, updated);
     }
+
+    renderer->begin_shadow_pass();
+    renderer->draw_shadow_mesh(*terrain_mesh, Vec3{0.0f, 0.0f, 0.0f},
+                               Vec3{0.0f, 0.0f, 0.0f},
+                               Vec3{1.0f, 1.0f, 1.0f});
+    for (const auto &instance : current_instances) {
+      renderer->draw_shadow_mesh(*grass_mesh, instance.position,
+                                 instance.rotation, instance.scale);
+    }
+    renderer->end_shadow_pass();
 
     renderer->begin_frame(Color(0.55f, 0.75f, 0.95f, 1.0f));
 
