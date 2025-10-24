@@ -613,28 +613,28 @@ Shader::build_variant(const ShaderVariantKey &variant) const {
 
   data.pipelines[static_cast<size_t>(Material::BlendMode::Alpha)] =
       device_->createPipeline(build_desc(rhi::make_alpha_blend_state()));
-  std::cout << "  Pipeline (Alpha) handle: "
-            << data.pipelines[static_cast<size_t>(Material::BlendMode::Alpha)].id
-            << std::endl;
+  std::cout
+      << "  Pipeline (Alpha) handle: "
+      << data.pipelines[static_cast<size_t>(Material::BlendMode::Alpha)].id
+      << std::endl;
   data.pipelines[static_cast<size_t>(Material::BlendMode::Additive)] =
       device_->createPipeline(build_desc(rhi::make_additive_blend_state()));
-  std::cout << "  Pipeline (Additive) handle: "
-            << data
-                   .pipelines[static_cast<size_t>(Material::BlendMode::Additive)]
-                   .id
-            << std::endl;
+  std::cout
+      << "  Pipeline (Additive) handle: "
+      << data.pipelines[static_cast<size_t>(Material::BlendMode::Additive)].id
+      << std::endl;
   data.pipelines[static_cast<size_t>(Material::BlendMode::Multiply)] =
       device_->createPipeline(build_desc(rhi::make_multiply_blend_state()));
-  std::cout << "  Pipeline (Multiply) handle: "
-            << data
-                   .pipelines[static_cast<size_t>(Material::BlendMode::Multiply)]
-                   .id
-            << std::endl;
+  std::cout
+      << "  Pipeline (Multiply) handle: "
+      << data.pipelines[static_cast<size_t>(Material::BlendMode::Multiply)].id
+      << std::endl;
   data.pipelines[static_cast<size_t>(Material::BlendMode::Opaque)] =
       device_->createPipeline(build_desc(rhi::make_disabled_blend_state()));
-  std::cout << "  Pipeline (Opaque) handle: "
-            << data.pipelines[static_cast<size_t>(Material::BlendMode::Opaque)].id
-            << std::endl;
+  std::cout
+      << "  Pipeline (Opaque) handle: "
+      << data.pipelines[static_cast<size_t>(Material::BlendMode::Opaque)].id
+      << std::endl;
 
   ShaderReflection vert_reflection =
       reflect_shader(processed_vert, ShaderStage::Vertex);
@@ -643,8 +643,7 @@ Shader::build_variant(const ShaderVariantKey &variant) const {
   data.reflection = std::move(vert_reflection);
   data.reflection.merge(frag_reflection);
   std::cout << "  Reflection summary: uniforms="
-            << data.reflection.uniforms().size()
-            << " samplers=" << data.reflection.samplers().size() << std::endl;
+            << data.reflection.uniforms().size() << std::endl;
 
   return data;
 }

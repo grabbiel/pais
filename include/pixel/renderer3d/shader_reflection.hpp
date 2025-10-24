@@ -94,6 +94,9 @@ public:
                                             ShaderBlockType type) const;
 
   std::vector<ShaderBlock> blocks() const { return blocks_order_; }
+  std::unordered_map<std::string, ShaderUniform> uniforms() const {
+    return uniforms_;
+  }
 
   void add_uniform(ShaderUniform uniform);
   void add_block(ShaderBlock block);
@@ -118,4 +121,3 @@ ShaderReflection reflect_glsl(std::string_view source, ShaderStage stage);
 ShaderReflection reflect_metal(std::string_view source, ShaderStage stage);
 
 } // namespace pixel::renderer3d
-
