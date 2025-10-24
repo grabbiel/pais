@@ -41,8 +41,19 @@ elseif(PIXEL_USE_METAL)
   else()
     message(FATAL_ERROR "RHI: Metal backend requested but the current platform does not support Metal.")
   endif()
+elseif(PIXEL_USE_VULKAN)
+  if(PIXEL_HAS_VULKAN)
+    message(STATUS "RHI: Configuring for Vulkan")
+    set(RHI_BACKEND_SOURCES
+      backends/vulkan/device_vulkan.cpp
+    )
+    set(RHI_BACKEND_NAME "Vulkan")
+    list(APPEND RHI_BACKEND_LIBS Vulkan::Vulkan)
+  else()
+    message(FATAL_ERROR "RHI: Vulkan backend requested but Vulkan SDK was not detected.")
+  endif()
 else()
-  message(FATAL_ERROR "RHI: No graphics backend selected. Enable PIXEL_USE_METAL or add a new backend.")
+  message(FATAL_ERROR "RHI: No graphics backend selected. Enable PIXEL_USE_METAL, PIXEL_USE_VULKAN, or PIXEL_USE_DX12.")
 endif()
 
 # Combine all sources
@@ -80,7 +91,7 @@ target_link_libraries(pixel_rhi
     ext::glfw
 )
 
-if(PIXEL_USE_DX12 AND WIN32)
+if(RHI_BACKEND_LIBS)
   target_link_libraries(pixel_rhi PUBLIC ${RHI_BACKEND_LIBS})
 endif()
 
@@ -113,6 +124,11 @@ elseif(PIXEL_USE_DX12 AND WIN32)
   target_compile_definitions(pixel_rhi PUBLIC
     PIXEL_USE_DX12=1
     PIXEL_RHI_BACKEND_DX12=1
+  )
+elseif(PIXEL_USE_VULKAN)
+  target_compile_definitions(pixel_rhi PUBLIC
+    PIXEL_USE_VULKAN=1
+    PIXEL_RHI_BACKEND_VULKAN=1
   )
 endif()
 
@@ -166,5 +182,7 @@ if(RHI_BACKEND_NAME)
     message(STATUS "  API Version: Metal 2.0+")
   elseif(RHI_BACKEND_NAME STREQUAL "DirectX 12")
     message(STATUS "  API Version: DirectX 12")
+  elseif(RHI_BACKEND_NAME STREQUAL "Vulkan")
+    message(STATUS "  API Version: Vulkan 1.x")
   endif()
 endif()

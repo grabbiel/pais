@@ -83,6 +83,14 @@ elseif(PIXEL_USE_DX12)
   message(WARNING "Renderer3D: PIXEL_USE_DX12 requested but the current platform is not Windows.")
 endif()
 
+if(PIXEL_USE_VULKAN)
+  target_compile_definitions(pixel_renderer3d PUBLIC
+    PIXEL_USE_VULKAN=1
+  )
+  message(STATUS "Renderer3D: Vulkan backend support enabled")
+  set(RENDERER3D_BACKEND_NAME "Vulkan")
+endif()
+
 # ============================================================================
 # Compiler settings
 # ============================================================================
@@ -157,6 +165,8 @@ if(RENDERER3D_BACKEND_NAME STREQUAL "Metal")
   message(STATUS "  Graphics API:      Metal")
 elseif(RENDERER3D_BACKEND_NAME STREQUAL "DirectX 12")
   message(STATUS "  Graphics API:      DirectX 12")
+elseif(RENDERER3D_BACKEND_NAME STREQUAL "Vulkan")
+  message(STATUS "  Graphics API:      Vulkan")
 else()
   message(STATUS "  Graphics API:      (not configured)")
 endif()

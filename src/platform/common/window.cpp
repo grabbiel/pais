@@ -1,7 +1,11 @@
 #include "pixel/platform/window.hpp"
 #include "pixel/platform/platform.hpp"
 
+#if defined(PIXEL_USE_VULKAN)
+#  include <vulkan/vulkan.h>
+#endif
 #include <GLFW/glfw3.h>
+#include <vector>
 #include <stdexcept>
 #include <iostream>
 
@@ -42,6 +46,10 @@ std::unique_ptr<Window> Window::create(const WindowSpec& spec, GraphicsAPI api) 
 
   switch (api) {
     case GraphicsAPI::Metal:
+      glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+      break;
+
+    case GraphicsAPI::Vulkan:
       glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
       break;
 
@@ -137,5 +145,38 @@ void Window::poll_events() {
 double Window::time() const {
   return glfwGetTime();
 }
+
+#if defined(PIXEL_USE_VULKAN)
+std::vector<const char*> Window::get_vulkan_required_instance_extensions() const {
+  if (!window_) {
+    throw std::runtime_error("Cannot query extensions without a valid window.");
+  }
+
+  uint32_t count = 0;
+  const char** extensions = glfwGetRequiredInstanceExtensions(&count);
+  if (!extensions || count == 0) {
+    throw std::runtime_error(
+        "GLFW did not return any Vulkan instance extensions.");
+  }
+
+  return std::vector<const char*>(extensions, extensions + count);
+}
+
+VkSurfaceKHR Window::create_vulkan_surface(
+    VkInstance instance,
+    const VkAllocationCallbacks* allocator) const {
+  if (!window_) {
+    throw std::runtime_error("Cannot create Vulkan surface without a valid window.");
+  }
+
+  VkSurfaceKHR surface = VK_NULL_HANDLE;
+  VkResult result = glfwCreateWindowSurface(instance, window_, allocator, &surface);
+  if (result != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create Vulkan window surface via GLFW.");
+  }
+
+  return surface;
+}
+#endif
 
 } // namespace pixel::platform

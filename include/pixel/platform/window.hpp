@@ -1,6 +1,11 @@
 #pragma once
 
 #include <memory>
+#include <vector>
+
+#if defined(PIXEL_USE_VULKAN)
+#  include <vulkan/vulkan.h>
+#endif
 
 struct GLFWwindow;
 
@@ -10,7 +15,8 @@ struct WindowSpec;
 
 enum class GraphicsAPI {
   None,
-  Metal
+  Metal,
+  Vulkan
 };
 
 /**
@@ -85,6 +91,26 @@ public:
    * @return Time in seconds
    */
   double time() const;
+
+#if defined(PIXEL_USE_VULKAN)
+  /**
+   * @brief Query Vulkan instance extensions required by the windowing system
+   * @return List of extension names provided by GLFW
+   * @throws std::runtime_error if GLFW cannot provide the extension list
+   */
+  std::vector<const char*> get_vulkan_required_instance_extensions() const;
+
+  /**
+   * @brief Create a VkSurfaceKHR for the window using GLFW helper API
+   * @param instance Vulkan instance used to create the surface
+   * @param allocator Optional custom allocator passed through to GLFW
+   * @return Newly created VkSurfaceKHR handle
+   * @throws std::runtime_error if surface creation fails
+   */
+  VkSurfaceKHR create_vulkan_surface(
+      VkInstance instance,
+      const VkAllocationCallbacks* allocator = nullptr) const;
+#endif
 
 private:
   /**

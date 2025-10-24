@@ -34,6 +34,11 @@ target_link_libraries(pixel_platform
     ext::glfw
 )
 
+# Vulkan integration flags
+if(PIXEL_USE_VULKAN)
+  target_compile_definitions(pixel_platform PUBLIC PIXEL_USE_VULKAN=1)
+endif()
+
 # Platform-specific dependencies
 if(APPLE)
   target_link_libraries(pixel_platform PUBLIC "-framework CoreFoundation")
