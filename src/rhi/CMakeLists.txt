@@ -45,7 +45,8 @@ elseif(PIXEL_USE_VULKAN)
   if(PIXEL_HAS_VULKAN)
     message(STATUS "RHI: Configuring for Vulkan")
     set(RHI_BACKEND_SOURCES
-      backends/vulkan/device_vulkan.cpp
+      backends/vulkan/device_vk.cpp
+      backends/vulkan/cmd_vk.cpp
     )
     set(RHI_BACKEND_NAME "Vulkan")
     list(APPEND RHI_BACKEND_LIBS Vulkan::Vulkan)
