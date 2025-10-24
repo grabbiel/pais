@@ -185,7 +185,7 @@ if(NOT TARGET ext::spirv_reflect)
   FetchContent_Declare(
     spirv_reflect
     GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Reflect.git
-    GIT_TAG        v1.3.275.0
+    GIT_TAG        vulkan-sdk-1.4.309.0
     GIT_SHALLOW    TRUE
   )
 
