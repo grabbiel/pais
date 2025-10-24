@@ -397,7 +397,12 @@ double Renderer::time() const {
   return window_ ? window_->time() : 0.0;
 }
 
-const char *Renderer::backend_name() const { return "OpenGL 3.3 Core"; }
+const char *Renderer::backend_name() const {
+  if (device_) {
+    return device_->backend_name();
+  }
+  return "Unknown";
+}
 
 // ============================================================================
 // Texture Loading (delegated to TextureLoader)

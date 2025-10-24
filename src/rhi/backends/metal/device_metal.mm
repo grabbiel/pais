@@ -7,6 +7,7 @@
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_COCOA
 #include <GLFW/glfw3native.h>
+#include <cstring>
 
 namespace pixel::rhi {
 
@@ -15,7 +16,25 @@ MetalDevice::MetalDevice(void *device, void *layer, void *depth_texture,
     : impl_(std::make_unique<Impl>((__bridge id<MTLDevice>)device,
                                    (__bridge CAMetalLayer *)layer,
                                    (__bridge id<MTLTexture>)depth_texture,
-                                   static_cast<GLFWwindow *>(window))) {}
+                                   static_cast<GLFWwindow *>(window))) {
+  id<MTLDevice> metalDevice = (__bridge id<MTLDevice>)device;
+  if (metalDevice) {
+    NSString *name = [metalDevice name];
+    if (name) {
+      const char *utf8Name = [name UTF8String];
+      backend_name_ = "Metal";
+      if (utf8Name && std::strlen(utf8Name) > 0) {
+        backend_name_ += " (";
+        backend_name_ += utf8Name;
+        backend_name_ += ")";
+      }
+    }
+  }
+
+  if (backend_name_.empty()) {
+    backend_name_ = "Metal";
+  }
+}
 
 MetalDevice::~MetalDevice() = default;
 
@@ -29,6 +48,8 @@ const Caps &MetalDevice::caps() const {
   caps.clipSpaceYDown = true; // Metal uses Y-down clip space
   return caps;
 }
+
+const char *MetalDevice::backend_name() const { return backend_name_.c_str(); }
 
 CmdList *MetalDevice::getImmediate() { return impl_->immediate_.get(); }
 

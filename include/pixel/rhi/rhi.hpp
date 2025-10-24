@@ -137,6 +137,7 @@ struct CmdList {
 
 struct Device {
   virtual ~Device() = default;
+  virtual const char *backend_name() const = 0;
   virtual const Caps &caps() const = 0;
 
   virtual BufferHandle createBuffer(const BufferDesc &) = 0;

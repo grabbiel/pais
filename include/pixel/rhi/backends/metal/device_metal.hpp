@@ -5,6 +5,7 @@
 
 #include "pixel/rhi/rhi.hpp"
 #include <memory>
+#include <string>
 #include <unordered_map>
 
 // Forward declare Objective-C types
@@ -44,6 +45,7 @@ public:
   MetalDevice(void *device, void *layer, void *depth_texture, void *window);
   ~MetalDevice() override;
 
+  const char *backend_name() const override;
   const Caps &caps() const override;
 
   BufferHandle createBuffer(const BufferDesc &desc) override;
@@ -71,6 +73,7 @@ private:
 
   struct Impl;
   std::unique_ptr<Impl> impl_;
+  std::string backend_name_;
 };
 
 // ============================================================================

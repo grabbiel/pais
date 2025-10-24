@@ -166,6 +166,7 @@ public:
   explicit GLDevice(GLFWwindow *window);
   ~GLDevice() override;
 
+  const char *backend_name() const override;
   const Caps &caps() const override;
 
   BufferHandle createBuffer(const BufferDesc &desc) override;
@@ -203,6 +204,7 @@ private:
   std::unordered_map<uint32_t, GLQueryObject> queries_;
   std::unordered_map<uint32_t, GLFence> fences_;
 
+  std::string backend_name_;
   uint32_t next_buffer_id_ = 1;
   uint32_t next_texture_id_ = 1;
   uint32_t next_sampler_id_ = 1;
