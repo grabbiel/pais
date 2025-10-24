@@ -29,12 +29,13 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 # ============================================================================
 # Platform Detection
 # ============================================================================
+set(PIXEL_USE_METAL_DEFAULT OFF)
+
 if(APPLE)
   set(PIXEL_PLATFORM_APPLE ON)
   message(STATUS "Platform: macOS")
 
-  # Check if Metal backend is preferred (default ON for macOS)
-  option(PIXEL_USE_METAL "Use Metal backend on macOS" ON)
+  set(PIXEL_USE_METAL_DEFAULT ON)
 
   # macOS deployment target
   if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
@@ -49,9 +50,7 @@ elseif(UNIX)
   message(STATUS "Platform: Linux")
 endif()
 
-if(NOT APPLE)
-  message(FATAL_ERROR "The OpenGL backend has been removed. A Metal-capable Apple platform is required.")
-endif()
+option(PIXEL_USE_METAL "Enable the Metal graphics backend" ${PIXEL_USE_METAL_DEFAULT})
 
 # ============================================================================
 # Dependencies
@@ -93,10 +92,8 @@ if(APPLE AND PIXEL_USE_METAL)
   else()
     message(FATAL_ERROR "Metal frameworks not found. The OpenGL backend has been removed, so Metal support is required.")
   endif()
-
-  if(NOT PIXEL_USE_METAL)
-    message(FATAL_ERROR "PIXEL_USE_METAL cannot be disabled now that the OpenGL backend has been removed.")
-  endif()
+elseif(PIXEL_USE_METAL)
+  message(WARNING "PIXEL_USE_METAL=ON but the current platform does not support Metal.")
 endif()
 
 # ============================================================================

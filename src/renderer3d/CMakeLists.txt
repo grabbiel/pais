@@ -58,10 +58,16 @@ if(APPLE)
     GL_SILENCE_DEPRECATION
   )
 
-  target_compile_definitions(pixel_renderer3d PUBLIC
-    PIXEL_USE_METAL=1
-  )
-  message(STATUS "Renderer3D: Metal backend support enabled")
+  if(PIXEL_HAS_METAL)
+    target_compile_definitions(pixel_renderer3d PUBLIC
+      PIXEL_USE_METAL=1
+    )
+    message(STATUS "Renderer3D: Metal backend support enabled")
+  elseif(PIXEL_USE_METAL)
+    message(WARNING "Renderer3D: PIXEL_USE_METAL requested but Metal frameworks were not detected.")
+  endif()
+elseif(PIXEL_USE_METAL)
+  message(WARNING "Renderer3D: PIXEL_USE_METAL requested but the current platform does not support Metal.")
 endif()
 
 # ============================================================================
@@ -133,11 +139,16 @@ endif()
 # ============================================================================
 
 message(STATUS "Renderer3D Configuration:")
-message(STATUS "  RHI Backend:       Metal (via RHI abstraction)")
+if(PIXEL_USE_METAL AND PIXEL_HAS_METAL)
+  message(STATUS "  RHI Backend:       Metal (via RHI abstraction)")
+  message(STATUS "  Graphics API:      Metal")
+else()
+  message(STATUS "  RHI Backend:       (not configured)")
+  message(STATUS "  Graphics API:      (not configured)")
+endif()
 message(STATUS "  Instancing:        ENABLED")
 message(STATUS "  LOD System:        ENABLED")
 message(STATUS "  Dithered LOD:      ENABLED")
-message(STATUS "  Graphics API:      Metal (exclusive)")
 
 # ============================================================================
 # Installation

@@ -35,7 +35,7 @@ std::unique_ptr<Device> create_device(platform::Window *window,
   return std::unique_ptr<Device>(device);
 
 #else
-#error "PIXEL_USE_METAL must be defined when building without the OpenGL backend"
+#error "No supported graphics backend configured. Enable Metal or provide an alternative implementation."
 #endif
 }
 

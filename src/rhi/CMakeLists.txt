@@ -7,22 +7,28 @@
 # Platform-specific backend selection
 # ============================================================================
 
-if(APPLE)
-  if(PIXEL_HAS_METAL)
-    message(STATUS "RHI: Configuring for macOS/ARM64")
-    set(RHI_BACKEND_SOURCES
-      backends/metal/device_metal.mm
-      backends/metal/cmd_metal.mm
-      backends/metal/resources_metal.mm
-      backends/metal/pipeline_metal.mm
-      backends/metal/state_metal.mm
-    )
-    message(STATUS "RHI: Using Metal backend (RHI implementation)")
+set(RHI_BACKEND_SOURCES)
+
+if(PIXEL_USE_METAL)
+  if(APPLE)
+    if(PIXEL_HAS_METAL)
+      message(STATUS "RHI: Configuring for macOS")
+      set(RHI_BACKEND_SOURCES
+        backends/metal/device_metal.mm
+        backends/metal/cmd_metal.mm
+        backends/metal/resources_metal.mm
+        backends/metal/pipeline_metal.mm
+        backends/metal/state_metal.mm
+      )
+      message(STATUS "RHI: Using Metal backend (RHI implementation)")
+    else()
+      message(FATAL_ERROR "RHI: Metal frameworks not found while PIXEL_USE_METAL=ON.")
+    endif()
   else()
-    message(FATAL_ERROR "RHI: Metal frameworks not found. OpenGL backend has been removed.")
+    message(FATAL_ERROR "RHI: Metal backend requested but the current platform does not support Metal.")
   endif()
 else()
-  message(FATAL_ERROR "RHI: Only the Metal backend is available after removing OpenGL.")
+  message(FATAL_ERROR "RHI: No graphics backend selected. Enable PIXEL_USE_METAL or add a new backend.")
 endif()
 
 # Combine all sources
