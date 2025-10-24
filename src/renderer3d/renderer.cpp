@@ -11,6 +11,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
+#include <optional>
+#include <string_view>
 #include <stdexcept>
 #include <cstdlib>
 
@@ -85,17 +87,30 @@ Renderer::~Renderer() {
 }
 
 void Renderer::setup_default_shaders() {
+  std::optional<std::string> metal_source;
+  if (device_) {
+    const char *backend = device_->backend_name();
+    if (backend) {
+      std::string_view backend_name(backend);
+      if (backend_name.find("Metal") != std::string_view::npos) {
+        metal_source = "assets/shaders/metal/shaders.metal";
+        std::cout << "Detected Metal backend, using shared Metal shader source: "
+                  << *metal_source << std::endl;
+      }
+    }
+  }
+
   std::cout << "Loading default shader pair: assets/shaders/default.vert &"
             << " assets/shaders/default.frag" << std::endl;
-  default_shader_ =
-      load_shader("assets/shaders/default.vert", "assets/shaders/default.frag");
+  default_shader_ = load_shader("assets/shaders/default.vert",
+                                "assets/shaders/default.frag", metal_source);
   if (!default_shader_) {
     std::cerr << "Failed to load default shader" << std::endl;
   }
   std::cout << "Loading instanced shader pair: assets/shaders/instanced.vert &"
             << " assets/shaders/instanced.frag" << std::endl;
   instanced_shader_ = load_shader("assets/shaders/instanced.vert",
-                                  "assets/shaders/instanced.frag");
+                                  "assets/shaders/instanced.frag", metal_source);
   if (!instanced_shader_) {
     std::cerr << "Failed to load instanced shader" << std::endl;
   }
@@ -191,9 +206,11 @@ bool Renderer::process_events() {
 }
 
 ShaderID Renderer::load_shader(const std::string &vert_path,
-                               const std::string &frag_path) {
+                               const std::string &frag_path,
+                               std::optional<std::string> metal_path) {
   ShaderID id = next_shader_id_++;
-  shaders_[id] = Shader::create(device_, vert_path, frag_path);
+  shaders_[id] = Shader::create(device_, vert_path, frag_path,
+                                std::move(metal_path));
   return id;
 }
 

@@ -137,6 +137,7 @@ struct MTLSamplerResource {
 
 struct MTLShaderResource {
   id<MTLFunction> function = nil;
+  id<MTLLibrary> library = nil;
   std::string stage;
 };
 
@@ -281,6 +282,7 @@ struct MetalDevice::Impl {
   std::unordered_map<PipelineCacheKey, PipelineHandle, PipelineCacheKeyHash>
       pipeline_cache_;
   std::unordered_map<size_t, MTLVertexDescriptor *> vertex_descriptor_library_;
+  std::unordered_map<size_t, id<MTLLibrary>> shader_library_cache_;
 
   uint32_t next_buffer_id_ = 1;
   uint32_t next_texture_id_ = 1;
