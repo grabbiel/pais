@@ -10,8 +10,8 @@ layout (location = 4) in float TextureIndex;
 layout (location = 5) in float LODAlpha;
 layout (location = 6) in vec4 FragPosLightSpace;
 
-uniform sampler2DArray uTextureArray;
-uniform sampler2DShadow shadowMap;
+layout (binding = 1) uniform sampler2DArray uTextureArray;
+layout (binding = 2) uniform sampler2DShadow shadowMap;
 uniform int useTextureArray;
 uniform vec3 lightPos;
 uniform vec3 viewPos;
