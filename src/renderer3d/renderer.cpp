@@ -166,7 +166,20 @@ void Renderer::set_directional_light(const DirectionalLight &light) {
 }
 
 void Renderer::begin_shadow_pass() {
-  if (!device_ || !shadow_map_ || shadow_pass_active_) {
+  if (!device_) {
+    std::cerr << "[Renderer] Cannot begin shadow pass: device not available"
+              << std::endl;
+    return;
+  }
+
+  if (!shadow_map_) {
+    std::cerr << "[Renderer] Cannot begin shadow pass: shadow map missing"
+              << std::endl;
+    return;
+  }
+
+  if (shadow_pass_active_) {
+    std::cerr << "[Renderer] Shadow pass already active" << std::endl;
     return;
   }
 
@@ -179,8 +192,11 @@ void Renderer::begin_shadow_pass() {
   if (render_pass_active_) {
     cmd->endRender();
     render_pass_active_ = false;
+    std::cout << "[Renderer] Interrupted main render pass to begin shadow pass"
+              << std::endl;
   }
 
+  std::cout << "[Renderer] Beginning shadow pass" << std::endl;
   shadow_map_->update_light(directional_light_);
   shadow_map_->begin(cmd);
   shadow_pass_active_ = true;
@@ -196,10 +212,26 @@ void Renderer::begin_shadow_pass() {
 }
 
 void Renderer::end_shadow_pass() {
-  if (!shadow_pass_active_ || !device_ || !shadow_map_)
+  if (!shadow_pass_active_) {
+    std::cerr << "[Renderer] Cannot end shadow pass: no pass active"
+              << std::endl;
     return;
+  }
+
+  if (!device_) {
+    std::cerr << "[Renderer] Cannot end shadow pass: device not available"
+              << std::endl;
+    return;
+  }
+
+  if (!shadow_map_) {
+    std::cerr << "[Renderer] Cannot end shadow pass: shadow map missing"
+              << std::endl;
+    return;
+  }
 
   auto *cmd = device_->getImmediate();
+  std::cout << "[Renderer] Ending shadow pass" << std::endl;
   shadow_map_->end(cmd);
   reset_depth_bias(cmd);
   shadow_pass_active_ = false;
@@ -207,12 +239,24 @@ void Renderer::end_shadow_pass() {
 
 void Renderer::draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
                                 const Vec3 &rotation, const Vec3 &scale) {
-  if (!shadow_pass_active_ || shadow_pipeline_.id == 0)
+  if (!shadow_pass_active_) {
+    std::cerr << "[Renderer] Cannot draw shadow mesh: shadow pass not active"
+              << std::endl;
     return;
+  }
+
+  if (shadow_pipeline_.id == 0) {
+    std::cerr << "[Renderer] Cannot draw shadow mesh: shadow pipeline invalid"
+              << std::endl;
+    return;
+  }
 
   Shader *shader = get_shader(shadow_shader_);
-  if (!shader)
+  if (!shader) {
+    std::cerr << "[Renderer] Cannot draw shadow mesh: shadow shader missing"
+              << std::endl;
     return;
+  }
 
   auto *cmd = device_->getImmediate();
   cmd->setPipeline(shadow_pipeline_);
@@ -236,6 +280,8 @@ void Renderer::draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
                         glm::value_ptr(shadow_map_->light_view_projection()));
   }
 
+  std::cout << "[Renderer] Drawing shadow mesh with " << mesh.index_count()
+            << " indices" << std::endl;
   cmd->drawIndexed(mesh.index_count(), 0, 1);
 }
 
@@ -547,15 +593,34 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
 
   bool shadows_enabled =
       shadow_map_ && shadow_pipeline_.id != 0 && shadow_map_->texture().id != 0;
+  if (!shadow_map_) {
+    std::cerr << "[Renderer] Shadow uniforms disabled: shadow map not available"
+              << std::endl;
+  } else if (shadow_pipeline_.id == 0) {
+    std::cerr
+        << "[Renderer] Shadow uniforms disabled: shadow pipeline handle invalid"
+        << std::endl;
+  } else if (shadow_map_->texture().id == 0) {
+    std::cerr << "[Renderer] Shadow uniforms disabled: depth texture missing"
+              << std::endl;
+  }
   if (reflection.has_sampler("shadowMap") && shadows_enabled) {
+    std::cout << "[Renderer] Binding shadow map texture" << std::endl;
     cmd->setTexture("shadowMap", shadow_map_->texture(), 1,
                     shadow_map_->sampler());
+  } else if (reflection.has_sampler("shadowMap")) {
+    std::cerr << "[Renderer] Shader expects shadow map but it is unavailable"
+              << std::endl;
   }
   if (reflection.has_uniform("shadowBias")) {
     float bias = shadow_map_ ? shadow_map_->settings().shadow_bias : 0.0f;
+    std::cout << "[Renderer] Setting shadow bias uniform to " << bias
+              << std::endl;
     cmd->setUniformFloat("shadowBias", bias);
   }
   if (reflection.has_uniform("shadowsEnabled")) {
+    std::cout << "[Renderer] Setting shadowsEnabled uniform to "
+              << (shadows_enabled ? 1 : 0) << std::endl;
     cmd->setUniformInt("shadowsEnabled", shadows_enabled ? 1 : 0);
   }
 
