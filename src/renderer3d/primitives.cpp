@@ -94,14 +94,14 @@ std::vector<Vertex> create_plane_vertices(float width, float depth,
       int i2 = (z + 1) * (segments + 1) + x;
       int i3 = i2 + 1;
 
-      // First triangle
+      // First triangle (counter-clockwise winding)
       indexed_verts.push_back(vertices[i0]);
-      indexed_verts.push_back(vertices[i2]);
       indexed_verts.push_back(vertices[i1]);
+      indexed_verts.push_back(vertices[i2]);
 
-      // Second triangle
-      indexed_verts.push_back(vertices[i1]);
+      // Second triangle (counter-clockwise winding)
       indexed_verts.push_back(vertices[i2]);
+      indexed_verts.push_back(vertices[i1]);
       indexed_verts.push_back(vertices[i3]);
     }
   }
