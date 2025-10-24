@@ -45,8 +45,7 @@ std::unique_ptr<Mesh> create_grass_mesh(Renderer &renderer) {
   const float half_width = kGrassHalfWidth;
   const float height = kGrassBaseHeight;
 
-  auto push_vertex = [&](const Vec3 &pos, const Vec3 &normal,
-                         const Vec2 &uv) {
+  auto push_vertex = [&](const Vec3 &pos, const Vec3 &normal, const Vec2 &uv) {
     vertices.push_back({pos, normal, uv, Color::White()});
   };
 
@@ -91,9 +90,9 @@ std::unique_ptr<Mesh> create_grass_mesh(Renderer &renderer) {
               Vec2{0.0f, 1.0f});
 
   std::vector<uint32_t> indices = {
-      0, 1, 2, 2, 3, 0,       // +Z
-      4, 5, 6, 6, 7, 4,       // -Z
-      8, 9, 10, 10, 11, 8,    // +X
+      0,  1,  2,  2,  3,  0,  // +Z
+      4,  5,  6,  6,  7,  4,  // -Z
+      8,  9,  10, 10, 11, 8,  // +X
       12, 13, 14, 14, 15, 12, // -X
   };
 
@@ -164,8 +163,7 @@ private:
   Vec3 forward() const {
     float yaw_rad = glm::radians(yaw);
     float pitch_rad = glm::radians(pitch);
-    glm::vec3 dir{std::cos(yaw_rad) * std::cos(pitch_rad),
-                  std::sin(pitch_rad),
+    glm::vec3 dir{std::cos(yaw_rad) * std::cos(pitch_rad), std::sin(pitch_rad),
                   std::sin(yaw_rad) * std::cos(pitch_rad)};
     return Vec3::from_glm(glm::normalize(dir));
   }
@@ -229,8 +227,8 @@ int main() {
 
   DirectionalLight sunlight;
   sunlight.direction = Vec3{-0.35f, -1.0f, -0.25f}.normalized();
-  sunlight.position = Vec3{-sunlight.direction.x * 60.0f, 60.0f,
-                           -sunlight.direction.z * 60.0f};
+  sunlight.position =
+      Vec3{-sunlight.direction.x * 60.0f, 60.0f, -sunlight.direction.z * 60.0f};
   sunlight.color = Color(1.0f, 0.96f, 0.88f, 1.0f);
   sunlight.intensity = 1.25f;
   renderer->set_directional_light(sunlight);
@@ -267,9 +265,8 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  auto grass_instanced =
-      RendererInstanced::create_instanced_mesh(device, *grass_mesh,
-                                               kGrassBladeCount);
+  auto grass_instanced = RendererInstanced::create_instanced_mesh(
+      device, *grass_mesh, kGrassBladeCount);
   if (!grass_instanced) {
     std::cerr << "Failed to create instanced grass mesh" << std::endl;
     return EXIT_FAILURE;
@@ -289,7 +286,8 @@ int main() {
   std::uniform_real_distribution<float> sway_speed_dist(0.6f, 1.4f);
   std::uniform_real_distribution<float> sway_strength_dist(0.02f, 0.08f);
   std::uniform_real_distribution<float> color_variation(0.85f, 1.05f);
-  std::uniform_real_distribution<float> phase_dist(0.0f, 2.0f * glm::pi<float>());
+  std::uniform_real_distribution<float> phase_dist(0.0f,
+                                                   2.0f * glm::pi<float>());
 
   for (size_t i = 0; i < kGrassBladeCount; ++i) {
     float x = position_dist(rng);
@@ -322,8 +320,7 @@ int main() {
 
   Material terrain_material;
   terrain_material.blend_mode = Material::BlendMode::Opaque;
-  terrain_material.texture =
-      renderer->load_texture("assets/textures/dirt.png");
+  terrain_material.texture = renderer->load_texture("assets/textures/dirt.png");
   terrain_material.depth_test = true;
   terrain_material.depth_write = true;
   terrain_material.color = Color::White();
@@ -357,7 +354,8 @@ int main() {
     DirectionalLight active_light = renderer->directional_light();
     Vec3 camera_position = renderer->camera().position;
     Vec3 light_offset = active_light.direction * -60.0f;
-    active_light.position = camera_position + light_offset + Vec3{0.0f, 25.0f, 0.0f};
+    active_light.position =
+        camera_position + light_offset + Vec3{0.0f, 25.0f, 0.0f};
     renderer->set_directional_light(active_light);
 
     for (size_t i = 0; i < base_instances.size(); ++i) {
@@ -374,8 +372,7 @@ int main() {
 
     renderer->begin_shadow_pass();
     renderer->draw_shadow_mesh(*terrain_mesh, Vec3{0.0f, 0.0f, 0.0f},
-                               Vec3{0.0f, 0.0f, 0.0f},
-                               Vec3{1.0f, 1.0f, 1.0f});
+                               Vec3{0.0f, 0.0f, 0.0f}, Vec3{1.0f, 1.0f, 1.0f});
     for (const auto &instance : current_instances) {
       renderer->draw_shadow_mesh(*grass_mesh, instance.position,
                                  instance.rotation, instance.scale);

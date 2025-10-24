@@ -27,9 +27,8 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
   auto renderer = std::unique_ptr<Renderer>(new Renderer());
 
   try {
-    std::cout << "Initializing renderer with window spec: "
-              << spec.w << "x" << spec.h << " title='" << spec.title << "'"
-              << std::endl;
+    std::cout << "Initializing renderer with window spec: " << spec.w << "x"
+              << spec.h << " title='" << spec.title << "'" << std::endl;
     // Step 1: Create the Window with appropriate Graphics API
 #ifdef PIXEL_USE_METAL
     auto window = platform::Window::create(spec, platform::GraphicsAPI::Metal);
@@ -102,8 +101,9 @@ void Renderer::setup_default_shaders() {
       std::string_view backend_name(backend);
       if (backend_name.find("Metal") != std::string_view::npos) {
         metal_source = "assets/shaders/metal/shaders.metal";
-        std::cout << "Detected Metal backend, using shared Metal shader source: "
-                  << *metal_source << std::endl;
+        std::cout
+            << "Detected Metal backend, using shared Metal shader source: "
+            << *metal_source << std::endl;
       }
     }
   }
@@ -117,16 +117,19 @@ void Renderer::setup_default_shaders() {
   }
   std::cout << "Loading instanced shader pair: assets/shaders/instanced.vert &"
             << " assets/shaders/instanced.frag" << std::endl;
-  instanced_shader_ = load_shader("assets/shaders/instanced.vert",
-                                  "assets/shaders/instanced.frag", metal_source);
+  instanced_shader_ =
+      load_shader("assets/shaders/instanced.vert",
+                  "assets/shaders/instanced.frag", metal_source);
   if (!instanced_shader_) {
     std::cerr << "Failed to load instanced shader" << std::endl;
   }
 
-  std::cout << "Loading shadow depth shader pair: assets/shaders/shadow_depth.vert &"
-            << " assets/shaders/shadow_depth.frag" << std::endl;
-  shadow_shader_ = load_shader("assets/shaders/shadow_depth.vert",
-                               "assets/shaders/shadow_depth.frag", metal_source);
+  std::cout
+      << "Loading shadow depth shader pair: assets/shaders/shadow_depth.vert &"
+      << " assets/shaders/shadow_depth.frag" << std::endl;
+  shadow_shader_ =
+      load_shader("assets/shaders/shadow_depth.vert",
+                  "assets/shaders/shadow_depth.frag", metal_source);
   if (!shadow_shader_) {
     std::cerr << "Failed to load shadow depth shader" << std::endl;
   } else if (device_) {
@@ -162,8 +165,9 @@ void Renderer::set_directional_light(const DirectionalLight &light) {
 }
 
 void Renderer::begin_shadow_pass() {
-  if (!device_ || !shadow_map_ || shadow_pass_active_)
+  if (!device_ || !shadow_map_ || shadow_pass_active_) {
     return;
+  }
 
   auto *cmd = device_->getImmediate();
   if (!command_list_open_) {
@@ -217,8 +221,7 @@ void Renderer::draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
   const ShaderReflection &reflection = shader->reflection();
 
   glm::mat4 model = glm::mat4(1.0f);
-  model =
-      glm::translate(model, glm::vec3(position.x, position.y, position.z));
+  model = glm::translate(model, glm::vec3(position.x, position.y, position.z));
   model = glm::rotate(model, rotation.z, glm::vec3(0, 0, 1));
   model = glm::rotate(model, rotation.y, glm::vec3(0, 1, 0));
   model = glm::rotate(model, rotation.x, glm::vec3(1, 0, 0));
@@ -236,7 +239,8 @@ void Renderer::draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
 }
 
 void Renderer::begin_frame(const Color &clear_color) {
-  std::cout << "\n============================================================" << std::endl;
+  std::cout << "\n============================================================"
+            << std::endl;
   std::cout << "Renderer::begin_frame()" << std::endl;
   std::cout << "  Clear color: (" << clear_color.r << ", " << clear_color.g
             << ", " << clear_color.b << ", " << clear_color.a << ")"
@@ -286,7 +290,8 @@ void Renderer::begin_frame(const Color &clear_color) {
 
   reset_depth_bias(cmd);
   std::cout << "  Render pass begun successfully" << std::endl;
-  std::cout << "============================================================\n" << std::endl;
+  std::cout << "============================================================\n"
+            << std::endl;
 }
 
 void Renderer::end_frame() {
@@ -359,8 +364,8 @@ ShaderID Renderer::load_shader(const std::string &vert_path,
                                const std::string &frag_path,
                                std::optional<std::string> metal_path) {
   ShaderID id = next_shader_id_++;
-  shaders_[id] = Shader::create(device_, vert_path, frag_path,
-                                std::move(metal_path));
+  shaders_[id] =
+      Shader::create(device_, vert_path, frag_path, std::move(metal_path));
   return id;
 }
 
@@ -375,16 +380,16 @@ void Renderer::apply_material_state(rhi::CmdList *cmd,
     return;
 
   std::cout << "Applying material state:" << std::endl;
-  std::cout << "  Blend mode: "
-            << static_cast<int>(material.blend_mode) << std::endl;
+  std::cout << "  Blend mode: " << static_cast<int>(material.blend_mode)
+            << std::endl;
   std::cout << "  Depth test: " << (material.depth_test ? "ON" : "OFF")
             << std::endl;
   std::cout << "  Depth write: " << (material.depth_write ? "ON" : "OFF")
             << std::endl;
-  std::cout << "  Depth compare: "
-            << static_cast<int>(material.depth_compare) << std::endl;
-  std::cout << "  Stencil enabled: "
-            << (material.stencil_enable ? "YES" : "NO") << std::endl;
+  std::cout << "  Depth compare: " << static_cast<int>(material.depth_compare)
+            << std::endl;
+  std::cout << "  Stencil enabled: " << (material.stencil_enable ? "YES" : "NO")
+            << std::endl;
 
   rhi::DepthStencilState depth_state{};
   depth_state.depthTestEnable = material.depth_test;
@@ -415,7 +420,9 @@ std::unique_ptr<Mesh> Renderer::create_quad(float size) {
   return Mesh::create(device_, verts, indices);
 }
 
-std::unique_ptr<Mesh> Renderer::create_sprite_quad() { return create_quad(1.0f); }
+std::unique_ptr<Mesh> Renderer::create_sprite_quad() {
+  return create_quad(1.0f);
+}
 
 std::unique_ptr<Mesh> Renderer::create_cube(float size) {
   std::vector<Vertex> verts = primitives::create_cube_vertices(size);
@@ -423,8 +430,8 @@ std::unique_ptr<Mesh> Renderer::create_cube(float size) {
   for (uint32_t i = 0; i < verts.size(); ++i)
     indices.push_back(i);
   std::cout << "Creating cube mesh: vertex_count=" << verts.size()
-            << " index_count=" << indices.size()
-            << " size=" << size << std::endl;
+            << " index_count=" << indices.size() << " size=" << size
+            << std::endl;
   return Mesh::create(device_, verts, indices);
 }
 
@@ -448,8 +455,8 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
             << position.z << ")" << std::endl;
   std::cout << "  rotation: (" << rotation.x << ", " << rotation.y << ", "
             << rotation.z << ")" << std::endl;
-  std::cout << "  scale:    (" << scale.x << ", " << scale.y << ", "
-            << scale.z << ")" << std::endl;
+  std::cout << "  scale:    (" << scale.x << ", " << scale.y << ", " << scale.z
+            << ")" << std::endl;
 
   Shader *shader = get_shader(default_shader_);
   if (!shader)
@@ -469,8 +476,7 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
 
   // Build model matrix
   glm::mat4 model = glm::mat4(1.0f);
-  model =
-      glm::translate(model, glm::vec3(position.x, position.y, position.z));
+  model = glm::translate(model, glm::vec3(position.x, position.y, position.z));
   model = glm::rotate(model, rotation.z, glm::vec3(0, 0, 1));
   model = glm::rotate(model, rotation.y, glm::vec3(0, 1, 0));
   model = glm::rotate(model, rotation.x, glm::vec3(1, 0, 0));
@@ -532,8 +538,8 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
     cmd->setTexture("uTexture", material.texture, 0);
   }
 
-  bool shadows_enabled = shadow_map_ && shadow_pipeline_.id != 0 &&
-                         shadow_map_->texture().id != 0;
+  bool shadows_enabled =
+      shadow_map_ && shadow_pipeline_.id != 0 && shadow_map_->texture().id != 0;
   if (reflection.has_sampler("shadowMap") && shadows_enabled) {
     cmd->setTexture("shadowMap", shadow_map_->texture(), 1,
                     shadow_map_->sampler());
@@ -579,17 +585,11 @@ void Renderer::draw_sprite(rhi::TextureHandle texture, const Vec3 &position,
   }
 }
 
-int Renderer::window_width() const {
-  return window_ ? window_->width() : 0;
-}
+int Renderer::window_width() const { return window_ ? window_->width() : 0; }
 
-int Renderer::window_height() const {
-  return window_ ? window_->height() : 0;
-}
+int Renderer::window_height() const { return window_ ? window_->height() : 0; }
 
-double Renderer::time() const {
-  return window_ ? window_->time() : 0.0;
-}
+double Renderer::time() const { return window_ ? window_->time() : 0.0; }
 
 const char *Renderer::backend_name() const {
   if (device_) {
