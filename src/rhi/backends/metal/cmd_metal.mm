@@ -119,6 +119,9 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     }
   }
 
+  NSUInteger resolvedWidth = targetWidth;
+  NSUInteger resolvedHeight = targetHeight;
+
   if (requiresDrawable) {
     if (!impl_->layer_) {
       std::cerr
@@ -156,6 +159,10 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     NSUInteger drawableHeight = drawableTex ? drawableTex.height : 0;
     std::cerr << "DEBUG: Successfully acquired drawable (" << drawableWidth
               << "x" << drawableHeight << ")" << std::endl;
+    if (drawableWidth > 0 && drawableHeight > 0) {
+      resolvedWidth = drawableWidth;
+      resolvedHeight = drawableHeight;
+    }
   } else {
     impl_->current_drawable_ = nil;
   }
@@ -197,6 +204,8 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
       targetTexture = tex_it->second.texture;
       targetWidth = tex_it->second.width;
       targetHeight = tex_it->second.height;
+      resolvedWidth = targetWidth;
+      resolvedHeight = targetHeight;
     }
 
     if (!targetTexture) {
@@ -252,6 +261,8 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
         return;
       }
       depthTexture = tex_it->second.texture;
+      resolvedWidth = tex_it->second.width;
+      resolvedHeight = tex_it->second.height;
     }
 
     if (depthTexture) {
@@ -300,6 +311,31 @@ void MetalCmdList::beginRender(const RenderPassDesc &desc) {
     std::cerr << "Failed to create Metal render encoder" << std::endl;
     return;
   }
+
+  // Configure viewport & scissor to target size so draws are visible
+  if (resolvedWidth == 0 || resolvedHeight == 0) {
+    resolvedWidth = std::max<NSUInteger>(resolvedWidth, 1);
+    resolvedHeight = std::max<NSUInteger>(resolvedHeight, 1);
+  }
+
+  MTLViewport viewport;
+  viewport.originX = 0.0;
+  viewport.originY = 0.0;
+  viewport.width = static_cast<double>(resolvedWidth);
+  viewport.height = static_cast<double>(resolvedHeight);
+  viewport.znear = 0.0;
+  viewport.zfar = 1.0;
+  [impl_->render_encoder_ setViewport:viewport];
+
+  MTLScissorRect scissor;
+  scissor.x = 0;
+  scissor.y = 0;
+  scissor.width = resolvedWidth;
+  scissor.height = resolvedHeight;
+  [impl_->render_encoder_ setScissorRect:scissor];
+
+  std::cerr << "DEBUG: Viewport set to " << resolvedWidth << "x"
+            << resolvedHeight << std::endl;
 
   impl_->active_encoder_ = Impl::EncoderState::Render;
 }
