@@ -300,6 +300,47 @@ vertex ShadowVertexOut vertex_shadow_depth(
     return out;
 }
 
+vertex ShadowVertexOut vertex_shadow_depth_instanced(
+    VertexInInstanced in [[stage_in]],
+    constant Uniforms& uniforms [[buffer(1)]]) {
+    ShadowVertexOut out;
+
+    float3 scaledPos = in.position * in.instanceScale;
+
+    float sx = sin(in.instanceRotation.x);
+    float cx = cos(in.instanceRotation.x);
+    float sy = sin(in.instanceRotation.y);
+    float cy = cos(in.instanceRotation.y);
+    float sz = sin(in.instanceRotation.z);
+    float cz = cos(in.instanceRotation.z);
+
+    float3x3 rotX = float3x3(
+        float3(1.0, 0.0, 0.0),
+        float3(0.0,  cx, -sx),
+        float3(0.0,  sx,  cx)
+    );
+
+    float3x3 rotY = float3x3(
+        float3( cy, 0.0, sy),
+        float3(0.0, 1.0, 0.0),
+        float3(-sy, 0.0, cy)
+    );
+
+    float3x3 rotZ = float3x3(
+        float3( cz, -sz, 0.0),
+        float3( sz,  cz, 0.0),
+        float3(0.0, 0.0, 1.0)
+    );
+
+    float3x3 rotation = rotZ * rotY * rotX;
+    float3 rotatedPos = rotation * scaledPos;
+    float3 worldPosition = rotatedPos + in.instancePosition;
+
+    float4 worldPos = uniforms.model * float4(worldPosition, 1.0);
+    out.position = uniforms.lightViewProj * worldPos;
+    return out;
+}
+
 fragment void fragment_shadow_depth() {}
 
 // ============================================================================

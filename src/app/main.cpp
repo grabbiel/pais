@@ -373,10 +373,9 @@ int main() {
     renderer->begin_shadow_pass();
     renderer->draw_shadow_mesh(*terrain_mesh, Vec3{0.0f, 0.0f, 0.0f},
                                Vec3{0.0f, 0.0f, 0.0f}, Vec3{1.0f, 1.0f, 1.0f});
-    for (const auto &instance : current_instances) {
-      renderer->draw_shadow_mesh(*grass_mesh, instance.position,
-                                 instance.rotation, instance.scale);
-    }
+    renderer->draw_shadow_mesh_instanced(*grass_instanced, Vec3{0.0f, 0.0f, 0.0f},
+                                         Vec3{0.0f, 0.0f, 0.0f},
+                                         Vec3{1.0f, 1.0f, 1.0f});
     renderer->end_shadow_pass();
 
     renderer->begin_frame(Color(0.55f, 0.75f, 0.95f, 1.0f));

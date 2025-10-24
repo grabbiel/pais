@@ -1,5 +1,6 @@
 // src/renderer3d/renderer.cpp (Updated for RHI)
 #include "pixel/renderer3d/renderer.hpp"
+#include "pixel/renderer3d/renderer_instanced.hpp"
 #include "pixel/renderer3d/clip_space.hpp"
 #include "pixel/renderer3d/primitives.hpp"
 #include "pixel/renderer3d/renderer_fwd.hpp"
@@ -147,6 +148,29 @@ void Renderer::setup_default_shaders() {
       }
     }
   }
+
+  std::cout << "Loading instanced shadow depth shader pair:"
+            << " assets/shaders/shadow_depth_instanced.vert &"
+            << " assets/shaders/shadow_depth.frag" << std::endl;
+  shadow_instanced_shader_ =
+      load_shader("assets/shaders/shadow_depth_instanced.vert",
+                  "assets/shaders/shadow_depth.frag", metal_source);
+  if (!shadow_instanced_shader_) {
+    std::cerr << "Failed to load instanced shadow depth shader" << std::endl;
+  } else if (device_) {
+    Shader *shadow_shader = get_shader(shadow_instanced_shader_);
+    if (shadow_shader) {
+      auto handles = shadow_shader->shader_handles();
+      rhi::PipelineDesc depth_desc{};
+      depth_desc.vs = handles.first;
+      depth_desc.fs = handles.second;
+      depth_desc.colorAttachmentCount = 0;
+      shadow_instanced_pipeline_ = device_->createPipeline(depth_desc);
+      if (shadow_instanced_pipeline_.id == 0) {
+        std::cerr << "Failed to create instanced shadow pipeline" << std::endl;
+      }
+    }
+  }
   sprite_shader_ = default_shader_; // Use same for sprites
 }
 
@@ -283,6 +307,67 @@ void Renderer::draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
   std::cout << "[Renderer] Drawing shadow mesh with " << mesh.index_count()
             << " indices" << std::endl;
   cmd->drawIndexed(mesh.index_count(), 0, 1);
+}
+
+void Renderer::draw_shadow_mesh_instanced(const InstancedMesh &mesh,
+                                          const Vec3 &position,
+                                          const Vec3 &rotation,
+                                          const Vec3 &scale) {
+  if (!shadow_pass_active_) {
+    std::cerr << "[Renderer] Cannot draw instanced shadow mesh: shadow pass not"
+                 " active"
+              << std::endl;
+    return;
+  }
+
+  if (shadow_instanced_pipeline_.id == 0) {
+    std::cerr
+        << "[Renderer] Cannot draw instanced shadow mesh: shadow pipeline invalid"
+        << std::endl;
+    return;
+  }
+
+  Shader *shader = get_shader(shadow_instanced_shader_);
+  if (!shader) {
+    std::cerr << "[Renderer] Cannot draw instanced shadow mesh: shader missing"
+              << std::endl;
+    return;
+  }
+
+  if (mesh.instance_count() == 0) {
+    std::cerr
+        << "[Renderer] Skipping instanced shadow mesh draw: no instances bound"
+        << std::endl;
+    return;
+  }
+
+  auto *cmd = device_->getImmediate();
+  cmd->setPipeline(shadow_instanced_pipeline_);
+  cmd->setVertexBuffer(mesh.vertex_buffer());
+  cmd->setIndexBuffer(mesh.index_buffer());
+  cmd->setInstanceBuffer(mesh.instance_buffer(), sizeof(InstanceGPUData));
+
+  const ShaderReflection &reflection = shader->reflection();
+
+  glm::mat4 model = glm::mat4(1.0f);
+  model = glm::translate(model, glm::vec3(position.x, position.y, position.z));
+  model = glm::rotate(model, rotation.z, glm::vec3(0, 0, 1));
+  model = glm::rotate(model, rotation.y, glm::vec3(0, 1, 0));
+  model = glm::rotate(model, rotation.x, glm::vec3(1, 0, 0));
+  model = glm::scale(model, glm::vec3(scale.x, scale.y, scale.z));
+
+  if (reflection.has_uniform("model")) {
+    cmd->setUniformMat4("model", glm::value_ptr(model));
+  }
+  if (reflection.has_uniform("lightViewProj") && shadow_map_) {
+    cmd->setUniformMat4("lightViewProj",
+                        glm::value_ptr(shadow_map_->light_view_projection()));
+  }
+
+  std::cout << "[Renderer] Drawing instanced shadow mesh with "
+            << mesh.index_count() << " indices for " << mesh.instance_count()
+            << " instances" << std::endl;
+  cmd->drawIndexed(mesh.index_count(), 0, mesh.instance_count());
 }
 
 void Renderer::begin_frame(const Color &clear_color) {
