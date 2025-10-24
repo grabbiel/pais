@@ -1,11 +1,12 @@
-#version 330 core
-out vec4 FragColor;
+#version 450 core
 
-in vec3 FragPos;
-in vec3 Normal;
-in vec2 TexCoord;
-in vec4 Color;
-in vec4 FragPosLightSpace;
+layout (location = 0) out vec4 FragColor;
+
+layout (location = 0) in vec3 FragPos;
+layout (location = 1) in vec3 Normal;
+layout (location = 2) in vec2 TexCoord;
+layout (location = 3) in vec4 Color;
+layout (location = 4) in vec4 FragPosLightSpace;
 
 uniform sampler2D uTexture;
 uniform sampler2DShadow shadowMap;

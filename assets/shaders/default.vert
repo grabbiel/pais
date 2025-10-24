@@ -1,14 +1,14 @@
-#version 330 core
+#version 450 core
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec3 aNormal;
 layout (location = 2) in vec2 aTexCoord;
 layout (location = 3) in vec4 aColor;
 
-out vec3 FragPos;
-out vec3 Normal;
-out vec2 TexCoord;
-out vec4 Color;
-out vec4 FragPosLightSpace;
+layout (location = 0) out vec3 FragPos;
+layout (location = 1) out vec3 Normal;
+layout (location = 2) out vec2 TexCoord;
+layout (location = 3) out vec4 Color;
+layout (location = 4) out vec4 FragPosLightSpace;
 
 uniform mat4 model;
 uniform mat4 view;
