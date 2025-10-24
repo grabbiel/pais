@@ -1,14 +1,17 @@
 #include "pixel/platform/platform.hpp"
+#include "pixel/platform/window.hpp"
 #include "pixel/renderer3d/renderer.hpp"
 #include "pixel/renderer3d/renderer_instanced.hpp"
 
+#include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
+
 #include <algorithm>
 #include <cmath>
-#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <random>
-#include <string>
 #include <vector>
 
 using pixel::renderer3d::Color;
@@ -17,283 +20,339 @@ using pixel::renderer3d::Material;
 using pixel::renderer3d::Mesh;
 using pixel::renderer3d::Renderer;
 using pixel::renderer3d::RendererInstanced;
+using pixel::renderer3d::Vec2;
 using pixel::renderer3d::Vec3;
 
 namespace {
 
-constexpr float kPi = 3.14159265358979323846f;
+constexpr size_t kGrassBladeCount = 8000;
+constexpr float kTerrainSize = 60.0f;
+constexpr float kGrassHalfWidth = 0.08f;
+constexpr float kGrassBaseHeight = 1.2f;
 
-struct DemoLogger {
-  void info(const std::string &message) const {
-    std::cout << "[demo] " << message << std::endl;
-  }
-
-  void error(const std::string &message) {
-    std::cerr << "[demo:error] " << message << std::endl;
-    failures.push_back(message);
-  }
-
-  void status(double time_seconds, size_t frames, size_t updates,
-              size_t instances) {
-    last_status_time = time_seconds;
-    std::cout << std::fixed << std::setprecision(2);
-    std::cout << "[demo:status] t=" << time_seconds << "s"
-              << " | frames=" << frames << " | instance_updates=" << updates
-              << " | active_instances=" << instances << std::endl;
-
-    if (!failures.empty()) {
-      std::cout << "               Issues detected: " << failures.size()
-                << std::endl;
-      for (const auto &failure : failures) {
-        std::cout << "                 - " << failure << std::endl;
-      }
-    }
-  }
-
-  void final_report(size_t frames, size_t updates, size_t instances,
-                    const std::string &backend) const {
-    std::cout << "\n========================================" << std::endl;
-    std::cout << "Instanced sphere cloud demo finished" << std::endl;
-    std::cout << "Renderer backend: "
-              << (backend.empty() ? std::string{"unknown"} : backend)
-              << std::endl;
-    std::cout << "Frames rendered: " << frames << std::endl;
-    std::cout << "Instance updates: " << updates << std::endl;
-    std::cout << "Instances tracked: " << instances << std::endl;
-    if (failures.empty()) {
-      std::cout << "Status: success" << std::endl;
-    } else {
-      std::cout << "Status: issues detected (" << failures.size() << ")"
-                << std::endl;
-      for (const auto &failure : failures) {
-        std::cout << "  - " << failure << std::endl;
-      }
-    }
-    std::cout << "========================================\n" << std::endl;
-  }
-
-  double last_status_time = 0.0;
-  std::vector<std::string> failures;
-};
-
-struct FloatMotion {
+struct GrassWindState {
   Vec3 base_position{0.0f, 0.0f, 0.0f};
-  float amplitude = 1.0f;
-  float frequency = 1.0f;
-  float phase = 0.0f;
-  float rotation_speed = 0.25f;
+  float sway_phase = 0.0f;
+  float sway_speed = 1.0f;
+  float sway_strength = 0.05f;
 };
 
-std::unique_ptr<Mesh> create_uv_sphere(Renderer &renderer, float radius,
-                                       int latitude_segments,
-                                       int longitude_segments) {
-  auto *device = renderer.device();
-  if (!device) {
-    return nullptr;
-  }
-
-  const int lat_segments = std::max(3, latitude_segments);
-  const int lon_segments = std::max(3, longitude_segments);
-
+std::unique_ptr<Mesh> create_grass_mesh(Renderer &renderer) {
   std::vector<pixel::renderer3d::Vertex> vertices;
-  vertices.reserve(
-      static_cast<size_t>((lat_segments + 1) * (lon_segments + 1)));
+  vertices.reserve(16);
 
-  for (int y = 0; y <= lat_segments; ++y) {
-    float v = static_cast<float>(y) / static_cast<float>(lat_segments);
-    float theta = v * kPi;
+  const float half_width = kGrassHalfWidth;
+  const float height = kGrassBaseHeight;
 
-    float sin_theta = std::sin(theta);
-    float cos_theta = std::cos(theta);
+  auto push_vertex = [&](const Vec3 &pos, const Vec3 &normal,
+                         const Vec2 &uv) {
+    vertices.push_back({pos, normal, uv, Color::White()});
+  };
 
-    for (int x = 0; x <= lon_segments; ++x) {
-      float u = static_cast<float>(x) / static_cast<float>(lon_segments);
-      float phi = u * 2.0f * kPi;
+  // Quad facing +Z
+  push_vertex(Vec3{-half_width, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, 1.0f},
+              Vec2{0.0f, 0.0f});
+  push_vertex(Vec3{half_width, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, 1.0f},
+              Vec2{1.0f, 0.0f});
+  push_vertex(Vec3{half_width, height, 0.0f}, Vec3{0.0f, 0.0f, 1.0f},
+              Vec2{1.0f, 1.0f});
+  push_vertex(Vec3{-half_width, height, 0.0f}, Vec3{0.0f, 0.0f, 1.0f},
+              Vec2{0.0f, 1.0f});
 
-      float sin_phi = std::sin(phi);
-      float cos_phi = std::cos(phi);
+  // Quad facing -Z
+  push_vertex(Vec3{-half_width, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, -1.0f},
+              Vec2{0.0f, 0.0f});
+  push_vertex(Vec3{-half_width, height, 0.0f}, Vec3{0.0f, 0.0f, -1.0f},
+              Vec2{0.0f, 1.0f});
+  push_vertex(Vec3{half_width, height, 0.0f}, Vec3{0.0f, 0.0f, -1.0f},
+              Vec2{1.0f, 1.0f});
+  push_vertex(Vec3{half_width, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, -1.0f},
+              Vec2{1.0f, 0.0f});
 
-      Vec3 normal{cos_phi * sin_theta, cos_theta, sin_phi * sin_theta};
-      Vec3 position = normal * radius;
-      pixel::renderer3d::Vec2 texcoord{u, 1.0f - v};
+  // Quad facing +X
+  push_vertex(Vec3{0.0f, 0.0f, -half_width}, Vec3{1.0f, 0.0f, 0.0f},
+              Vec2{0.0f, 0.0f});
+  push_vertex(Vec3{0.0f, height, -half_width}, Vec3{1.0f, 0.0f, 0.0f},
+              Vec2{0.0f, 1.0f});
+  push_vertex(Vec3{0.0f, height, half_width}, Vec3{1.0f, 0.0f, 0.0f},
+              Vec2{1.0f, 1.0f});
+  push_vertex(Vec3{0.0f, 0.0f, half_width}, Vec3{1.0f, 0.0f, 0.0f},
+              Vec2{1.0f, 0.0f});
 
-      vertices.push_back(
-          {position, normal, texcoord, Color(1.0f, 1.0f, 1.0f, 1.0f)});
-    }
-  }
+  // Quad facing -X
+  push_vertex(Vec3{0.0f, 0.0f, -half_width}, Vec3{-1.0f, 0.0f, 0.0f},
+              Vec2{0.0f, 0.0f});
+  push_vertex(Vec3{0.0f, 0.0f, half_width}, Vec3{-1.0f, 0.0f, 0.0f},
+              Vec2{1.0f, 0.0f});
+  push_vertex(Vec3{0.0f, height, half_width}, Vec3{-1.0f, 0.0f, 0.0f},
+              Vec2{1.0f, 1.0f});
+  push_vertex(Vec3{0.0f, height, -half_width}, Vec3{-1.0f, 0.0f, 0.0f},
+              Vec2{0.0f, 1.0f});
 
-  std::vector<uint32_t> indices;
-  indices.reserve(static_cast<size_t>(lat_segments * lon_segments) * 6);
+  std::vector<uint32_t> indices = {
+      0, 1, 2, 2, 3, 0,       // +Z
+      4, 5, 6, 6, 7, 4,       // -Z
+      8, 9, 10, 10, 11, 8,    // +X
+      12, 13, 14, 14, 15, 12, // -X
+  };
 
-  const int stride = lon_segments + 1;
-  for (int y = 0; y < lat_segments; ++y) {
-    for (int x = 0; x < lon_segments; ++x) {
-      uint32_t i0 = static_cast<uint32_t>(y * stride + x);
-      uint32_t i1 = static_cast<uint32_t>(i0 + 1);
-      uint32_t i2 = static_cast<uint32_t>((y + 1) * stride + x);
-      uint32_t i3 = static_cast<uint32_t>(i2 + 1);
-
-      if (y != 0) {
-        indices.push_back(i0);
-        indices.push_back(i2);
-        indices.push_back(i1);
-      }
-
-      if (y != lat_segments - 1) {
-        indices.push_back(i1);
-        indices.push_back(i2);
-        indices.push_back(i3);
-      }
-    }
-  }
-
-  return Mesh::create(device, vertices, indices);
+  return Mesh::create(renderer.device(), vertices, indices);
 }
+
+class FlyCameraController {
+public:
+  void apply(pixel::renderer3d::Camera &camera) const {
+    Vec3 fwd = forward();
+    Vec3 forward_dir = fwd.normalized();
+    Vec3 up_dir{0.0f, 1.0f, 0.0f};
+
+    camera.position = position;
+    camera.target = position + forward_dir;
+    camera.up = up_dir;
+  }
+
+  void update(GLFWwindow *window, float delta_time) {
+    if (!window) {
+      return;
+    }
+
+    update_mouse(window);
+
+    Vec3 move{0.0f, 0.0f, 0.0f};
+    Vec3 forward_dir = forward().normalized();
+    Vec3 right_dir = right().normalized();
+    Vec3 up_dir{0.0f, 1.0f, 0.0f};
+
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
+      move = move + forward_dir;
+    }
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+      move = move + (forward_dir * -1.0f);
+    }
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
+      move = move + (right_dir * -1.0f);
+    }
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+      move = move + right_dir;
+    }
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
+      move = move + up_dir;
+    }
+    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) {
+      move = move + (up_dir * -1.0f);
+    }
+
+    float speed = move_speed;
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+      speed *= 2.5f;
+    }
+
+    if (move.length() > 0.0f) {
+      Vec3 delta = move.normalized() * (speed * delta_time);
+      position = position + delta;
+    }
+  }
+
+  Vec3 position{0.0f, 4.0f, 12.0f};
+  float yaw = -90.0f;
+  float pitch = -15.0f;
+  float move_speed = 12.0f;
+  float mouse_sensitivity = 0.15f;
+
+private:
+  Vec3 forward() const {
+    float yaw_rad = glm::radians(yaw);
+    float pitch_rad = glm::radians(pitch);
+    glm::vec3 dir{std::cos(yaw_rad) * std::cos(pitch_rad),
+                  std::sin(pitch_rad),
+                  std::sin(yaw_rad) * std::cos(pitch_rad)};
+    return Vec3::from_glm(glm::normalize(dir));
+  }
+
+  Vec3 right() const {
+    glm::vec3 dir = forward().to_glm();
+    glm::vec3 right_vec =
+        glm::normalize(glm::cross(dir, glm::vec3{0.0f, 1.0f, 0.0f}));
+    return Vec3::from_glm(right_vec);
+  }
+
+  void update_mouse(GLFWwindow *window) {
+    int state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+    if (state == GLFW_PRESS) {
+      double x = 0.0;
+      double y = 0.0;
+      glfwGetCursorPos(window, &x, &y);
+      if (!dragging_) {
+        dragging_ = true;
+        last_x_ = x;
+        last_y_ = y;
+      }
+
+      double dx = x - last_x_;
+      double dy = y - last_y_;
+      last_x_ = x;
+      last_y_ = y;
+
+      yaw += static_cast<float>(dx) * mouse_sensitivity;
+      pitch -= static_cast<float>(dy) * mouse_sensitivity;
+      pitch = std::clamp(pitch, -89.0f, 89.0f);
+    } else {
+      dragging_ = false;
+    }
+  }
+
+  bool dragging_ = false;
+  double last_x_ = 0.0;
+  double last_y_ = 0.0;
+};
 
 } // namespace
 
 int main() {
-  DemoLogger logger;
-  size_t frames_rendered = 0;
-  size_t instance_updates = 0;
-  std::string backend_name;
+  pixel::platform::WindowSpec spec;
+  spec.w = 1600;
+  spec.h = 900;
+  spec.title = "Pixel Life - Instanced Grass Field";
 
-  try {
-    logger.info("Starting instanced sphere cloud demo");
-
-    pixel::platform::WindowSpec spec;
-    spec.w = 1280;
-    spec.h = 720;
-    spec.title = "Pixel Life - Floating Spheres";
-
-    auto renderer = Renderer::create(spec);
-    if (!renderer) {
-      logger.error("Renderer creation failed: returned null");
-      logger.final_report(frames_rendered, instance_updates, 0, backend_name);
-      return EXIT_FAILURE;
-    }
-
-    backend_name = renderer->backend_name();
-    logger.info("Renderer created using backend: " + backend_name);
-
-    auto &camera = renderer->camera();
-    camera.position = Vec3(0.0f, 35.0f, 65.0f);
-    camera.target = Vec3(0.0f, 10.0f, 0.0f);
-    camera.up = Vec3(0.0f, 1.0f, 0.0f);
-    camera.near_clip = 0.1f;
-    camera.far_clip = 500.0f;
-
-    logger.info("Creating sphere mesh");
-    auto sphere_mesh = create_uv_sphere(*renderer, 0.75f, 32, 32);
-    if (!sphere_mesh) {
-      logger.error("Failed to create UV sphere mesh");
-      logger.final_report(frames_rendered, instance_updates, 0, backend_name);
-      return EXIT_FAILURE;
-    }
-
-    constexpr size_t kSphereCount = 4096;
-    logger.info("Preparing " + std::to_string(kSphereCount) +
-                " instanced sphere transforms");
-
-    std::vector<InstanceData> initial_instances;
-    initial_instances.reserve(kSphereCount);
-
-    std::vector<FloatMotion> motions;
-    motions.reserve(kSphereCount);
-
-    std::mt19937 rng(1337);
-    std::uniform_real_distribution<float> spread_dist(-45.0f, 45.0f);
-    std::uniform_real_distribution<float> height_dist(4.0f, 18.0f);
-    std::uniform_real_distribution<float> amplitude_dist(1.5f, 6.0f);
-    std::uniform_real_distribution<float> frequency_dist(0.15f, 0.6f);
-    std::uniform_real_distribution<float> phase_dist(0.0f, 2.0f * kPi);
-    std::uniform_real_distribution<float> rotation_speed_dist(0.05f, 0.25f);
-
-    for (size_t i = 0; i < kSphereCount; ++i) {
-      FloatMotion motion;
-      motion.base_position =
-          Vec3(spread_dist(rng), height_dist(rng), spread_dist(rng));
-      motion.amplitude = amplitude_dist(rng);
-      motion.frequency = frequency_dist(rng);
-      motion.phase = phase_dist(rng);
-      motion.rotation_speed = rotation_speed_dist(rng);
-
-      InstanceData data;
-      data.position = motion.base_position;
-      data.rotation = Vec3(0.0f, 0.0f, 0.0f);
-      data.scale = Vec3(1.0f, 1.0f, 1.0f);
-      data.color = Color(1.0f, 1.0f, 1.0f, 1.0f);
-      data.culling_radius = 1.0f;
-      data.texture_index = 0.0f;
-      data.lod_transition_alpha = 1.0f;
-
-      initial_instances.push_back(data);
-      motions.push_back(motion);
-    }
-
-    auto *device = renderer->device();
-    if (!device) {
-      logger.error("Renderer device pointer is null");
-      logger.final_report(frames_rendered, instance_updates, 0, backend_name);
-      return EXIT_FAILURE;
-    }
-
-    auto instanced_mesh = RendererInstanced::create_instanced_mesh(
-        device, *sphere_mesh, kSphereCount);
-    if (!instanced_mesh) {
-      logger.error("Failed to allocate instanced mesh");
-      logger.final_report(frames_rendered, instance_updates, 0, backend_name);
-      return EXIT_FAILURE;
-    }
-
-    instanced_mesh->set_instances(initial_instances);
-    logger.info("Instanced mesh uploaded to GPU");
-
-    Material base_material;
-    base_material.blend_mode = Material::BlendMode::Opaque;
-    base_material.color = Color(1.0f, 1.0f, 1.0f, 1.0f);
-    base_material.depth_test = true;
-    base_material.depth_write = true;
-
-    logger.status(0.0, frames_rendered, instance_updates,
-                  instanced_mesh->instance_count());
-
-    while (renderer->process_events()) {
-      double now = renderer->time();
-
-      float t = static_cast<float>(now);
-      for (size_t i = 0; i < kSphereCount; ++i) {
-        InstanceData updated = initial_instances[i];
-        const FloatMotion &motion = motions[i];
-
-        float wave = std::sin(t * motion.frequency + motion.phase);
-        updated.position = motion.base_position;
-        updated.position.y = motion.base_position.y + motion.amplitude * wave;
-        updated.rotation = Vec3(0.0f, t * motion.rotation_speed, 0.0f);
-
-        instanced_mesh->update_instance(i, updated);
-        ++instance_updates;
-      }
-
-      renderer->begin_frame(Color::Red());
-      RendererInstanced::draw_instanced(*renderer, *instanced_mesh,
-                                        base_material);
-      renderer->end_frame();
-
-      ++frames_rendered;
-
-      if (now - logger.last_status_time >= 2.5) {
-        logger.status(now, frames_rendered, instance_updates,
-                      instanced_mesh->instance_count());
-      }
-    }
-
-    logger.final_report(frames_rendered, instance_updates,
-                        instanced_mesh->instance_count(), backend_name);
-    return logger.failures.empty() ? EXIT_SUCCESS : EXIT_FAILURE;
-  } catch (const std::exception &e) {
-    logger.error(std::string{"Unhandled exception: "}.append(e.what()));
-    logger.final_report(frames_rendered, instance_updates, 0, backend_name);
+  auto renderer = Renderer::create(spec);
+  if (!renderer) {
+    std::cerr << "Failed to create renderer" << std::endl;
     return EXIT_FAILURE;
   }
+
+  auto *window = renderer->window();
+  GLFWwindow *glfw_window = window ? window->native_handle() : nullptr;
+
+  renderer->camera().near_clip = 0.1f;
+  renderer->camera().far_clip = 500.0f;
+
+  FlyCameraController camera_controller;
+  camera_controller.apply(renderer->camera());
+
+  auto terrain_mesh = renderer->create_plane(kTerrainSize, kTerrainSize, 1);
+  if (!terrain_mesh) {
+    std::cerr << "Failed to create terrain mesh" << std::endl;
+    return EXIT_FAILURE;
+  }
+
+  auto grass_mesh = create_grass_mesh(*renderer);
+  if (!grass_mesh) {
+    std::cerr << "Failed to create grass mesh" << std::endl;
+    return EXIT_FAILURE;
+  }
+
+  auto *device = renderer->device();
+  if (!device) {
+    std::cerr << "Renderer device unavailable" << std::endl;
+    return EXIT_FAILURE;
+  }
+
+  auto grass_instanced =
+      RendererInstanced::create_instanced_mesh(device, *grass_mesh,
+                                               kGrassBladeCount);
+  if (!grass_instanced) {
+    std::cerr << "Failed to create instanced grass mesh" << std::endl;
+    return EXIT_FAILURE;
+  }
+
+  std::vector<InstanceData> base_instances;
+  base_instances.reserve(kGrassBladeCount);
+  std::vector<GrassWindState> wind_states;
+  wind_states.reserve(kGrassBladeCount);
+
+  std::mt19937 rng(42);
+  std::uniform_real_distribution<float> position_dist(-(kTerrainSize * 0.5f),
+                                                      kTerrainSize * 0.5f);
+  std::uniform_real_distribution<float> height_dist(0.8f, 1.6f);
+  std::uniform_real_distribution<float> sway_speed_dist(0.6f, 1.4f);
+  std::uniform_real_distribution<float> sway_strength_dist(0.02f, 0.08f);
+  std::uniform_real_distribution<float> color_variation(0.85f, 1.05f);
+  std::uniform_real_distribution<float> phase_dist(0.0f, 2.0f * glm::pi<float>());
+
+  for (size_t i = 0; i < kGrassBladeCount; ++i) {
+    float x = position_dist(rng);
+    float z = position_dist(rng);
+    float height_variation = height_dist(rng);
+
+    InstanceData data;
+    data.position = Vec3{x, 0.0f, z};
+    data.rotation = Vec3{0.0f, phase_dist(rng), 0.0f};
+    data.scale = Vec3{1.0f, height_variation, 1.0f};
+    float green = std::clamp(color_variation(rng), 0.7f, 1.1f);
+    float brightness = std::clamp(color_variation(rng), 0.7f, 1.1f);
+    data.color = Color(0.3f * brightness, green, 0.2f * brightness, 1.0f);
+    data.texture_index = 0.0f;
+    data.culling_radius = 0.75f * height_variation;
+    data.lod_transition_alpha = 1.0f;
+
+    base_instances.push_back(data);
+
+    GrassWindState wind_state;
+    wind_state.base_position = data.position;
+    wind_state.sway_phase = phase_dist(rng);
+    wind_state.sway_speed = sway_speed_dist(rng);
+    wind_state.sway_strength = sway_strength_dist(rng);
+    wind_states.push_back(wind_state);
+  }
+
+  grass_instanced->set_instances(base_instances);
+
+  Material terrain_material;
+  terrain_material.blend_mode = Material::BlendMode::Opaque;
+  terrain_material.texture =
+      renderer->load_texture("assets/textures/dirt.png");
+  terrain_material.depth_test = true;
+  terrain_material.depth_write = true;
+  terrain_material.color = Color::White();
+  if (terrain_material.texture.id == 0) {
+    std::cerr << "Failed to load terrain texture" << std::endl;
+    return EXIT_FAILURE;
+  }
+
+  Material grass_material;
+  grass_material.blend_mode = Material::BlendMode::Alpha;
+  grass_material.texture_array =
+      renderer->load_texture_array({"assets/textures/grass.png"});
+  grass_material.depth_test = true;
+  grass_material.depth_write = false;
+  grass_material.color = Color::White();
+  if (grass_material.texture_array.id == 0) {
+    std::cerr << "Failed to load grass texture" << std::endl;
+    return EXIT_FAILURE;
+  }
+
+  double last_time = renderer->time();
+
+  while (renderer->process_events()) {
+    double now = renderer->time();
+    float delta_time = static_cast<float>(now - last_time);
+    last_time = now;
+
+    camera_controller.update(glfw_window, delta_time);
+    camera_controller.apply(renderer->camera());
+
+    for (size_t i = 0; i < base_instances.size(); ++i) {
+      const GrassWindState &wind = wind_states[i];
+      InstanceData updated = base_instances[i];
+      float sway = std::sin(static_cast<float>(now) * wind.sway_speed +
+                            wind.sway_phase) *
+                   wind.sway_strength;
+      updated.rotation.x = sway;
+      updated.rotation.z = sway * 0.5f;
+      grass_instanced->update_instance(i, updated);
+    }
+
+    renderer->begin_frame(Color(0.55f, 0.75f, 0.95f, 1.0f));
+
+    renderer->draw_mesh(*terrain_mesh, Vec3{0.0f, 0.0f, 0.0f},
+                        Vec3{0.0f, 0.0f, 0.0f}, Vec3{1.0f, 1.0f, 1.0f},
+                        terrain_material);
+
+    RendererInstanced::draw_instanced(*renderer, *grass_instanced,
+                                      grass_material);
+
+    renderer->end_frame();
+  }
+
+  return EXIT_SUCCESS;
 }
