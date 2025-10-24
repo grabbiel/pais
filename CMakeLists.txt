@@ -52,6 +52,16 @@ endif()
 
 option(PIXEL_USE_METAL "Enable the Metal graphics backend" ${PIXEL_USE_METAL_DEFAULT})
 
+set(PIXEL_USE_DX12_DEFAULT OFF)
+if(WIN32)
+  set(PIXEL_USE_DX12_DEFAULT OFF)
+endif()
+option(PIXEL_USE_DX12 "Enable the DirectX 12 graphics backend" ${PIXEL_USE_DX12_DEFAULT})
+
+if(PIXEL_USE_METAL AND PIXEL_USE_DX12)
+  message(FATAL_ERROR "PIXEL_USE_METAL and PIXEL_USE_DX12 cannot be enabled at the same time.")
+endif()
+
 # ============================================================================
 # Dependencies
 # ============================================================================

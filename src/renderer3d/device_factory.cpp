@@ -17,26 +17,57 @@ std::unique_ptr<Device> create_device(platform::Window *window,
     throw std::invalid_argument("Window pointer cannot be null");
   }
 
-  (void)preferred_api;
-
-#ifdef PIXEL_USE_METAL
-  // ============================================================================
-  // Metal backend
-  // ============================================================================
-  std::cout << "Creating Metal device..." << std::endl;
-
-  Device *device = create_metal_device(window->native_handle());
-  if (!device) {
-    throw std::runtime_error("Failed to create Metal device. Metal is required "
-                             "but initialization failed.");
+  switch (preferred_api) {
+  case GraphicsAPI::Default:
+    break;
+  case GraphicsAPI::Metal:
+#if !defined(PIXEL_USE_METAL)
+    throw std::runtime_error("Metal backend requested but PIXEL_USE_METAL is disabled in this build.");
+#endif
+    break;
+  case GraphicsAPI::DirectX12:
+#if !defined(PIXEL_USE_DX12)
+    throw std::runtime_error("DirectX 12 backend requested but PIXEL_USE_DX12 is disabled in this build.");
+#endif
+    break;
   }
 
-  std::cout << "Device Backend: " << device->backend_name() << std::endl;
-  return std::unique_ptr<Device>(device);
+#if defined(PIXEL_USE_DX12)
+  if (preferred_api == GraphicsAPI::Default ||
+      preferred_api == GraphicsAPI::DirectX12) {
+    std::cout << "Creating DirectX 12 device..." << std::endl;
 
-#else
-#error "No supported graphics backend configured. Enable Metal or provide an alternative implementation."
+    Device *device = create_dx12_device(window->native_handle());
+    if (!device) {
+      throw std::runtime_error(
+          "Failed to create DirectX 12 device. The backend may not be "
+          "implemented yet.");
+    }
+
+    std::cout << "Device Backend: " << device->backend_name() << std::endl;
+    return std::unique_ptr<Device>(device);
+  }
 #endif
+
+#if defined(PIXEL_USE_METAL)
+  if (preferred_api == GraphicsAPI::Default ||
+      preferred_api == GraphicsAPI::Metal) {
+    std::cout << "Creating Metal device..." << std::endl;
+
+    Device *device = create_metal_device(window->native_handle());
+    if (!device) {
+      throw std::runtime_error("Failed to create Metal device. Metal is required "
+                               "but initialization failed.");
+    }
+
+    std::cout << "Device Backend: " << device->backend_name() << std::endl;
+    return std::unique_ptr<Device>(device);
+  }
+#endif
+
+  throw std::runtime_error(
+      "No supported graphics backend configured. Enable PIXEL_USE_METAL or "
+      "PIXEL_USE_DX12 when generating your build files.");
 }
 
 } // namespace pixel::rhi
