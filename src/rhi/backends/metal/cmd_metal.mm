@@ -648,65 +648,89 @@ void MetalCmdList::drawIndexed(uint32_t indexCount, uint32_t firstIndex,
 }
 
 void MetalCmdList::setComputePipeline(PipelineHandle handle) {
+  std::cerr << "MetalCmdList::setComputePipeline(): handle=" << handle.id
+            << std::endl;
   auto it = impl_->pipelines_->find(handle.id);
-  if (it == impl_->pipelines_->end())
+  if (it == impl_->pipelines_->end()) {
+    std::cerr << "  ERROR: Invalid compute pipeline handle" << std::endl;
     return;
+  }
 
   const MTLPipelineResource &pipeline = it->second;
 
   if (!pipeline.compute_pipeline_state) {
-    std::cerr << "Pipeline handle does not reference a compute pipeline"
+    std::cerr << "  ERROR: Pipeline handle does not reference a compute pipeline"
               << std::endl;
     return;
   }
 
   if (!impl_->command_buffer_) {
-    std::cerr << "Compute pipeline set without an active command buffer"
+    std::cerr << "  ERROR: Compute pipeline set without an active command buffer"
               << std::endl;
     return;
   }
 
   impl_->transitionToComputeEncoder();
+  std::cerr << "  Transitioned to compute encoder" << std::endl;
   [impl_->compute_encoder_
       setComputePipelineState:pipeline.compute_pipeline_state];
   impl_->current_compute_pipeline_ = handle;
   impl_->current_pipeline_ = PipelineHandle{0};
+  std::cerr << "  Compute pipeline bound successfully" << std::endl;
 }
 
 void MetalCmdList::setStorageBuffer(uint32_t binding, BufferHandle buffer,
                                     size_t offset, size_t size) {
+  std::cerr << "MetalCmdList::setStorageBuffer(): binding=" << binding
+            << " handle=" << buffer.id << " offset=" << offset
+            << " size=" << size << std::endl;
   (void)size;
   auto it = impl_->buffers_->find(buffer.id);
-  if (it == impl_->buffers_->end())
+  if (it == impl_->buffers_->end()) {
+    std::cerr << "  ERROR: Storage buffer handle not found" << std::endl;
     return;
+  }
 
   const MTLBufferResource &buf = it->second;
 
   if (!impl_->compute_encoder_) {
-    std::cerr << "Attempted to bind storage buffer without an active compute "
-                 "encoder"
+    std::cerr << "  ERROR: Attempted to bind storage buffer without an active "
+                 "compute encoder"
               << std::endl;
     return;
   }
 
   [impl_->compute_encoder_ setBuffer:buf.buffer offset:offset atIndex:binding];
+  std::cerr << "  Storage buffer bound to compute index " << binding
+            << std::endl;
 }
 
 void MetalCmdList::dispatch(uint32_t groupCountX, uint32_t groupCountY,
                             uint32_t groupCountZ) {
-  if (!impl_->compute_encoder_)
+  std::cerr << "MetalCmdList::dispatch(): groups=(" << groupCountX << ", "
+            << groupCountY << ", " << groupCountZ << ")" << std::endl;
+  if (!impl_->compute_encoder_) {
+    std::cerr << "  ERROR: No active compute encoder for dispatch" << std::endl;
     return;
+  }
 
   auto it = impl_->pipelines_->find(impl_->current_compute_pipeline_.id);
-  if (it == impl_->pipelines_->end())
+  if (it == impl_->pipelines_->end()) {
+    std::cerr << "  ERROR: Current compute pipeline handle invalid" << std::endl;
     return;
+  }
 
   id<MTLComputePipelineState> state = it->second.compute_pipeline_state;
-  if (!state)
+  if (!state) {
+    std::cerr << "  ERROR: Compute pipeline state is null" << std::endl;
     return;
+  }
 
-  if (groupCountX == 0 || groupCountY == 0 || groupCountZ == 0)
+  if (groupCountX == 0 || groupCountY == 0 || groupCountZ == 0) {
+    std::cerr << "  WARNING: Zero-sized dispatch requested, skipping"
+              << std::endl;
     return;
+  }
 
   NSUInteger maxThreads = state.maxTotalThreadsPerThreadgroup;
   NSUInteger executionWidth = state.threadExecutionWidth;
@@ -751,6 +775,10 @@ void MetalCmdList::dispatch(uint32_t groupCountX, uint32_t groupCountY,
 
   [impl_->compute_encoder_ dispatchThreadgroups:threadgroups
                           threadsPerThreadgroup:threadsPerGroup];
+  std::cerr << "  Dispatch issued with threadgroups=(" << groupsX << ", "
+            << groupsY << ", " << groupsZ << ") and threadsPerGroup=("
+            << threadsPerGroup.width << ", " << threadsPerGroup.height << ", "
+            << threadsPerGroup.depth << ")" << std::endl;
 }
 
 void MetalCmdList::memoryBarrier() {
@@ -858,15 +886,23 @@ void MetalCmdList::endRender() {
 
 void MetalCmdList::copyToBuffer(BufferHandle handle, size_t dstOff,
                                 std::span<const std::byte> src) {
+  std::cerr << "MetalCmdList::copyToBuffer(): handle=" << handle.id
+            << " dstOff=" << dstOff << " size=" << src.size() << std::endl;
   if (src.empty()) {
+    std::cerr << "  WARNING: Source span is empty, skipping copy" << std::endl;
     return;
   }
 
   auto it = impl_->buffers_->find(handle.id);
-  if (it == impl_->buffers_->end())
+  if (it == impl_->buffers_->end()) {
+    std::cerr << "  ERROR: Buffer handle not found" << std::endl;
     return;
+  }
 
   MTLBufferResource &buffer = it->second;
+  std::cerr << "  Target buffer size=" << buffer.size
+            << " hostVisible=" << (buffer.host_visible ? "YES" : "NO")
+            << std::endl;
 
   if (dstOff + src.size() > buffer.size) {
     std::cerr << "Buffer copy out of bounds" << std::endl;
@@ -879,6 +915,8 @@ void MetalCmdList::copyToBuffer(BufferHandle handle, size_t dstOff,
     if ([buffer.buffer respondsToSelector:@selector(didModifyRange:)]) {
       [buffer.buffer didModifyRange:NSMakeRange(dstOff, src.size())];
     }
+    std::cerr << "  ✓ Wrote " << src.size()
+              << " bytes directly into host-visible buffer" << std::endl;
     return;
   }
 
@@ -904,6 +942,10 @@ void MetalCmdList::copyToBuffer(BufferHandle handle, size_t dstOff,
     [staging didModifyRange:NSMakeRange(0, src.size())];
   }
 
+  std::cerr << "  Using staging upload path (" << src.size()
+            << " bytes). Pending command buffer="
+            << (impl_->command_buffer_ ? "YES" : "NO") << std::endl;
+
   impl_->endRenderEncoderIfNeeded();
   impl_->endComputeEncoderIfNeeded();
 
@@ -921,6 +963,7 @@ void MetalCmdList::copyToBuffer(BufferHandle handle, size_t dstOff,
   [blit endEncoding];
 
   impl_->staging_uploads_.push_back(staging);
+  std::cerr << "  ✓ Enqueued staging copy for submission" << std::endl;
 }
 
 void MetalCmdList::end() {

@@ -427,6 +427,10 @@ void LODMesh::update_lod_selection_gpu(Renderer &renderer, float delta_time,
     return;
   }
 
+  std::cout << "[GPU LOD] Starting GPU-driven LOD update. instances="
+            << source_instances_.size()
+            << " pipelineHandle=" << gpu_.compute_pipeline.id << std::endl;
+
   if (do_detailed_log) {
     std::cout << "\n========================================\n";
     std::cout << "LOD UPDATE (GPU) - Frame " << g_log_frame_counter << "\n";
@@ -474,6 +478,8 @@ void LODMesh::update_lod_selection_gpu(Renderer &renderer, float delta_time,
       reinterpret_cast<const std::byte *>(&uniforms), sizeof(LODUniformsGPU));
 
   renderer.pause_render_pass();
+  std::cout << "[GPU LOD] Render pass paused to perform compute uploads"
+            << std::endl;
 
   cmd->copyToBuffer(gpu_.uniform_buffer, 0, uniform_bytes);
 
@@ -485,6 +491,7 @@ void LODMesh::update_lod_selection_gpu(Renderer &renderer, float delta_time,
   cmd->copyToBuffer(gpu_.lod_counters, 0, counter_bytes);
 
   cmd->setComputePipeline(gpu_.compute_pipeline);
+  std::cout << "[GPU LOD] Compute pipeline bound" << std::endl;
   const ShaderReflection &compute_reflection = gpu_.reflection;
   auto resolve_binding = [&](std::initializer_list<std::string_view> names,
                              ShaderBlockType type, uint32_t fallback) {
@@ -517,6 +524,11 @@ void LODMesh::update_lod_selection_gpu(Renderer &renderer, float delta_time,
   cmd->setStorageBuffer(assignments_binding, gpu_.lod_assignments);
   cmd->setStorageBuffer(counters_binding, gpu_.lod_counters);
   cmd->setStorageBuffer(indices_binding, gpu_.lod_instance_indices);
+  std::cout << "[GPU LOD] Storage buffers bound (source="
+            << gpu_.source_instances.id << ", assignments="
+            << gpu_.lod_assignments.id << ", counters="
+            << gpu_.lod_counters.id << ", indices="
+            << gpu_.lod_instance_indices.id << ")" << std::endl;
 
   uint32_t total_instances = static_cast<uint32_t>(source_instances_.size());
   if (total_instances > 0) {
@@ -536,9 +548,12 @@ void LODMesh::update_lod_selection_gpu(Renderer &renderer, float delta_time,
 
     cmd->dispatch(group_count, 1, 1);
     cmd->memoryBarrier();
+    std::cout << "[GPU LOD] Dispatch requested with groupCountX=" << group_count
+              << std::endl;
   }
 
   renderer.resume_render_pass();
+  std::cout << "[GPU LOD] Render pass resumed after compute work" << std::endl;
 
   gpu_lod_assignments_.resize(source_instances_.size());
   device_->readBuffer(gpu_.lod_assignments, gpu_lod_assignments_.data(),
@@ -548,6 +563,7 @@ void LODMesh::update_lod_selection_gpu(Renderer &renderer, float delta_time,
 
   apply_lod_results(gpu_lod_assignments_, delta_time, do_detailed_log,
                     renderer);
+  std::cout << "[GPU LOD] Completed GPU-driven LOD update" << std::endl;
 }
 
 void LODMesh::apply_lod_results(const std::vector<uint32_t> &desired_lods,

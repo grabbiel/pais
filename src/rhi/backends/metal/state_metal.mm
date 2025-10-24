@@ -376,10 +376,20 @@ void MetalCmdList::setUniformFloat(const char *name, float value) {
 
 void MetalCmdList::setUniformBuffer(uint32_t binding, BufferHandle buffer,
                                     size_t offset, size_t size) {
+  std::cerr << "MetalCmdList::setUniformBuffer(): binding=" << binding
+            << " handle=" << buffer.id << " offset=" << offset
+            << " size=" << size << std::endl;
   (void)size;
   auto it = impl_->buffers_->find(buffer.id);
-  if (it == impl_->buffers_->end())
+  if (it == impl_->buffers_->end()) {
+    std::cerr << "  ERROR: Uniform buffer handle not found" << std::endl;
     return;
+  }
+
+  if (!impl_->render_encoder_) {
+    std::cerr << "  WARNING: Uniform buffer bound without active render encoder"
+              << std::endl;
+  }
 
   [impl_->render_encoder_ setVertexBuffer:it->second.buffer
                                    offset:offset
@@ -387,6 +397,7 @@ void MetalCmdList::setUniformBuffer(uint32_t binding, BufferHandle buffer,
   [impl_->render_encoder_ setFragmentBuffer:it->second.buffer
                                      offset:offset
                                     atIndex:binding];
+  std::cerr << "  Uniform buffer bound to render stages" << std::endl;
 }
 
 void MetalCmdList::setTexture(const char *name, TextureHandle texture,
