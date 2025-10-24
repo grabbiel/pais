@@ -106,7 +106,8 @@ struct CmdList {
                                 size_t offset = 0, size_t size = 0) = 0;
 
   virtual void setTexture(const char *name, TextureHandle texture,
-                          uint32_t slot = 0) = 0;
+                          uint32_t slot = 0,
+                          SamplerHandle sampler = SamplerHandle{}) = 0;
   virtual void copyToTexture(TextureHandle texture, uint32_t mipLevel,
                              std::span<const std::byte> data) = 0;
   virtual void copyToTextureLayer(TextureHandle texture, uint32_t layer,

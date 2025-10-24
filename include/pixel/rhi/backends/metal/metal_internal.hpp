@@ -54,6 +54,12 @@ struct Uniforms {
   float ditherScale;
   float crossfadeDuration;
   float _pad3[2];
+  float lightViewProj[16];
+  float lightColor[3];
+  float _pad4;
+  float shadowBias;
+  int shadowsEnabled;
+  float _pad5[2];
 };
 
 struct UniformAllocator {
@@ -470,6 +476,7 @@ struct MetalCmdList::Impl {
   std::unordered_map<uint32_t, MTLBufferResource> *buffers_;
   std::unordered_map<uint32_t, MTLTextureResource> *textures_;
   std::unordered_map<uint32_t, MTLPipelineResource> *pipelines_;
+  std::unordered_map<uint32_t, MTLSamplerResource> *samplers_;
   std::unordered_map<uint32_t, MTLFramebufferResource> *framebuffers_;
   std::unordered_map<uint32_t, MetalQueryResource> *queries_;
   std::unordered_map<uint32_t, MetalFenceResource> *fences_;
@@ -513,6 +520,7 @@ struct MetalCmdList::Impl {
         uniform_allocator_(&device_impl->uniform_allocator_),
         buffers_(&device_impl->buffers_), textures_(&device_impl->textures_),
         pipelines_(&device_impl->pipelines_),
+        samplers_(&device_impl->samplers_),
         framebuffers_(&device_impl->framebuffers_),
         queries_(&device_impl->queries_), fences_(&device_impl->fences_),
         frame_index_(&device_impl->frame_index_) {}

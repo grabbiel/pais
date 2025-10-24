@@ -310,6 +310,10 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
   const bool has_projection_uniform = reflection.has_uniform("projection");
   const bool has_light_uniform = reflection.has_uniform("lightPos");
   const bool has_viewpos_uniform = reflection.has_uniform("viewPos");
+  const bool has_light_view_proj = reflection.has_uniform("lightViewProj");
+  const bool has_light_color = reflection.has_uniform("lightColor");
+  const bool has_shadow_bias = reflection.has_uniform("shadowBias");
+  const bool has_shadows_enabled = reflection.has_uniform("shadowsEnabled");
   const bool has_time_uniform = reflection.has_uniform("uTime");
   const bool has_dither_uniform = reflection.has_uniform("uDitherEnabled");
   const bool has_use_texture_array = reflection.has_uniform("useTextureArray");
@@ -360,11 +364,22 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
     cmd->setUniformMat4("projection", projection);
     std::cerr << "  ✓ Projection matrix uploaded" << std::endl;
   }
+  if (has_light_view_proj && renderer.shadow_map()) {
+    cmd->setUniformMat4(
+        "lightViewProj",
+        glm::value_ptr(renderer.shadow_map()->light_view_projection()));
+    std::cerr << "  ✓ lightViewProj set" << std::endl;
+  }
 
-  float light_pos[3] = {10.0f, 10.0f, 10.0f};
+  float light_pos[3] = {renderer.directional_light().position.x,
+                        renderer.directional_light().position.y,
+                        renderer.directional_light().position.z};
   float view_pos[3] = {renderer.camera().position.x,
                        renderer.camera().position.y,
                        renderer.camera().position.z};
+  float light_color[3] = {renderer.directional_light().color.r,
+                          renderer.directional_light().color.g,
+                          renderer.directional_light().color.b};
   if (has_light_uniform) {
     cmd->setUniformVec3("lightPos", light_pos);
     std::cerr << "  ✓ lightPos set" << std::endl;
@@ -372,6 +387,10 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
   if (has_viewpos_uniform) {
     cmd->setUniformVec3("viewPos", view_pos);
     std::cerr << "  ✓ viewPos set" << std::endl;
+  }
+  if (has_light_color) {
+    cmd->setUniformVec3("lightColor", light_color);
+    std::cerr << "  ✓ lightColor set" << std::endl;
   }
 
   if (has_time_uniform) {
@@ -394,10 +413,30 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
     std::cerr << "  ✓ useTextureArray set to " << use_array << std::endl;
   }
 
+  if (has_shadow_bias && renderer.shadow_map()) {
+    cmd->setUniformFloat("shadowBias",
+                         renderer.shadow_map()->settings().shadow_bias);
+    std::cerr << "  ✓ shadowBias set" << std::endl;
+  }
+  if (has_shadows_enabled) {
+    const bool shadow_ready = renderer.shadow_map() &&
+                              renderer.shadow_map()->texture().id != 0 &&
+                              renderer.shadow_map()->sampler().id != 0;
+    cmd->setUniformInt("shadowsEnabled", shadow_ready ? 1 : 0);
+    std::cerr << "  ✓ shadowsEnabled set to " << (shadow_ready ? 1 : 0)
+              << std::endl;
+  }
+
   if (base_material.texture_array.id != 0 &&
       reflection.has_sampler("uTextureArray")) {
     cmd->setTexture("uTextureArray", base_material.texture_array, 1);
     std::cerr << "  ✓ Texture array bound to slot 1" << std::endl;
+  }
+
+  if (reflection.has_sampler("shadowMap") && renderer.shadow_map()) {
+    cmd->setTexture("shadowMap", renderer.shadow_map()->texture(), 2,
+                    renderer.shadow_map()->sampler());
+    std::cerr << "  ✓ Shadow map bound to slot 2" << std::endl;
   }
 
   // Draw the instanced mesh

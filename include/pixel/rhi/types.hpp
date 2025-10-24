@@ -105,13 +105,26 @@ struct TextureDesc {
   uint32_t layers{1};
   bool renderTarget{false};
 };
+enum class FilterMode : uint8_t { Nearest, Linear };
+
+enum class AddressMode : uint8_t {
+  Repeat,
+  ClampToEdge,
+  ClampToBorder,
+};
+
 struct SamplerDesc {
-  bool linear{true};
-  bool repeat{true};
+  FilterMode minFilter{FilterMode::Linear};
+  FilterMode magFilter{FilterMode::Linear};
+  AddressMode addressU{AddressMode::Repeat};
+  AddressMode addressV{AddressMode::Repeat};
+  AddressMode addressW{AddressMode::Repeat};
+  float mipLodBias{0.0f};
   bool aniso{false};
   float maxAnisotropy{1.0f};
   bool compareEnable{false};
   CompareOp compareOp{CompareOp::LessEqual};
+  float borderColor[4]{0.0f, 0.0f, 0.0f, 0.0f};
 };
 
 struct BlendState {

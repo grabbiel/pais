@@ -60,8 +60,16 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
               << std::endl;
 
     // Initialize texture loader
-    renderer->texture_loader_ = std::make_unique<resources::TextureLoader>(renderer->device_);
+    renderer->texture_loader_ =
+        std::make_unique<resources::TextureLoader>(renderer->device_);
     std::cout << "Texture loader initialized" << std::endl;
+
+    renderer->shadow_map_ = std::make_unique<ShadowMap>();
+    ShadowMap::Settings shadow_settings{};
+    if (!renderer->shadow_map_->initialize(renderer->device_, shadow_settings,
+                                           renderer->directional_light_)) {
+      std::cerr << "Failed to initialize shadow map resources" << std::endl;
+    }
 
   } catch (const std::exception &e) {
     throw std::runtime_error(std::string("Failed to initialize renderer: ") +
@@ -114,7 +122,117 @@ void Renderer::setup_default_shaders() {
   if (!instanced_shader_) {
     std::cerr << "Failed to load instanced shader" << std::endl;
   }
+
+  std::cout << "Loading shadow depth shader pair: assets/shaders/shadow_depth.vert &"
+            << " assets/shaders/shadow_depth.frag" << std::endl;
+  shadow_shader_ = load_shader("assets/shaders/shadow_depth.vert",
+                               "assets/shaders/shadow_depth.frag", metal_source);
+  if (!shadow_shader_) {
+    std::cerr << "Failed to load shadow depth shader" << std::endl;
+  } else if (device_) {
+    Shader *shadow_shader = get_shader(shadow_shader_);
+    if (shadow_shader) {
+      auto handles = shadow_shader->shader_handles();
+      rhi::PipelineDesc depth_desc{};
+      depth_desc.vs = handles.first;
+      depth_desc.fs = handles.second;
+      depth_desc.colorAttachmentCount = 0;
+      shadow_pipeline_ = device_->createPipeline(depth_desc);
+      if (shadow_pipeline_.id == 0) {
+        std::cerr << "Failed to create shadow pipeline" << std::endl;
+      }
+    }
+  }
   sprite_shader_ = default_shader_; // Use same for sprites
+}
+
+void Renderer::reset_depth_bias(rhi::CmdList *cmd) {
+  if (!cmd)
+    return;
+
+  rhi::DepthBiasState bias_state{};
+  cmd->setDepthBias(bias_state);
+}
+
+void Renderer::set_directional_light(const DirectionalLight &light) {
+  directional_light_ = light;
+  if (shadow_map_) {
+    shadow_map_->update_light(directional_light_);
+  }
+}
+
+void Renderer::begin_shadow_pass() {
+  if (!device_ || !shadow_map_ || shadow_pass_active_)
+    return;
+
+  auto *cmd = device_->getImmediate();
+  if (!command_list_open_) {
+    cmd->begin();
+    command_list_open_ = true;
+  }
+
+  if (render_pass_active_) {
+    cmd->endRender();
+    render_pass_active_ = false;
+  }
+
+  shadow_map_->update_light(directional_light_);
+  shadow_map_->begin(cmd);
+  shadow_pass_active_ = true;
+
+  cmd->setDepthBias(shadow_map_->depth_bias_state());
+
+  rhi::DepthStencilState depth_state{};
+  depth_state.depthTestEnable = true;
+  depth_state.depthWriteEnable = true;
+  depth_state.depthCompare = rhi::CompareOp::Less;
+  depth_state.stencilEnable = false;
+  cmd->setDepthStencilState(depth_state);
+}
+
+void Renderer::end_shadow_pass() {
+  if (!shadow_pass_active_ || !device_ || !shadow_map_)
+    return;
+
+  auto *cmd = device_->getImmediate();
+  shadow_map_->end(cmd);
+  reset_depth_bias(cmd);
+  shadow_pass_active_ = false;
+}
+
+void Renderer::draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
+                                const Vec3 &rotation, const Vec3 &scale) {
+  if (!shadow_pass_active_ || shadow_pipeline_.id == 0)
+    return;
+
+  Shader *shader = get_shader(shadow_shader_);
+  if (!shader)
+    return;
+
+  auto *cmd = device_->getImmediate();
+  cmd->setPipeline(shadow_pipeline_);
+  cmd->setVertexBuffer(mesh.vertex_buffer());
+  cmd->setIndexBuffer(mesh.index_buffer());
+
+  const ShaderReflection &reflection = shader->reflection();
+
+  glm::mat4 model = glm::mat4(1.0f);
+  model =
+      glm::translate(model, glm::vec3(position.x, position.y, position.z));
+  model = glm::rotate(model, rotation.z, glm::vec3(0, 0, 1));
+  model = glm::rotate(model, rotation.y, glm::vec3(0, 1, 0));
+  model = glm::rotate(model, rotation.x, glm::vec3(1, 0, 0));
+  model = glm::scale(model, glm::vec3(scale.x, scale.y, scale.z));
+
+  if (reflection.has_uniform("model")) {
+    cmd->setUniformMat4("model", glm::value_ptr(model));
+  }
+  if (reflection.has_uniform("lightViewProj") && shadow_map_) {
+    cmd->setUniformMat4("lightViewProj",
+                        glm::value_ptr(shadow_map_->light_view_projection()));
+  }
+
+  cmd->drawIndexed(mesh.index_count(), 0, 1);
 }
 
 void Renderer::begin_frame(const Color &clear_color) {
@@ -123,12 +241,24 @@ void Renderer::begin_frame(const Color &clear_color) {
   std::cout << "  Clear color: (" << clear_color.r << ", " << clear_color.g
             << ", " << clear_color.b << ", " << clear_color.a << ")"
             << std::endl;
+  auto *cmd = device_->getImmediate();
+  if (!command_list_open_) {
+    cmd->begin();
+    command_list_open_ = true;
+  }
+
+  if (shadow_pass_active_ && shadow_map_) {
+    shadow_map_->end(cmd);
+    shadow_pass_active_ = false;
+    reset_depth_bias(cmd);
+  }
+
   if (render_pass_active_) {
     std::cerr << "  WARNING: begin_frame called while render pass active"
               << std::endl;
+    cmd->endRender();
+    render_pass_active_ = false;
   }
-  auto *cmd = device_->getImmediate();
-  cmd->begin();
 
   rhi::RenderPassDesc pass{};
   pass.colorAttachmentCount = 1;
@@ -153,6 +283,8 @@ void Renderer::begin_frame(const Color &clear_color) {
   current_pass_desc_ = pass;
   cmd->beginRender(current_pass_desc_);
   render_pass_active_ = true;
+
+  reset_depth_bias(cmd);
   std::cout << "  Render pass begun successfully" << std::endl;
   std::cout << "============================================================\n" << std::endl;
 }
@@ -168,7 +300,16 @@ void Renderer::end_frame() {
     std::cerr << "  WARNING: end_frame called without active render pass"
               << std::endl;
   }
-  cmd->end();
+  if (shadow_pass_active_ && shadow_map_) {
+    shadow_map_->end(cmd);
+    shadow_pass_active_ = false;
+    reset_depth_bias(cmd);
+  }
+
+  if (command_list_open_) {
+    cmd->end();
+    command_list_open_ = false;
+  }
 
   device_->present();
   std::cout << "  Presented frame to swapchain" << std::endl;
@@ -188,6 +329,15 @@ void Renderer::resume_render_pass() {
     return;
 
   auto *cmd = device_->getImmediate();
+  if (!command_list_open_) {
+    cmd->begin();
+    command_list_open_ = true;
+  }
+  if (shadow_pass_active_ && shadow_map_) {
+    shadow_map_->end(cmd);
+    shadow_pass_active_ = false;
+    reset_depth_bias(cmd);
+  }
   cmd->beginRender(current_pass_desc_);
   render_pass_active_ = true;
 }
@@ -348,15 +498,28 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
     cmd->setUniformMat4("projection", projection);
   }
 
+  if (shadow_map_ && reflection.has_uniform("lightViewProj")) {
+    cmd->setUniformMat4("lightViewProj",
+                        glm::value_ptr(shadow_map_->light_view_projection()));
+  }
+
   // Set lighting uniforms
-  float light_pos[3] = {10.0f, 10.0f, 10.0f};
+  float light_pos[3] = {directional_light_.position.x,
+                        directional_light_.position.y,
+                        directional_light_.position.z};
   float view_pos[3] = {camera_.position.x, camera_.position.y,
                        camera_.position.z};
+  float light_color[3] = {directional_light_.color.r,
+                          directional_light_.color.g,
+                          directional_light_.color.b};
   if (reflection.has_uniform("lightPos")) {
     cmd->setUniformVec3("lightPos", light_pos);
   }
   if (reflection.has_uniform("viewPos")) {
     cmd->setUniformVec3("viewPos", view_pos);
+  }
+  if (reflection.has_uniform("lightColor")) {
+    cmd->setUniformVec3("lightColor", light_color);
   }
 
   // Set material uniforms
@@ -367,6 +530,20 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
   // Bind texture if available
   if (material.texture.id != 0 && reflection.has_sampler("uTexture")) {
     cmd->setTexture("uTexture", material.texture, 0);
+  }
+
+  bool shadows_enabled = shadow_map_ && shadow_pipeline_.id != 0 &&
+                         shadow_map_->texture().id != 0;
+  if (reflection.has_sampler("shadowMap") && shadows_enabled) {
+    cmd->setTexture("shadowMap", shadow_map_->texture(), 1,
+                    shadow_map_->sampler());
+  }
+  if (reflection.has_uniform("shadowBias")) {
+    float bias = shadow_map_ ? shadow_map_->settings().shadow_bias : 0.0f;
+    cmd->setUniformFloat("shadowBias", bias);
+  }
+  if (reflection.has_uniform("shadowsEnabled")) {
+    cmd->setUniformInt("shadowsEnabled", shadows_enabled ? 1 : 0);
   }
 
   // Set material color

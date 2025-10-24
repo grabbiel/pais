@@ -18,11 +18,13 @@ out vec2 TexCoord;
 out vec4 Color;
 out float TextureIndex;
 out float LODAlpha;
+out vec4 FragPosLightSpace;
 
 uniform mat4 model;
 uniform mat4 normalMatrix;
 uniform mat4 view;
 uniform mat4 projection;
+uniform mat4 lightViewProj;
 
 mat4 rotationMatrix(vec3 axis, float angle) {
   axis = normalize(axis);
@@ -60,6 +62,7 @@ void main() {
   Color = aColor * iColor;
   TextureIndex = iTextureIndex;
   LODAlpha = iLODAlpha;
+  FragPosLightSpace = lightViewProj * vec4(FragPos, 1.0);
 
   gl_Position = projection * view * worldPos;
 }

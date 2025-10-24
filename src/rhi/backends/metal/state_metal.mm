@@ -294,6 +294,8 @@ void MetalCmdList::setUniformMat4(const char *name, const float *mat4x4) {
     memcpy(uniforms->projection, mat4x4, sizeof(float) * 16);
   } else if (name_str == "normalMatrix") {
     memcpy(uniforms->normalMatrix, mat4x4, sizeof(float) * 16);
+  } else if (name_str == "lightViewProj") {
+    memcpy(uniforms->lightViewProj, mat4x4, sizeof(float) * 16);
   }
 
   impl_->bindCurrentUniformBlock(impl_->render_encoder_);
@@ -313,6 +315,8 @@ void MetalCmdList::setUniformVec3(const char *name, const float *vec3) {
     memcpy(uniforms->lightPos, vec3, sizeof(float) * 3);
   } else if (name_str == "viewPos") {
     memcpy(uniforms->viewPos, vec3, sizeof(float) * 3);
+  } else if (name_str == "lightColor") {
+    memcpy(uniforms->lightColor, vec3, sizeof(float) * 3);
   }
 
   impl_->bindCurrentUniformBlock(impl_->render_encoder_);
@@ -347,6 +351,8 @@ void MetalCmdList::setUniformInt(const char *name, int value) {
     uniforms->useTextureArray = value;
   } else if (name_str == "ditherEnabled" || name_str == "uDitherEnabled") {
     uniforms->ditherEnabled = value;
+  } else if (name_str == "shadowsEnabled") {
+    uniforms->shadowsEnabled = value;
   }
 
   impl_->bindCurrentUniformBlock(impl_->render_encoder_);
@@ -369,6 +375,8 @@ void MetalCmdList::setUniformFloat(const char *name, float value) {
   } else if (name_str == "crossfadeDuration" ||
              name_str == "uCrossfadeDuration") {
     uniforms->crossfadeDuration = value;
+  } else if (name_str == "shadowBias") {
+    uniforms->shadowBias = value;
   }
 
   impl_->bindCurrentUniformBlock(impl_->render_encoder_);
@@ -401,7 +409,7 @@ void MetalCmdList::setUniformBuffer(uint32_t binding, BufferHandle buffer,
 }
 
 void MetalCmdList::setTexture(const char *name, TextureHandle texture,
-                              uint32_t slot) {
+                              uint32_t slot, SamplerHandle sampler) {
   (void)name;
   auto it = impl_->textures_->find(texture.id);
   if (it == impl_->textures_->end())
@@ -409,19 +417,33 @@ void MetalCmdList::setTexture(const char *name, TextureHandle texture,
 
   [impl_->render_encoder_ setFragmentTexture:it->second.texture atIndex:slot];
 
-  if (!impl_->default_sampler_) {
-    MTLSamplerDescriptor *samplerDesc = [[MTLSamplerDescriptor alloc] init];
-    samplerDesc.minFilter = MTLSamplerMinMagFilterLinear;
-    samplerDesc.magFilter = MTLSamplerMinMagFilterLinear;
-    samplerDesc.mipFilter = MTLSamplerMipFilterLinear;
-    samplerDesc.sAddressMode = MTLSamplerAddressModeRepeat;
-    samplerDesc.tAddressMode = MTLSamplerAddressModeRepeat;
-    impl_->default_sampler_ =
-        [impl_->device_ newSamplerStateWithDescriptor:samplerDesc];
+  id<MTLSamplerState> sampler_state = nil;
+  if (sampler.id != 0 && impl_->samplers_) {
+    auto sit = impl_->samplers_->find(sampler.id);
+    if (sit != impl_->samplers_->end()) {
+      sampler_state = sit->second.sampler;
+    }
   }
 
-  [impl_->render_encoder_ setFragmentSamplerState:impl_->default_sampler_
-                                          atIndex:slot];
+  if (!sampler_state) {
+    if (!impl_->default_sampler_) {
+      MTLSamplerDescriptor *samplerDesc = [[MTLSamplerDescriptor alloc] init];
+      samplerDesc.minFilter = MTLSamplerMinMagFilterLinear;
+      samplerDesc.magFilter = MTLSamplerMinMagFilterLinear;
+      samplerDesc.mipFilter = MTLSamplerMipFilterLinear;
+      samplerDesc.sAddressMode = MTLSamplerAddressModeRepeat;
+      samplerDesc.tAddressMode = MTLSamplerAddressModeRepeat;
+      samplerDesc.rAddressMode = MTLSamplerAddressModeRepeat;
+      impl_->default_sampler_ =
+          [impl_->device_ newSamplerStateWithDescriptor:samplerDesc];
+    }
+    sampler_state = impl_->default_sampler_;
+  }
+
+  if (sampler_state) {
+    [impl_->render_encoder_ setFragmentSamplerState:sampler_state
+                                            atIndex:slot];
+  }
 }
 
 } // namespace pixel::rhi

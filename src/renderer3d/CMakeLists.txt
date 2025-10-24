@@ -13,6 +13,7 @@ set(RENDERER3D_SOURCES
   shader_reflection.cpp
   primitives.cpp
   renderer_instanced.cpp
+  shadow_map.cpp
   lod.cpp
 )
 
@@ -135,6 +136,7 @@ source_group("Renderer\\Core" FILES
 source_group("Renderer\\Resources" FILES
   mesh.cpp
   shader.cpp
+  shadow_map.cpp
 )
 
 source_group("Renderer\\Primitives" FILES

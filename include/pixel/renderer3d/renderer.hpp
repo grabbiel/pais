@@ -3,6 +3,7 @@
 #include "pixel/rhi/rhi.hpp"
 #include "pixel/renderer3d/mesh.hpp"
 #include "pixel/renderer3d/shader_reflection.hpp"
+#include "pixel/renderer3d/shadow_map.hpp"
 #include <glm/glm.hpp>
 #include <array>
 #include <cstdint>
@@ -136,6 +137,9 @@ public:
   rhi::PipelineHandle pipeline(const ShaderVariantKey &variant,
                                Material::BlendMode mode) const;
 
+  std::pair<rhi::ShaderHandle, rhi::ShaderHandle>
+  shader_handles(const ShaderVariantKey &variant = ShaderVariantKey{}) const;
+
 private:
   Shader() = default;
   struct VariantData {
@@ -214,6 +218,17 @@ public:
   Camera &camera() { return camera_; }
   const Camera &camera() const { return camera_; }
 
+  ShadowMap *shadow_map() { return shadow_map_.get(); }
+  const ShadowMap *shadow_map() const { return shadow_map_.get(); }
+
+  void set_directional_light(const DirectionalLight &light);
+  const DirectionalLight &directional_light() const { return directional_light_; }
+
+  void begin_shadow_pass();
+  void end_shadow_pass();
+  void draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
+                        const Vec3 &rotation, const Vec3 &scale);
+
   int window_width() const;
   int window_height() const;
   double time() const;
@@ -233,6 +248,7 @@ public:
 protected:
   Renderer() = default;
   void setup_default_shaders();
+  void reset_depth_bias(rhi::CmdList *cmd);
 
   platform::Window *window_ = nullptr;
   rhi::Device *device_ = nullptr;
@@ -246,6 +262,14 @@ protected:
   std::unique_ptr<resources::TextureLoader> texture_loader_;
 
   std::unique_ptr<Mesh> sprite_mesh_;
+
+  std::unique_ptr<ShadowMap> shadow_map_;
+  DirectionalLight directional_light_{};
+  rhi::PipelineHandle shadow_pipeline_{};
+  ShaderID shadow_shader_ = INVALID_SHADER;
+
+  bool shadow_pass_active_{false};
+  bool command_list_open_{false};
 
   Camera camera_;
 
