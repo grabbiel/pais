@@ -145,8 +145,9 @@ uniform int uDitherEnabled;           // LOD dithering mode
 
 When creating custom shaders, ensure:
 
-1. **Version compatibility**: Use `#version 330 core` for GLSL
+1. **Version compatibility**: Use `#version 450 core` for GLSL shaders compiled to SPIR-V
 2. **Attribute locations**: Match the vertex attribute layout
-3. **Uniform names**: Use the expected uniform names for built-in features
-4. **File extensions**: Use `.vert` for vertex shaders, `.frag` for fragment shaders, `.metal` for Metal shaders
-5. **Shader paths**: Place shaders in `assets/shaders/` for proper loading
+3. **Varying locations**: Assign explicit `layout(location = N)` qualifiers for all stage inputs/outputs
+4. **Uniform names**: Use the expected uniform names for built-in features
+5. **File extensions**: Use `.vert` for vertex shaders, `.frag` for fragment shaders, `.metal` for Metal shaders
+6. **Shader paths**: Place shaders in `assets/shaders/` for proper loading

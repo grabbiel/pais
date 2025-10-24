@@ -1,8 +1,8 @@
-#version 330 core
+#version 450 core
 
-in vec2 TexCoord;
-in float TextureIndex;
-in float VertexAlpha;
+layout (location = 0) in vec2 TexCoord;
+layout (location = 1) in float TextureIndex;
+layout (location = 2) in float VertexAlpha;
 
 uniform sampler2DArray uTextureArray;
 uniform sampler2D uTexture;
