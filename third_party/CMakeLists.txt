@@ -174,3 +174,32 @@ if(TARGET flatbuffers)
   message(STATUS "  FlatBuffers: Available")
 endif()
 message(STATUS "")
+
+# ============================================================================
+# SPIRV-Reflect - Shader reflection for SPIR-V binaries
+# ============================================================================
+
+if(NOT TARGET ext::spirv_reflect)
+  message(STATUS "Fetching SPIRV-Reflect from source...")
+
+  FetchContent_Declare(
+    spirv_reflect
+    GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Reflect.git
+    GIT_TAG        v1.3.275.0
+    GIT_SHALLOW    TRUE
+  )
+
+  FetchContent_MakeAvailable(spirv_reflect)
+
+  add_library(spirv_reflect STATIC
+    ${spirv_reflect_SOURCE_DIR}/spirv_reflect.c
+  )
+  target_include_directories(spirv_reflect PUBLIC ${spirv_reflect_SOURCE_DIR})
+  set_target_properties(spirv_reflect PROPERTIES
+    C_STANDARD 99
+    POSITION_INDEPENDENT_CODE ON
+  )
+
+  add_library(ext::spirv_reflect ALIAS spirv_reflect)
+  message(STATUS "SPIRV-Reflect: Fetched and configured")
+endif()

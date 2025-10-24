@@ -1,6 +1,7 @@
 // src/renderer3d/lod.cpp - Enhanced with detailed logging
 #include "pixel/renderer3d/lod.hpp"
 #include "pixel/renderer3d/clip_space.hpp"
+#include "pixel/renderer3d/shader_reflection.hpp"
 #include "pixel/platform/shader_loader.hpp"
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -13,6 +14,7 @@
 #include <iomanip>
 #include <string>
 #include <span>
+#include <vector>
 
 namespace pixel::renderer3d {
 
@@ -724,23 +726,31 @@ bool LODMesh::initialize_gpu_resources(size_t max_instances) {
 
   GPUResources resources{};
 
-  std::string compute_source;
+  std::vector<uint8_t> compute_bytes;
   try {
-    compute_source = pixel::platform::load_shader_file("assets/shaders/lod.comp");
+    compute_bytes =
+        pixel::platform::load_shader_bytecode("assets/shaders/spirv/lod.comp.spv");
   } catch (const std::exception &e) {
     std::cerr << "Failed to load GPU LOD shader: " << e.what() << std::endl;
     return false;
   }
 
-  if (compute_source.empty())
+  if (compute_bytes.empty() ||
+      (compute_bytes.size() % sizeof(uint32_t)) != 0) {
+    std::cerr << "GPU LOD shader bytecode is invalid" << std::endl;
     return false;
+  }
 
-  std::span<const uint8_t> shader_bytes(
-      reinterpret_cast<const uint8_t *>(compute_source.data()),
-      compute_source.size());
+  std::span<const uint8_t> shader_bytes(compute_bytes.data(),
+                                        compute_bytes.size());
 
-  resources.reflection = reflect_shader(compute_source, ShaderStage::Compute);
-  resources.compute_shader = device_->createShader("cs_lod", shader_bytes);
+  std::span<const uint32_t> shader_words(
+      reinterpret_cast<const uint32_t *>(compute_bytes.data()),
+      compute_bytes.size() / sizeof(uint32_t));
+
+  resources.reflection = reflect_spirv(shader_words, ShaderStage::Compute);
+  resources.compute_shader =
+      device_->createShaderFromBytecode("cs_lod", shader_bytes);
   if (resources.compute_shader.id == 0)
     return false;
 

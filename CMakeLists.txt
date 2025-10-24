@@ -10,6 +10,26 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# ============================================================================
+# Asset staging
+# ============================================================================
+
+set(PIXEL_ASSETS_SOURCE_DIR ${CMAKE_SOURCE_DIR}/assets)
+set(PIXEL_ASSETS_OUTPUT_DIR ${CMAKE_BINARY_DIR}/assets)
+set(PIXEL_SHADER_SPIRV_DIR ${PIXEL_ASSETS_OUTPUT_DIR}/shaders/spirv)
+
+if(NOT TARGET pixel_stage_assets)
+  add_custom_target(pixel_stage_assets ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${PIXEL_ASSETS_SOURCE_DIR}
+            ${PIXEL_ASSETS_OUTPUT_DIR}
+    COMMENT "Staging assets into build tree"
+    VERBATIM
+  )
+endif()
+
+file(MAKE_DIRECTORY ${PIXEL_ASSETS_OUTPUT_DIR})
+
 # Compiler warnings
 if(MSVC)
   set(PIXEL_WARN_CXX /W4 /permissive- /Zc:__cplusplus)
