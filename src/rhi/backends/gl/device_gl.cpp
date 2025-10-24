@@ -73,8 +73,29 @@ GLDevice::GLDevice(GLFWwindow *window) : window_(window) {
   const GLubyte *renderer = glGetString(GL_RENDERER);
   const GLubyte *version = glGetString(GL_VERSION);
 
-  std::cout << "OpenGL Renderer: " << renderer << std::endl;
-  std::cout << "OpenGL Version: " << version << std::endl;
+  const char *renderer_cstr =
+      renderer ? reinterpret_cast<const char *>(renderer) : nullptr;
+  const char *version_cstr =
+      version ? reinterpret_cast<const char *>(version) : nullptr;
+
+  std::cout << "OpenGL Renderer: "
+            << (renderer_cstr ? renderer_cstr : "Unknown Renderer")
+            << std::endl;
+  std::cout << "OpenGL Version: "
+            << (version_cstr ? version_cstr : "Unknown Version")
+            << std::endl;
+
+  backend_name_ = "OpenGL";
+  if (version_cstr && std::strlen(version_cstr) > 0) {
+    backend_name_ += " ";
+    backend_name_ += version_cstr;
+  } else {
+    backend_name_ += " (Unknown Version)";
+  }
+  if (renderer_cstr && std::strlen(renderer_cstr) > 0) {
+    backend_name_ += " - ";
+    backend_name_ += renderer_cstr;
+  }
 
   caps_.instancing = true;
   caps_.uniformBuffers = true;
@@ -129,6 +150,8 @@ GLDevice::~GLDevice() {
 }
 
 const Caps &GLDevice::caps() const { return caps_; }
+
+const char *GLDevice::backend_name() const { return backend_name_.c_str(); }
 
 CmdList *GLDevice::getImmediate() { return cmd_list_.get(); }
 

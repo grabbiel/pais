@@ -29,7 +29,7 @@ std::unique_ptr<Device> create_device(platform::Window *window,
                              "but initialization failed.");
   }
 
-  std::cout << "Device Backend: Metal" << std::endl;
+  std::cout << "Device Backend: " << device->backend_name() << std::endl;
   return std::unique_ptr<Device>(device);
 
 #else
@@ -43,7 +43,7 @@ std::unique_ptr<Device> create_device(platform::Window *window,
     throw std::runtime_error("Failed to create OpenGL device");
   }
 
-  std::cout << "Device Backend: OpenGL" << std::endl;
+  std::cout << "Device Backend: " << device->backend_name() << std::endl;
   return std::unique_ptr<Device>(device);
 
 #endif
