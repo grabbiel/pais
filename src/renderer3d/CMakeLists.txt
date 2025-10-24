@@ -40,50 +40,34 @@ target_include_directories(pixel_renderer3d
 
 target_link_libraries(pixel_renderer3d
   PUBLIC
-    pixel::core      # Alias created in src/core/CMakeLists.txt
-    pixel::math      # Alias created in src/math/CMakeLists.txt
-    pixel::platform  # Alias created in src/platform/common/CMakeLists.txt
-    pixel::rhi       # Alias created in src/rhi/CMakeLists.txt
-    pixel::resources # Alias created in src/resources/CMakeLists.txt
-    ext::glfw        # Alias created in third_party/CMakeLists.txt
-    ext::glm         # Alias created in third_party/CMakeLists.txt
+    pixel::core
+    pixel::math
+    pixel::platform
+    pixel::rhi
+    pixel::resources
+    ext::glfw
+    ext::glm
 )
-
-# Note: OpenGL::GL is now linked through pixel::rhi, not directly here
 
 # ============================================================================
 # Platform-specific configuration
 # ============================================================================
 
 if(APPLE)
-  # macOS-specific settings
   target_compile_definitions(pixel_renderer3d PRIVATE
     GL_SILENCE_DEPRECATION
   )
 
-  # Metal backend support (if available)
   if(PIXEL_HAS_METAL)
     target_compile_definitions(pixel_renderer3d PUBLIC
       PIXEL_USE_METAL=1
     )
     message(STATUS "Renderer3D: Metal backend support enabled")
-    # Note: When PIXEL_USE_METAL=1, OpenGL is NOT compiled (exclusive backend)
-    # The device_factory will only use Metal with no GL fallback
-  else()
-    # No Metal, so we must have OpenGL
-    message(STATUS "Renderer3D: Using OpenGL backend (Metal not available)")
+  elseif(PIXEL_USE_METAL)
+    message(WARNING "Renderer3D: PIXEL_USE_METAL requested but Metal frameworks were not detected.")
   endif()
-
-elseif(WIN32)
-  # Windows-specific settings
-  target_compile_definitions(pixel_renderer3d PRIVATE
-    NOMINMAX           # Prevent Windows.h from defining min/max macros
-    WIN32_LEAN_AND_MEAN
-  )
-
-elseif(UNIX)
-  # Linux-specific settings
-  target_link_libraries(pixel_renderer3d PUBLIC ${CMAKE_DL_LIBS})
+elseif(PIXEL_USE_METAL)
+  message(WARNING "Renderer3D: PIXEL_USE_METAL requested but the current platform does not support Metal.")
 endif()
 
 # ============================================================================
@@ -93,24 +77,16 @@ endif()
 # Apply project-wide warnings
 target_compile_options(pixel_renderer3d PRIVATE ${PIXEL_WARN_CXX})
 
-# Disable specific warnings for third-party headers
 if(MSVC)
   target_compile_options(pixel_renderer3d PRIVATE
-    /wd4201  # nonstandard extension used: nameless struct/union
-    /wd4127  # conditional expression is constant (from GLM)
+    /wd4201
+    /wd4127
   )
 else()
   target_compile_options(pixel_renderer3d PRIVATE
     -Wno-gnu-anonymous-struct
     -Wno-nested-anon-types
   )
-
-  # Additional warnings to catch common issues
-  if(NOT APPLE)
-    target_compile_options(pixel_renderer3d PRIVATE
-      -Wno-unused-parameter
-    )
-  endif()
 endif()
 
 # ============================================================================
@@ -163,16 +139,16 @@ endif()
 # ============================================================================
 
 message(STATUS "Renderer3D Configuration:")
-message(STATUS "  RHI Backend:       Abstracted (OpenGL/Metal)")
+if(PIXEL_USE_METAL AND PIXEL_HAS_METAL)
+  message(STATUS "  RHI Backend:       Metal (via RHI abstraction)")
+  message(STATUS "  Graphics API:      Metal")
+else()
+  message(STATUS "  RHI Backend:       (not configured)")
+  message(STATUS "  Graphics API:      (not configured)")
+endif()
 message(STATUS "  Instancing:        ENABLED")
 message(STATUS "  LOD System:        ENABLED")
 message(STATUS "  Dithered LOD:      ENABLED")
-
-if(APPLE AND PIXEL_HAS_METAL)
-  message(STATUS "  Graphics API:      Metal (exclusive - no OpenGL fallback)")
-else()
-  message(STATUS "  Graphics API:      OpenGL 3.3 Core")
-endif()
 
 # ============================================================================
 # Installation
@@ -183,7 +159,6 @@ install(TARGETS pixel_renderer3d
   LIBRARY DESTINATION lib
 )
 
-# Install public headers
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/pixel/renderer3d
   DESTINATION include/pixel
   FILES_MATCHING PATTERN "*.hpp"

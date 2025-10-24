@@ -29,12 +29,13 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 # ============================================================================
 # Platform Detection
 # ============================================================================
+set(PIXEL_USE_METAL_DEFAULT OFF)
+
 if(APPLE)
   set(PIXEL_PLATFORM_APPLE ON)
   message(STATUS "Platform: macOS")
 
-  # Check if Metal backend is preferred (default ON for macOS)
-  option(PIXEL_USE_METAL "Use Metal backend on macOS" ON)
+  set(PIXEL_USE_METAL_DEFAULT ON)
 
   # macOS deployment target
   if(NOT CMAKE_OSX_DEPLOYMENT_TARGET)
@@ -49,13 +50,11 @@ elseif(UNIX)
   message(STATUS "Platform: Linux")
 endif()
 
+option(PIXEL_USE_METAL "Enable the Metal graphics backend" ${PIXEL_USE_METAL_DEFAULT})
+
 # ============================================================================
 # Dependencies
 # ============================================================================
-
-# OpenGL (required for all platforms as fallback)
-find_package(OpenGL REQUIRED)
-message(STATUS "OpenGL found: ${OPENGL_LIBRARIES}")
 
 # GLFW - check if system package is available
 find_package(glfw3 3.3 QUIET)
@@ -91,10 +90,10 @@ if(APPLE AND PIXEL_USE_METAL)
     message(STATUS "Metal frameworks found - Metal backend available")
     set(PIXEL_HAS_METAL ON)
   else()
-    message(WARNING "Metal frameworks not found - falling back to OpenGL")
-    set(PIXEL_USE_METAL OFF)
-    set(PIXEL_HAS_METAL OFF)
+    message(FATAL_ERROR "Metal frameworks not found. The OpenGL backend has been removed, so Metal support is required.")
   endif()
+elseif(PIXEL_USE_METAL)
+  message(WARNING "PIXEL_USE_METAL=ON but the current platform does not support Metal.")
 endif()
 
 # ============================================================================
@@ -108,7 +107,8 @@ add_compile_definitions(
   $<$<PLATFORM_ID:Linux>:PIXEL_PLATFORM_LINUX=1>
 )
 
-# Silence OpenGL deprecation warnings on macOS
+# Silence OpenGL deprecation warnings on macOS (still suppresses legacy headers
+# that some dependencies may include)
 if(APPLE)
   add_compile_definitions(GL_SILENCE_DEPRECATION)
 endif()
@@ -232,22 +232,14 @@ message(STATUS "")
 message(STATUS "Platform:")
 if(APPLE)
   message(STATUS "  Target:            macOS ${CMAKE_OSX_DEPLOYMENT_TARGET}")
-elseif(WIN32)
-  message(STATUS "  Target:            Windows")
-else()
-  message(STATUS "  Target:            Linux")
 endif()
 message(STATUS "")
 message(STATUS "Graphics Backend:")
 if(PIXEL_HAS_METAL)
   message(STATUS "  Primary:           Metal (macOS native)")
-  message(STATUS "  Fallback:          OpenGL 3.3 Core")
-else()
-  message(STATUS "  Backend:           OpenGL 3.3 Core")
 endif()
 message(STATUS "")
 message(STATUS "Dependencies:")
-message(STATUS "  OpenGL:            ${OPENGL_LIBRARIES}")
 if(PIXEL_GLFW_SYSTEM)
   message(STATUS "  GLFW:              System")
 else()

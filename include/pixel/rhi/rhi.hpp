@@ -165,7 +165,6 @@ struct Device {
                           size_t offset = 0) = 0;
 };
 
-Device *create_gl_device(GLFWwindow *window);
 #ifdef __APPLE__
 // Metal backend (macOS/iOS only)
 Device *create_metal_device(void *window);
@@ -188,14 +187,13 @@ namespace pixel::rhi {
 
 enum class GraphicsAPI {
   Default,
-  OpenGL,
   Metal
 };
 
 /**
  * @brief Create a Device from an existing Window
  * @param window Pointer to a pixel::platform::Window instance
- * @param preferred_api Preferred graphics API (default selects based on platform)
+ * @param preferred_api Preferred graphics API (currently Metal-only; parameter is kept for API stability)
  * @return Unique pointer to the created Device
  * @throws std::invalid_argument if window is null
  * @throws std::runtime_error if device creation fails
