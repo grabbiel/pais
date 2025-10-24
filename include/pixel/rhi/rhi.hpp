@@ -170,6 +170,11 @@ struct Device {
 Device *create_metal_device(void *window);
 #endif
 
+#if defined(_WIN32)
+// DirectX 12 backend (Windows only)
+Device *create_dx12_device(void *window);
+#endif
+
 } // namespace pixel::rhi
 
 // ============================================================================
@@ -187,7 +192,8 @@ namespace pixel::rhi {
 
 enum class GraphicsAPI {
   Default,
-  Metal
+  Metal,
+  DirectX12
 };
 
 /**

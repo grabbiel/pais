@@ -53,6 +53,8 @@ target_link_libraries(pixel_renderer3d
 # Platform-specific configuration
 # ============================================================================
 
+set(RENDERER3D_BACKEND_NAME "(not configured)")
+
 if(APPLE)
   target_compile_definitions(pixel_renderer3d PRIVATE
     GL_SILENCE_DEPRECATION
@@ -63,11 +65,22 @@ if(APPLE)
       PIXEL_USE_METAL=1
     )
     message(STATUS "Renderer3D: Metal backend support enabled")
+    set(RENDERER3D_BACKEND_NAME "Metal")
   elseif(PIXEL_USE_METAL)
     message(WARNING "Renderer3D: PIXEL_USE_METAL requested but Metal frameworks were not detected.")
   endif()
 elseif(PIXEL_USE_METAL)
   message(WARNING "Renderer3D: PIXEL_USE_METAL requested but the current platform does not support Metal.")
+endif()
+
+if(PIXEL_USE_DX12 AND WIN32)
+  target_compile_definitions(pixel_renderer3d PUBLIC
+    PIXEL_USE_DX12=1
+  )
+  message(STATUS "Renderer3D: DirectX 12 backend support enabled")
+  set(RENDERER3D_BACKEND_NAME "DirectX 12")
+elseif(PIXEL_USE_DX12)
+  message(WARNING "Renderer3D: PIXEL_USE_DX12 requested but the current platform is not Windows.")
 endif()
 
 # ============================================================================
@@ -139,11 +152,12 @@ endif()
 # ============================================================================
 
 message(STATUS "Renderer3D Configuration:")
-if(PIXEL_USE_METAL AND PIXEL_HAS_METAL)
-  message(STATUS "  RHI Backend:       Metal (via RHI abstraction)")
+message(STATUS "  RHI Backend:       ${RENDERER3D_BACKEND_NAME}")
+if(RENDERER3D_BACKEND_NAME STREQUAL "Metal")
   message(STATUS "  Graphics API:      Metal")
+elseif(RENDERER3D_BACKEND_NAME STREQUAL "DirectX 12")
+  message(STATUS "  Graphics API:      DirectX 12")
 else()
-  message(STATUS "  RHI Backend:       (not configured)")
   message(STATUS "  Graphics API:      (not configured)")
 endif()
 message(STATUS "  Instancing:        ENABLED")
