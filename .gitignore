@@ -74,3 +74,5 @@ CMakePresets.json
 
 output.txt
 1
+# large assets 
+assets/textures/
