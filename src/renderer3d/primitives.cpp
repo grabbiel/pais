@@ -96,12 +96,12 @@ std::vector<Vertex> create_plane_vertices(float width, float depth,
 
       // First triangle (counter-clockwise winding)
       indexed_verts.push_back(vertices[i0]);
-      indexed_verts.push_back(vertices[i1]);
       indexed_verts.push_back(vertices[i2]);
+      indexed_verts.push_back(vertices[i1]);
 
       // Second triangle (counter-clockwise winding)
-      indexed_verts.push_back(vertices[i2]);
       indexed_verts.push_back(vertices[i1]);
+      indexed_verts.push_back(vertices[i2]);
       indexed_verts.push_back(vertices[i3]);
     }
   }

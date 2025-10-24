@@ -30,8 +30,7 @@ constexpr size_t kSphereCount = 4096;
 constexpr float kTerrainSize = 100.0f;
 constexpr float kSphereRadius = 0.5f;
 
-std::unique_ptr<Mesh> create_sphere_mesh(Renderer &renderer,
-                                         int segments = 48,
+std::unique_ptr<Mesh> create_sphere_mesh(Renderer &renderer, int segments = 48,
                                          int rings = 24,
                                          float radius = kSphereRadius) {
   if (segments < 3) {
@@ -251,8 +250,8 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  auto sphere_instanced =
-      RendererInstanced::create_instanced_mesh(device, *sphere_mesh, kSphereCount);
+  auto sphere_instanced = RendererInstanced::create_instanced_mesh(
+      device, *sphere_mesh, kSphereCount);
   if (!sphere_instanced) {
     std::cerr << "Failed to create instanced sphere mesh" << std::endl;
     return EXIT_FAILURE;
@@ -279,7 +278,8 @@ int main() {
       float px = start_offset + spacing * static_cast<float>(x) + jitter(rng);
       float pz = start_offset + spacing * static_cast<float>(z) + jitter(rng);
 
-      float gradient = glm::clamp((static_cast<float>(z) / grid_size), 0.0f, 1.0f);
+      float gradient =
+          glm::clamp((static_cast<float>(z) / grid_size), 0.0f, 1.0f);
       float warm_factor = glm::mix(0.6f, 1.0f, gradient);
 
       InstanceData data;
