@@ -68,6 +68,8 @@ private:
   rhi::RenderPassDesc pass_desc_{};
 
   bool initialized_{false};
+  bool depth_initialized_{false};
+  bool depth_ready_for_sampling_{false};
 };
 
 } // namespace pixel::renderer3d

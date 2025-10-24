@@ -1,8 +1,10 @@
 #include "pixel/renderer3d/shadow_map.hpp"
 #include "pixel/renderer3d/clip_space.hpp"
 #include "pixel/math/vec3.hpp"
+#include <array>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
+#include <string_view>
 
 namespace pixel::renderer3d {
 
@@ -43,17 +45,28 @@ bool ShadowMap::initialize(rhi::Device *device, const Settings &settings,
     return false;
   }
 
-  rhi::FramebufferDesc fb_desc{};
-  fb_desc.colorAttachmentCount = 0;
-  fb_desc.hasDepthAttachment = true;
-  fb_desc.depthAttachment.texture = depth_texture_;
-  fb_desc.depthAttachment.mipLevel = 0;
-  fb_desc.depthAttachment.arraySlice = 0;
-  fb_desc.depthAttachment.hasStencil = false;
-  framebuffer_ = device_->createFramebuffer(fb_desc);
-  if (framebuffer_.id == 0) {
-    std::cerr << "[ShadowMap] Failed to create framebuffer" << std::endl;
-    return false;
+  const char *backend_name = device_->backend_name();
+  std::string_view backend_view = backend_name ? std::string_view(backend_name)
+                                              : std::string_view{};
+  bool skip_framebuffer = backend_view.find("Vulkan") != std::string_view::npos;
+
+  if (!skip_framebuffer) {
+    rhi::FramebufferDesc fb_desc{};
+    fb_desc.colorAttachmentCount = 0;
+    fb_desc.hasDepthAttachment = true;
+    fb_desc.depthAttachment.texture = depth_texture_;
+    fb_desc.depthAttachment.mipLevel = 0;
+    fb_desc.depthAttachment.arraySlice = 0;
+    fb_desc.depthAttachment.hasStencil = false;
+    framebuffer_ = device_->createFramebuffer(fb_desc);
+    if (framebuffer_.id == 0) {
+      std::cerr << "[ShadowMap] Failed to create framebuffer" << std::endl;
+      return false;
+    }
+  } else {
+    framebuffer_ = {};
+    std::cout << "[ShadowMap] Skipping framebuffer creation for Vulkan backend"
+              << std::endl;
   }
 
   rhi::SamplerDesc sampler_desc{};
@@ -81,7 +94,10 @@ bool ShadowMap::initialize(rhi::Device *device, const Settings &settings,
   rebuild_pass_desc();
   compute_matrices();
 
-  initialized_ = depth_texture_.id != 0 && framebuffer_.id != 0 && sampler_.id != 0;
+  initialized_ = depth_texture_.id != 0 && sampler_.id != 0 &&
+                 (skip_framebuffer ? true : framebuffer_.id != 0);
+  depth_initialized_ = false;
+  depth_ready_for_sampling_ = false;
   std::cout << "[ShadowMap] Initialization "
             << (initialized_ ? "succeeded" : "failed") << std::endl;
   return initialized_;
@@ -123,6 +139,27 @@ void ShadowMap::begin(rhi::CmdList *cmd) {
   }
 
   std::cout << "[ShadowMap] Beginning shadow pass" << std::endl;
+  if (depth_texture_.id != 0) {
+    rhi::ResourceBarrierDesc barrier{};
+    barrier.type = rhi::BarrierType::Texture;
+    barrier.texture = depth_texture_;
+    barrier.srcStage = depth_ready_for_sampling_ ? rhi::PipelineStage::FragmentShader
+                                                 : (depth_initialized_
+                                                        ? rhi::PipelineStage::FragmentShader
+                                                        : rhi::PipelineStage::TopOfPipe);
+    barrier.dstStage = rhi::PipelineStage::FragmentShader;
+    barrier.srcState = depth_ready_for_sampling_ ? rhi::ResourceState::ShaderRead
+                                                 : (depth_initialized_
+                                                        ? rhi::ResourceState::DepthStencilWrite
+                                                        : rhi::ResourceState::Undefined);
+    barrier.dstState = rhi::ResourceState::DepthStencilWrite;
+    barrier.levelCount = 0;
+    barrier.layerCount = 0;
+    std::array<rhi::ResourceBarrierDesc, 1> barriers{barrier};
+    cmd->resourceBarrier(barriers);
+  }
+  depth_initialized_ = true;
+  depth_ready_for_sampling_ = false;
   pass_desc_.depthAttachment.clearDepth = 1.0f;
   cmd->beginRender(pass_desc_);
 }
@@ -140,6 +177,20 @@ void ShadowMap::end(rhi::CmdList *cmd) {
 
   std::cout << "[ShadowMap] Ending shadow pass" << std::endl;
   cmd->endRender();
+  if (depth_texture_.id != 0) {
+    rhi::ResourceBarrierDesc barrier{};
+    barrier.type = rhi::BarrierType::Texture;
+    barrier.texture = depth_texture_;
+    barrier.srcStage = rhi::PipelineStage::FragmentShader;
+    barrier.dstStage = rhi::PipelineStage::FragmentShader;
+    barrier.srcState = rhi::ResourceState::DepthStencilWrite;
+    barrier.dstState = rhi::ResourceState::ShaderRead;
+    barrier.levelCount = 0;
+    barrier.layerCount = 0;
+    std::array<rhi::ResourceBarrierDesc, 1> barriers{barrier};
+    cmd->resourceBarrier(barriers);
+    depth_ready_for_sampling_ = true;
+  }
 }
 
 rhi::DepthBiasState ShadowMap::depth_bias_state() const {
