@@ -26,6 +26,8 @@ namespace pixel::resources {
 
 namespace pixel::renderer3d {
 
+class InstancedMesh;
+
 // ============================================================================
 // Camera
 // ============================================================================
@@ -212,6 +214,11 @@ public:
   void apply_material_state(rhi::CmdList *cmd,
                             const Material &material) const;
 
+  void draw_shadow_mesh_instanced(const InstancedMesh &mesh,
+                                  const Vec3 &position,
+                                  const Vec3 &rotation,
+                                  const Vec3 &scale);
+
   void draw_sprite(rhi::TextureHandle texture, const Vec3 &position,
                    const Vec2 &size, const Color &tint = Color::White());
 
@@ -236,6 +243,7 @@ public:
   ShaderID default_shader() const { return default_shader_; }
   ShaderID sprite_shader() const { return sprite_shader_; }
   ShaderID instanced_shader() const { return instanced_shader_; }
+  ShaderID shadow_instanced_shader() const { return shadow_instanced_shader_; }
 
   const char *backend_name() const;
 
@@ -267,6 +275,8 @@ protected:
   DirectionalLight directional_light_{};
   rhi::PipelineHandle shadow_pipeline_{};
   ShaderID shadow_shader_ = INVALID_SHADER;
+  rhi::PipelineHandle shadow_instanced_pipeline_{};
+  ShaderID shadow_instanced_shader_ = INVALID_SHADER;
 
   bool shadow_pass_active_{false};
   bool command_list_open_{false};

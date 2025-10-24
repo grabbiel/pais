@@ -549,7 +549,10 @@ std::unique_ptr<Shader> Shader::create(rhi::Device *device,
       vert_path.find("instanced") != std::string::npos ||
       frag_path.find("instanced") != std::string::npos;
 
-  if (is_shadow_shader) {
+  if (is_shadow_shader && is_instanced_shader) {
+    shader->vs_stage_ = "vs_shadow_instanced";
+    shader->fs_stage_ = "fs_shadow";
+  } else if (is_shadow_shader) {
     shader->vs_stage_ = "vs_shadow";
     shader->fs_stage_ = "fs_shadow";
   } else if (is_instanced_shader) {

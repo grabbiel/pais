@@ -184,12 +184,16 @@ ShaderHandle MetalDevice::createShader(std::string_view stage,
     functionName = @"vertex_main";
   } else if (stage == "vs_instanced") {
     functionName = @"vertex_instanced";
+  } else if (stage == "vs_shadow_instanced") {
+    functionName = @"vertex_shadow_depth_instanced";
   } else if (stage == "vs_shadow") {
     functionName = @"vertex_shadow_depth";
   } else if (stage == "fs") {
     functionName = @"fragment_main";
   } else if (stage == "fs_instanced") {
     functionName = @"fragment_instanced";
+  } else if (stage == "fs_shadow_instanced") {
+    functionName = @"fragment_shadow_depth";
   } else if (stage == "fs_shadow") {
     functionName = @"fragment_shadow_depth";
   } else if (stage == "cs_culling") {
