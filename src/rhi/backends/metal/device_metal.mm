@@ -45,7 +45,8 @@ const Caps &MetalDevice::caps() const {
   caps.maxSamplerAnisotropy = 16.0f;
   caps.samplerCompare = true;
   caps.uniformBuffers = true;
-  caps.clipSpaceYDown = true; // Metal uses Y-down clip space
+  caps.clipSpaceYDown = false;
+  caps.clipSpaceDepthZeroToOne = true; // Metal expects depth in the [0, 1] range
   return caps;
 }
 

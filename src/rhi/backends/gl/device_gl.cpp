@@ -100,6 +100,7 @@ GLDevice::GLDevice(GLFWwindow *window) : window_(window) {
   caps_.instancing = true;
   caps_.uniformBuffers = true;
   caps_.clipSpaceYDown = false;
+  caps_.clipSpaceDepthZeroToOne = false;
   caps_.samplerAniso = false;
   caps_.maxSamplerAnisotropy = 1.0f;
   if (has_extension("GL_EXT_texture_filter_anisotropic")) {

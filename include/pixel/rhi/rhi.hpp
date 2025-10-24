@@ -16,7 +16,8 @@ struct Caps {
   float maxSamplerAnisotropy{1.0f};
   bool samplerCompare{false};
   bool uniformBuffers{true};
-  bool clipSpaceYDown{false}; // GL vs Metal differences if needed
+  bool clipSpaceYDown{false};            // Requires Y axis flip in clip space
+  bool clipSpaceDepthZeroToOne{false};   // Requires Z remapping to [0, 1]
 };
 
 struct SwapchainDesc {

@@ -12,7 +12,8 @@ namespace pixel::renderer3d {
  * Metal (used on arm64 macOS) expects clip space with Y-down and depth in the
  * [0, 1] range, whereas the renderer produces matrices using OpenGL
  * conventions. The returned matrix performs the required Y flip and depth
- * remapping when the backend exposes Caps::clipSpaceYDown.
+ * remapping when the backend exposes the relevant capabilities flags in
+ * rhi::Caps (clipSpaceYDown and/or clipSpaceDepthZeroToOne).
  */
 glm::mat4 clip_space_correction_matrix(const rhi::Caps &caps);
 
