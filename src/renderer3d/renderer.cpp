@@ -274,13 +274,25 @@ std::unique_ptr<Mesh> Renderer::create_plane(float width, float depth,
 void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
                          const Vec3 &rotation, const Vec3 &scale,
                          const Material &material) {
+  std::cout << "\nRenderer::draw_mesh()" << std::endl;
+  std::cout << "  mesh vertices: " << mesh.vertex_count()
+            << " indices: " << mesh.index_count() << std::endl;
+  std::cout << "  position: (" << position.x << ", " << position.y << ", "
+            << position.z << ")" << std::endl;
+  std::cout << "  rotation: (" << rotation.x << ", " << rotation.y << ", "
+            << rotation.z << ")" << std::endl;
+  std::cout << "  scale:    (" << scale.x << ", " << scale.y << ", "
+            << scale.z << ")" << std::endl;
+
   Shader *shader = get_shader(default_shader_);
   if (!shader)
     return;
 
   auto *cmd = device_->getImmediate();
-  cmd->setPipeline(
-      shader->pipeline(material.shader_variant, material.blend_mode));
+  auto pipeline_handle =
+      shader->pipeline(material.shader_variant, material.blend_mode);
+  std::cout << "  pipeline handle: " << pipeline_handle.id << std::endl;
+  cmd->setPipeline(pipeline_handle);
   apply_material_state(cmd, material);
   cmd->setVertexBuffer(mesh.vertex_buffer());
   cmd->setIndexBuffer(mesh.index_buffer());
