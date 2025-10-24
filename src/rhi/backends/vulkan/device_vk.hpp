@@ -61,6 +61,8 @@ public:
   void finishFrame();
 
 private:
+  friend class VulkanCmdList;
+
   struct BufferResource {
     VkBuffer buffer{VK_NULL_HANDLE};
     VmaAllocation allocation{nullptr};
@@ -238,6 +240,12 @@ private:
 
   VulkanDevice &device_;
   VkCommandBuffer activeCommandBuffer_{VK_NULL_HANDLE};
+  RenderPassDesc pendingRenderPass_{};
+  bool renderPassPending_{false};
+  bool renderPassActive_{false};
+  VkFramebuffer activeFramebuffer_{VK_NULL_HANDLE};
+  PipelineHandle currentGraphicsPipeline_{};
+  PipelineHandle currentComputePipeline_{};
 };
 
 } // namespace pixel::rhi
