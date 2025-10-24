@@ -1,4 +1,5 @@
 #include "pixel/renderer3d/shadow_map.hpp"
+#include "pixel/renderer3d/clip_space.hpp"
 #include "pixel/math/vec3.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -131,6 +132,10 @@ void ShadowMap::compute_matrices() {
   light_projection_ =
       glm::ortho(-ortho, ortho, -ortho, ortho, settings_.near_plane,
                  settings_.far_plane);
+  if (device_) {
+    light_projection_ =
+        clip_space_correction_matrix(device_->caps()) * light_projection_;
+  }
   light_view_projection_ = light_projection_ * light_view_;
 }
 

@@ -1,4 +1,5 @@
 #include "pixel/renderer3d/renderer_instanced.hpp"
+#include "pixel/renderer3d/clip_space.hpp"
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
 
@@ -351,17 +352,23 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
     std::cerr << "  ✓ Normal matrix set (identity)" << std::endl;
   }
 
-  float view[16];
-  float projection[16];
-  renderer.camera().get_view_matrix(view);
-  renderer.camera().get_projection_matrix(projection, renderer.window_width(),
+  float view_raw[16];
+  float projection_raw[16];
+  renderer.camera().get_view_matrix(view_raw);
+  renderer.camera().get_projection_matrix(projection_raw,
+                                          renderer.window_width(),
                                           renderer.window_height());
+
+  glm::mat4 view_matrix = glm::make_mat4(view_raw);
+  glm::mat4 projection_matrix = glm::make_mat4(projection_raw);
+  projection_matrix = apply_clip_space_correction(projection_matrix,
+                                                  renderer.device()->caps());
   if (has_view_uniform) {
-    cmd->setUniformMat4("view", view);
+    cmd->setUniformMat4("view", glm::value_ptr(view_matrix));
     std::cerr << "  ✓ View matrix uploaded" << std::endl;
   }
   if (has_projection_uniform) {
-    cmd->setUniformMat4("projection", projection);
+    cmd->setUniformMat4("projection", glm::value_ptr(projection_matrix));
     std::cerr << "  ✓ Projection matrix uploaded" << std::endl;
   }
   if (has_light_view_proj && renderer.shadow_map()) {

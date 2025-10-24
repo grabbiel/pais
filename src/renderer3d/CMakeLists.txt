@@ -5,6 +5,7 @@
 
 # Core renderer sources
 set(RENDERER3D_SOURCES
+  clip_space.cpp
   device_factory.cpp
   renderer.cpp
   camera.cpp
