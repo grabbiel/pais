@@ -53,6 +53,8 @@ public:
   SamplerHandle createSampler(const SamplerDesc &desc) override;
   ShaderHandle createShader(std::string_view stage,
                             std::span<const uint8_t> bytes) override;
+  ShaderHandle createShaderFromBytecode(std::string_view stage,
+                                        std::span<const uint8_t> bytes) override;
   PipelineHandle createPipeline(const PipelineDesc &desc) override;
   FramebufferHandle createFramebuffer(const FramebufferDesc &desc) override;
   QueryHandle createQuery(QueryType type) override;

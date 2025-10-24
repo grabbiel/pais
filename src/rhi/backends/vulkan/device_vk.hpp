@@ -10,6 +10,7 @@
 #include <array>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace pixel::rhi {
@@ -29,6 +30,8 @@ public:
   SamplerHandle createSampler(const SamplerDesc &) override;
   ShaderHandle createShader(std::string_view stage,
                             std::span<const uint8_t> bytes) override;
+  ShaderHandle createShaderFromBytecode(std::string_view stage,
+                                        std::span<const uint8_t> bytes) override;
   PipelineHandle createPipeline(const PipelineDesc &) override;
   FramebufferHandle createFramebuffer(const FramebufferDesc &) override;
   QueryHandle createQuery(QueryType type) override;
@@ -76,6 +79,22 @@ private:
   struct SamplerResource {
     VkSampler sampler{VK_NULL_HANDLE};
     SamplerDesc desc{};
+  };
+
+  struct ShaderResource {
+    VkShaderModule module{VK_NULL_HANDLE};
+    VkShaderStageFlagBits stage{VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM};
+    std::string stageLabel{};
+    bool instanced{false};
+    bool isCompute{false};
+  };
+
+  struct PipelineResource {
+    VkPipeline pipeline{VK_NULL_HANDLE};
+    VkPipelineLayout layout{VK_NULL_HANDLE};
+    VkRenderPass renderPass{VK_NULL_HANDLE};
+    std::vector<VkDescriptorSetLayout> descriptorSetLayouts{};
+    bool isCompute{false};
   };
 
   void createInstance();
@@ -159,6 +178,8 @@ private:
   std::vector<BufferResource> buffers_{1};
   std::vector<TextureResource> textures_{1};
   std::vector<SamplerResource> samplers_{1};
+  std::vector<ShaderResource> shaders_{1};
+  std::vector<PipelineResource> pipelines_{1};
 };
 
 class VulkanCmdList final : public CmdList {
