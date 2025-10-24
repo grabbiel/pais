@@ -478,7 +478,7 @@ void Renderer::draw_shadow_mesh_instanced(const InstancedMesh &mesh,
       cmd->setTexture("uTextureArray", material->texture_array, 0);
     } else if (material->texture.id != 0 &&
                reflection.has_sampler("uTexture")) {
-      cmd->setTexture("uTexture", material->texture, 0);
+      cmd->setTexture("uTexture", material->texture, 1);
     }
   }
 

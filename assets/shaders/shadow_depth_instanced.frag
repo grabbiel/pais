@@ -4,8 +4,8 @@ layout (location = 0) in vec2 TexCoord;
 layout (location = 1) in float TextureIndex;
 layout (location = 2) in float VertexAlpha;
 
-uniform sampler2DArray uTextureArray;
-uniform sampler2D uTexture;
+layout (binding = 0) uniform sampler2DArray uTextureArray;
+layout (binding = 1) uniform sampler2D uTexture;
 uniform int useTextureArray;
 uniform int useTexture;
 uniform float alphaCutoff;

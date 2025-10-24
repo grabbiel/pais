@@ -8,8 +8,8 @@ layout (location = 2) in vec2 TexCoord;
 layout (location = 3) in vec4 Color;
 layout (location = 4) in vec4 FragPosLightSpace;
 
-uniform sampler2D uTexture;
-uniform sampler2DShadow shadowMap;
+layout (binding = 0) uniform sampler2D uTexture;
+layout (binding = 1) uniform sampler2DShadow shadowMap;
 uniform int useTexture;
 uniform vec4 materialColor;
 uniform vec3 lightPos;
