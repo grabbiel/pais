@@ -1,5 +1,6 @@
 // src/renderer3d/lod.cpp - Enhanced with detailed logging
 #include "pixel/renderer3d/lod.hpp"
+#include "pixel/renderer3d/clip_space.hpp"
 #include "pixel/platform/shader_loader.hpp"
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -26,10 +27,12 @@ static int g_log_frame_counter = 0;
 namespace screen_space {
 
 float calculate_sphere_screen_size(const Vec3 &world_pos, float world_radius,
-                                   const float *view, const float *proj,
+                                   const glm::mat4 &view,
+                                   const glm::mat4 &proj,
                                    int viewport_height) {
+  (void)viewport_height;
   // Transform to view space
-  glm::vec4 view_pos = glm::make_mat4(view) *
+  glm::vec4 view_pos = view *
                        glm::vec4(world_pos.x, world_pos.y, world_pos.z, 1.0f);
   float distance = std::abs(view_pos.z);
 
@@ -37,8 +40,7 @@ float calculate_sphere_screen_size(const Vec3 &world_pos, float world_radius,
     return 1.0f;
 
   // Get FOV from projection matrix
-  glm::mat4 proj_mat = glm::make_mat4(proj);
-  float fov_y_rad = 2.0f * std::atan(1.0f / proj_mat[1][1]);
+  float fov_y_rad = 2.0f * std::atan(1.0f / std::abs(proj[1][1]));
 
   // Calculate screen-space size as fraction of screen height
   float size_fraction = (world_radius / distance) / std::tan(fov_y_rad * 0.5f);
@@ -312,10 +314,14 @@ void LODMesh::update_lod_selection_cpu(Renderer &renderer, float delta_time,
               << cam_pos.z << ")\n";
   }
 
-  float view[16], proj[16];
-  renderer.camera().get_view_matrix(view);
-  renderer.camera().get_projection_matrix(proj, renderer.window_width(),
+  float view_raw[16], proj_raw[16];
+  renderer.camera().get_view_matrix(view_raw);
+  renderer.camera().get_projection_matrix(proj_raw, renderer.window_width(),
                                           renderer.window_height());
+  glm::mat4 view_matrix = glm::make_mat4(view_raw);
+  glm::mat4 proj_matrix = glm::make_mat4(proj_raw);
+  proj_matrix = apply_clip_space_correction(proj_matrix,
+                                            renderer.device()->caps());
   int viewport_height = renderer.window_height();
 
   std::vector<uint32_t> desired_lods(source_instances_.size(), 3);
@@ -332,7 +338,8 @@ void LODMesh::update_lod_selection_cpu(Renderer &renderer, float delta_time,
     float effective_radius = inst.culling_radius * max_scale;
 
     float screen_size = screen_space::calculate_sphere_screen_size(
-        inst.position, effective_radius, view, proj, viewport_height);
+        inst.position, effective_radius, view_matrix, proj_matrix,
+        viewport_height);
 
     uint32_t desired_lod =
         compute_lod_direct(inst, dist, screen_size, renderer);

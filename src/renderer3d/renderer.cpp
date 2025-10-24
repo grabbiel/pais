@@ -1,5 +1,6 @@
 // src/renderer3d/renderer.cpp (Updated for RHI)
 #include "pixel/renderer3d/renderer.hpp"
+#include "pixel/renderer3d/clip_space.hpp"
 #include "pixel/renderer3d/primitives.hpp"
 #include "pixel/renderer3d/renderer_fwd.hpp"
 #include "pixel/rhi/rhi.hpp"
@@ -483,9 +484,15 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
   model = glm::scale(model, glm::vec3(scale.x, scale.y, scale.z));
 
   // Get view and projection matrices
-  float view[16], projection[16];
-  camera_.get_view_matrix(view);
-  camera_.get_projection_matrix(projection, window_width(), window_height());
+  float view_raw[16], projection_raw[16];
+  camera_.get_view_matrix(view_raw);
+  camera_.get_projection_matrix(projection_raw, window_width(),
+                                window_height());
+
+  glm::mat4 view_mat = glm::make_mat4(view_raw);
+  glm::mat4 projection_mat = glm::make_mat4(projection_raw);
+  projection_mat =
+      apply_clip_space_correction(projection_mat, device_->caps());
 
   // Set transformation uniforms
   if (reflection.has_uniform("model")) {
@@ -498,10 +505,10 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
     cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
   }
   if (reflection.has_uniform("view")) {
-    cmd->setUniformMat4("view", view);
+    cmd->setUniformMat4("view", glm::value_ptr(view_mat));
   }
   if (reflection.has_uniform("projection")) {
-    cmd->setUniformMat4("projection", projection);
+    cmd->setUniformMat4("projection", glm::value_ptr(projection_mat));
   }
 
   if (shadow_map_ && reflection.has_uniform("lightViewProj")) {
