@@ -147,6 +147,8 @@ struct Device {
   virtual SamplerHandle createSampler(const SamplerDesc &) = 0;
   virtual ShaderHandle createShader(std::string_view stage,
                                     std::span<const uint8_t> bytes) = 0;
+  virtual ShaderHandle createShaderFromBytecode(
+      std::string_view stage, std::span<const uint8_t> bytes) = 0;
   virtual PipelineHandle createPipeline(const PipelineDesc &) = 0;
   virtual FramebufferHandle createFramebuffer(const FramebufferDesc &) = 0;
   virtual QueryHandle createQuery(QueryType type) = 0;

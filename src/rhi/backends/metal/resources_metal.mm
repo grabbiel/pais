@@ -273,6 +273,11 @@ ShaderHandle MetalDevice::createShader(std::string_view stage,
   return ShaderHandle{handle_id};
 }
 
+ShaderHandle MetalDevice::createShaderFromBytecode(std::string_view stage,
+                                                   std::span<const uint8_t> bytes) {
+  return createShader(stage, bytes);
+}
+
 FramebufferHandle MetalDevice::createFramebuffer(const FramebufferDesc &desc) {
   if (desc.colorAttachmentCount > kMaxColorAttachments) {
     std::cerr << "Metal framebuffer creation exceeded attachment limit"
