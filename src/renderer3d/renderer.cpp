@@ -151,10 +151,10 @@ void Renderer::setup_default_shaders() {
 
   std::cout << "Loading instanced shadow depth shader pair:"
             << " assets/shaders/shadow_depth_instanced.vert &"
-            << " assets/shaders/shadow_depth.frag" << std::endl;
+            << " assets/shaders/shadow_depth_instanced.frag" << std::endl;
   shadow_instanced_shader_ =
       load_shader("assets/shaders/shadow_depth_instanced.vert",
-                  "assets/shaders/shadow_depth.frag", metal_source);
+                  "assets/shaders/shadow_depth_instanced.frag", metal_source);
   if (!shadow_instanced_shader_) {
     std::cerr << "Failed to load instanced shadow depth shader" << std::endl;
   } else if (device_) {
@@ -312,7 +312,8 @@ void Renderer::draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
 void Renderer::draw_shadow_mesh_instanced(const InstancedMesh &mesh,
                                           const Vec3 &position,
                                           const Vec3 &rotation,
-                                          const Vec3 &scale) {
+                                          const Vec3 &scale,
+                                          const Material *material) {
   if (!shadow_pass_active_) {
     std::cerr << "[Renderer] Cannot draw instanced shadow mesh: shadow pass not"
                  " active"
@@ -362,6 +363,40 @@ void Renderer::draw_shadow_mesh_instanced(const InstancedMesh &mesh,
   if (reflection.has_uniform("lightViewProj") && shadow_map_) {
     cmd->setUniformMat4("lightViewProj",
                         glm::value_ptr(shadow_map_->light_view_projection()));
+  }
+
+  if (reflection.has_uniform("useTextureArray")) {
+    int use_array =
+        material && material->texture_array.id != 0 ? 1 : 0;
+    cmd->setUniformInt("useTextureArray", use_array);
+  }
+
+  if (reflection.has_uniform("useTexture")) {
+    int use_texture = material && material->texture.id != 0 ? 1 : 0;
+    cmd->setUniformInt("useTexture", use_texture);
+  }
+
+  if (reflection.has_uniform("alphaCutoff")) {
+    float cutoff = 0.3f;
+    cmd->setUniformFloat("alphaCutoff", cutoff);
+  }
+
+  if (reflection.has_uniform("baseAlpha")) {
+    float alpha = 1.0f;
+    if (material) {
+      alpha = material->color.a;
+    }
+    cmd->setUniformFloat("baseAlpha", alpha);
+  }
+
+  if (material) {
+    if (material->texture_array.id != 0 &&
+        reflection.has_sampler("uTextureArray")) {
+      cmd->setTexture("uTextureArray", material->texture_array, 0);
+    } else if (material->texture.id != 0 &&
+               reflection.has_sampler("uTexture")) {
+      cmd->setTexture("uTexture", material->texture, 0);
+    }
   }
 
   std::cout << "[Renderer] Drawing instanced shadow mesh with "

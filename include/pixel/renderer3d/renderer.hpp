@@ -217,7 +217,8 @@ public:
   void draw_shadow_mesh_instanced(const InstancedMesh &mesh,
                                   const Vec3 &position,
                                   const Vec3 &rotation,
-                                  const Vec3 &scale);
+                                  const Vec3 &scale,
+                                  const Material *material = nullptr);
 
   void draw_sprite(rhi::TextureHandle texture, const Vec3 &position,
                    const Vec2 &size, const Color &tint = Color::White());
