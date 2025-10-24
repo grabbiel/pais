@@ -115,7 +115,8 @@ GLDevice::GLDevice(GLFWwindow *window) : window_(window) {
 
   cmd_list_ =
       std::make_unique<GLCmdList>(&buffers_, &textures_, &pipelines_,
-                                  &framebuffers_, &queries_, &fences_, window_);
+                                  &samplers_, &framebuffers_, &queries_,
+                                  &fences_, window_);
 }
 
 GLDevice::~GLDevice() {

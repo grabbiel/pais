@@ -37,6 +37,7 @@ struct VertexOut {
     float3 normal;
     float2 texCoord;
     float4 color;
+    float4 fragPosLightSpace;
 };
 
 struct VertexOutInstanced {
@@ -47,20 +48,60 @@ struct VertexOutInstanced {
     float4 color;
     float textureIndex;
     float lodAlpha;
+    float4 fragPosLightSpace;
 };
 
 struct Uniforms {
     float4x4 model;
     float4x4 view;
     float4x4 projection;
-    float4x4 normalMatrix;  // ADDED: Inverse-transpose of model matrix for correct normal transformation
+    float4x4 normalMatrix;
+    float4x4 lightViewProj;
     float3 lightPos;
+    float lightPosPadding;
     float3 viewPos;
-    float time;
+    float viewPosPadding;
+    float3 lightColor;
+    float lightColorPadding;
+    float4 materialColor;
+    float uTime;
+    float shadowBias;
     int useTexture;
     int useTextureArray;
-    int ditherEnabled;
+    int uDitherEnabled;
+    int shadowsEnabled;
 };
+
+float sampleShadow(depth2d<float> shadowMap,
+                   sampler shadowSampler,
+                   float4 fragPosLightSpace,
+                   float shadowBias) {
+    float3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+    projCoords = projCoords * 0.5 + 0.5;
+    if (projCoords.z > 1.0) {
+        return 1.0;
+    }
+
+    float width = float(shadowMap.get_width());
+    float height = float(shadowMap.get_height());
+    if (width <= 0.0 || height <= 0.0) {
+        return 1.0;
+    }
+
+    float2 texelSize = 1.0 / float2(width, height);
+    float visibility = 0.0;
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            float2 offset = float2(x, y) * texelSize;
+            float2 sampleCoord = projCoords.xy + offset;
+            float comparisonDepth = projCoords.z - shadowBias;
+            visibility += shadowMap.sample_compare(shadowSampler,
+                                                   sampleCoord,
+                                                   comparisonDepth);
+        }
+    }
+    return clamp(visibility / 9.0, 0.0f, 1.0f);
+}
 
 // ============================================================================
 // Standard Vertex Shader
@@ -81,8 +122,9 @@ vertex VertexOut vertex_main(
     
     out.texCoord = in.texCoord;
     out.color = in.color;
+    out.fragPosLightSpace = uniforms.lightViewProj * worldPos;
     out.position = uniforms.projection * uniforms.view * worldPos;
-    
+
     return out;
 }
 
@@ -94,32 +136,38 @@ fragment float4 fragment_main(
     VertexOut in [[stage_in]],
     constant Uniforms& uniforms [[buffer(1)]],
     texture2d<float> colorTexture [[texture(0)]],
-    sampler textureSampler [[sampler(0)]]
+    depth2d<float> shadowMap [[texture(1)]],
+    sampler textureSampler [[sampler(0)]],
+    sampler shadowSampler [[sampler(1)]]
 ) {
     float3 norm = normalize(in.normal);
     float3 lightDir = normalize(uniforms.lightPos - in.fragPos);
     float3 viewDir = normalize(uniforms.viewPos - in.fragPos);
     float3 reflectDir = reflect(-lightDir, norm);
 
-    // Lighting calculations
     float diff = max(dot(norm, lightDir), 0.0);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
 
-    float3 ambient = 0.3 * in.color.rgb;
-    float3 diffuse = diff * in.color.rgb;
+    float3 ambient = 0.3 * uniforms.lightColor;
+    float3 diffuse = diff * uniforms.lightColor;
     float3 specular = spec * 0.5 * float3(1.0);
 
-    float4 finalColor;
-    if (uniforms.useTexture != 0) {
-        float4 texColor = colorTexture.sample(textureSampler, in.texCoord);
-        float3 result = (ambient + diffuse + specular) * texColor.rgb * in.color.rgb;
-        finalColor = float4(result, texColor.a * in.color.a);
-    } else {
-        float3 result = ambient + diffuse + specular;
-        finalColor = float4(result, in.color.a);
+    float shadowFactor = 1.0;
+    if (uniforms.shadowsEnabled != 0) {
+        shadowFactor = sampleShadow(shadowMap, shadowSampler,
+                                    in.fragPosLightSpace,
+                                    uniforms.shadowBias);
     }
 
-    return finalColor;
+    float4 baseColor = uniforms.materialColor * in.color;
+    float4 texColor = (uniforms.useTexture != 0)
+        ? colorTexture.sample(textureSampler, in.texCoord) * baseColor
+        : baseColor;
+
+    float3 lighting = ambient + (diffuse + specular) * shadowFactor;
+    float3 result = lighting * texColor.rgb;
+    float alpha = texColor.a;
+    return float4(result, alpha);
 }
 
 // ============================================================================
@@ -182,6 +230,7 @@ vertex VertexOutInstanced vertex_instanced(
     // Pass instance-specific data
     out.textureIndex = in.instanceTextureIndex;
     out.lodAlpha = in.instanceLodAlpha;
+    out.fragPosLightSpace = uniforms.lightViewProj * worldPos;
 
     return out;
 }
@@ -191,42 +240,67 @@ fragment float4 fragment_instanced(
     constant Uniforms& uniforms [[buffer(1)]],
     texture2d<float> colorTexture [[texture(0)]],
     texture2d_array<float> textureArray [[texture(1)]],
-    sampler textureSampler [[sampler(0)]]
+    depth2d<float> shadowMap [[texture(2)]],
+    sampler textureSampler [[sampler(0)]],
+    sampler shadowSampler [[sampler(1)]]
 ) {
     float3 norm = normalize(in.normal);
     float3 lightDir = normalize(uniforms.lightPos - in.fragPos);
     float3 viewDir = normalize(uniforms.viewPos - in.fragPos);
     float3 reflectDir = reflect(-lightDir, norm);
 
-    // Lighting calculations
     float diff = max(dot(norm, lightDir), 0.0);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
 
-    float3 ambient = 0.3 * in.color.rgb;
-    float3 diffuse = diff * in.color.rgb;
+    float3 ambient = 0.3 * uniforms.lightColor;
+    float3 diffuse = diff * uniforms.lightColor;
     float3 specular = spec * 0.5 * float3(1.0);
 
-    float4 finalColor;
-    if (uniforms.useTextureArray != 0) {
-        // Sample from texture array using instance texture index
-        uint texIndex = uint(in.textureIndex);
-        float4 texColor = textureArray.sample(textureSampler, in.texCoord, texIndex);
-        float3 result = (ambient + diffuse + specular) * texColor.rgb * in.color.rgb;
-        finalColor = float4(result, texColor.a * in.color.a);
-    } else if (uniforms.useTexture != 0) {
-        float4 texColor = colorTexture.sample(textureSampler, in.texCoord);
-        float3 result = (ambient + diffuse + specular) * texColor.rgb * in.color.rgb;
-        finalColor = float4(result, texColor.a * in.color.a);
-    } else {
-        float3 result = ambient + diffuse + specular;
-        finalColor = float4(result, in.color.a);
+    float shadowFactor = 1.0;
+    if (uniforms.shadowsEnabled != 0) {
+        shadowFactor = sampleShadow(shadowMap, shadowSampler,
+                                    in.fragPosLightSpace,
+                                    uniforms.shadowBias);
     }
 
-    // Apply LOD alpha for crossfading
-    finalColor.a *= in.lodAlpha;
+    float4 texColor;
+    if (uniforms.useTextureArray != 0) {
+        uint layerCount = textureArray.get_array_size();
+        uint texIndex = layerCount > 0
+            ? uint(clamp(in.textureIndex, 0.0f, float(layerCount - 1)))
+            : 0u;
+        texColor = textureArray.sample(textureSampler, in.texCoord, texIndex);
+    } else if (uniforms.useTexture != 0) {
+        texColor = colorTexture.sample(textureSampler, in.texCoord);
+    } else {
+        texColor = float4(1.0);
+    }
 
-    return finalColor;
+    float3 lighting = ambient + (diffuse + specular) * shadowFactor;
+    float3 result = lighting * texColor.rgb * in.color.rgb;
+    float alpha = texColor.a * in.color.a;
+    alpha *= in.lodAlpha;
+    return float4(result, alpha);
 }
+
+// ============================================================================
+// Shadow Depth Only Pass
+// ============================================================================
+
+struct ShadowVertexOut {
+    float4 position [[position]];
+};
+
+vertex ShadowVertexOut vertex_shadow_depth(
+    VertexIn in [[stage_in]],
+    constant Uniforms& uniforms [[buffer(1)]]) {
+    ShadowVertexOut out;
+    float4 worldPos = uniforms.model * float4(in.position, 1.0);
+    out.position = uniforms.lightViewProj * worldPos;
+    return out;
+}
+
+fragment void fragment_shadow_depth() {}
 
 // ============================================================================
 // Compute Shaders

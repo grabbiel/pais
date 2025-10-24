@@ -543,12 +543,22 @@ std::unique_ptr<Shader> Shader::create(rhi::Device *device,
     }
   }
 
+  const bool is_shadow_shader = vert_path.find("shadow") != std::string::npos ||
+                                frag_path.find("shadow") != std::string::npos;
   const bool is_instanced_shader =
       vert_path.find("instanced") != std::string::npos ||
       frag_path.find("instanced") != std::string::npos;
 
-  shader->vs_stage_ = is_instanced_shader ? "vs_instanced" : "vs";
-  shader->fs_stage_ = is_instanced_shader ? "fs_instanced" : "fs";
+  if (is_shadow_shader) {
+    shader->vs_stage_ = "vs_shadow";
+    shader->fs_stage_ = "fs_shadow";
+  } else if (is_instanced_shader) {
+    shader->vs_stage_ = "vs_instanced";
+    shader->fs_stage_ = "fs_instanced";
+  } else {
+    shader->vs_stage_ = "vs";
+    shader->fs_stage_ = "fs";
+  }
 
   std::cout << "  Vertex stage label: " << shader->vs_stage_ << std::endl;
   std::cout << "  Fragment stage label: " << shader->fs_stage_ << std::endl;
@@ -717,6 +727,12 @@ rhi::PipelineHandle Shader::pipeline(const ShaderVariantKey &variant,
   }
 
   return data.pipelines[static_cast<size_t>(Material::BlendMode::Alpha)];
+}
+
+std::pair<rhi::ShaderHandle, rhi::ShaderHandle>
+Shader::shader_handles(const ShaderVariantKey &variant) const {
+  VariantData &data = get_or_create_variant(variant);
+  return {data.vs, data.fs};
 }
 
 const ShaderReflection &Shader::reflection() const {

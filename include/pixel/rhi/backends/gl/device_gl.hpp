@@ -91,6 +91,7 @@ public:
   GLCmdList(std::unordered_map<uint32_t, GLBuffer> *buffers,
             std::unordered_map<uint32_t, GLTexture> *textures,
             std::unordered_map<uint32_t, GLPipeline> *pipelines,
+            std::unordered_map<uint32_t, GLSampler> *samplers,
             std::unordered_map<uint32_t, GLFramebuffer> *framebuffers,
             std::unordered_map<uint32_t, GLQueryObject> *queries,
             std::unordered_map<uint32_t, GLFence> *fences, GLFWwindow *window);
@@ -112,7 +113,8 @@ public:
   void setUniformBuffer(uint32_t binding, BufferHandle buffer,
                         size_t offset = 0, size_t size = 0) override;
   void setTexture(const char *name, TextureHandle texture,
-                  uint32_t slot = 0) override;
+                  uint32_t slot = 0,
+                  SamplerHandle sampler = SamplerHandle{}) override;
   void copyToTexture(TextureHandle texture, uint32_t mipLevel,
                      std::span<const std::byte> data) override;
   void copyToTextureLayer(TextureHandle texture, uint32_t layer,
@@ -141,6 +143,7 @@ private:
   std::unordered_map<uint32_t, GLBuffer> *buffers_;
   std::unordered_map<uint32_t, GLTexture> *textures_;
   std::unordered_map<uint32_t, GLPipeline> *pipelines_;
+  std::unordered_map<uint32_t, GLSampler> *samplers_;
   std::unordered_map<uint32_t, GLFramebuffer> *framebuffers_;
   std::unordered_map<uint32_t, GLQueryObject> *queries_;
   std::unordered_map<uint32_t, GLFence> *fences_;

@@ -83,6 +83,11 @@ TextureHandle GLDevice::createTexture(const TextureDesc &desc) {
     format = GL_DEPTH_STENCIL;
     type = GL_UNSIGNED_INT_24_8;
     break;
+  case Format::D32F:
+    internal_format = GL_DEPTH_COMPONENT32F;
+    format = GL_DEPTH_COMPONENT;
+    type = GL_FLOAT;
+    break;
   default:
     internal_format = GL_RGBA8;
     format = GL_RGBA;
@@ -115,10 +120,20 @@ TextureHandle GLDevice::createTexture(const TextureDesc &desc) {
       glGenerateMipmap(GL_TEXTURE_2D);
     }
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    if (desc.format == Format::D24S8 || desc.format == Format::D32F) {
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+      float border_color[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+      glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border_color);
+    } else {
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    }
 
     glBindTexture(GL_TEXTURE_2D, 0);
   }
@@ -132,28 +147,41 @@ SamplerHandle GLDevice::createSampler(const SamplerDesc &desc) {
   GLSampler sampler;
   glGenSamplers(1, &sampler.id);
 
-  GLenum min_filter =
-      desc.minFilter == FilterMode::Linear ? GL_LINEAR : GL_NEAREST;
-  GLenum mag_filter =
-      desc.magFilter == FilterMode::Linear ? GL_LINEAR : GL_NEAREST;
-  GLenum wrap_s =
-      desc.addressU == AddressMode::Repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE;
-  GLenum wrap_t =
-      desc.addressV == AddressMode::Repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE;
+  auto to_gl_filter = [](FilterMode mode) {
+    return mode == FilterMode::Linear ? GL_LINEAR : GL_NEAREST;
+  };
 
-  glSamplerParameteri(sampler.id, GL_TEXTURE_MIN_FILTER, min_filter);
-  glSamplerParameteri(sampler.id, GL_TEXTURE_MAG_FILTER, mag_filter);
-  glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_S, wrap_s);
-  glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_T, wrap_t);
+  auto to_gl_wrap = [](AddressMode mode) {
+    switch (mode) {
+    case AddressMode::Repeat:
+      return GL_REPEAT;
+    case AddressMode::ClampToEdge:
+      return GL_CLAMP_TO_EDGE;
+    case AddressMode::ClampToBorder:
+    default:
+      return GL_CLAMP_TO_BORDER;
+    }
+  };
 
-  if (desc.anisotropy > 1.0f) {
-    glSamplerParameterf(sampler.id, GL_TEXTURE_MAX_ANISOTROPY_EXT,
-                        desc.anisotropy);
+  glSamplerParameteri(sampler.id, GL_TEXTURE_MIN_FILTER,
+                      to_gl_filter(desc.minFilter));
+  glSamplerParameteri(sampler.id, GL_TEXTURE_MAG_FILTER,
+                      to_gl_filter(desc.magFilter));
+  glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_S,
+                      to_gl_wrap(desc.addressU));
+  glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_T,
+                      to_gl_wrap(desc.addressV));
+  glSamplerParameteri(sampler.id, GL_TEXTURE_WRAP_R,
+                      to_gl_wrap(desc.addressW));
+
+  if (caps_.samplerAniso && (desc.aniso || desc.maxAnisotropy > 1.0f)) {
+    float aniso = desc.maxAnisotropy;
+    if (aniso < 1.0f)
+      aniso = 1.0f;
+    glSamplerParameterf(sampler.id, GL_TEXTURE_MAX_ANISOTROPY_EXT, aniso);
   }
 
-  if (desc.borderColor[3] > 0.0f) {
-    glSamplerParameterfv(sampler.id, GL_TEXTURE_BORDER_COLOR, desc.borderColor);
-  }
+  glSamplerParameterfv(sampler.id, GL_TEXTURE_BORDER_COLOR, desc.borderColor);
 
   if (desc.mipLodBias != 0.0f) {
     glSamplerParameterf(sampler.id, GL_TEXTURE_LOD_BIAS, desc.mipLodBias);

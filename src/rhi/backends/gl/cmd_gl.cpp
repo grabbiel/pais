@@ -23,13 +23,14 @@ namespace pixel::rhi::gl {
 GLCmdList::GLCmdList(std::unordered_map<uint32_t, GLBuffer> *buffers,
                      std::unordered_map<uint32_t, GLTexture> *textures,
                      std::unordered_map<uint32_t, GLPipeline> *pipelines,
+                     std::unordered_map<uint32_t, GLSampler> *samplers,
                      std::unordered_map<uint32_t, GLFramebuffer> *framebuffers,
                      std::unordered_map<uint32_t, GLQueryObject> *queries,
                      std::unordered_map<uint32_t, GLFence> *fences,
                      GLFWwindow *window)
     : buffers_(buffers), textures_(textures), pipelines_(pipelines),
-      framebuffers_(framebuffers), queries_(queries), fences_(fences),
-      window_(window) {}
+      samplers_(samplers), framebuffers_(framebuffers), queries_(queries),
+      fences_(fences), window_(window) {}
 
 void GLCmdList::begin() {
   recording_ = true;
@@ -379,7 +380,7 @@ void GLCmdList::setUniformBuffer(uint32_t binding, BufferHandle buffer,
 }
 
 void GLCmdList::setTexture(const char *name, TextureHandle texture,
-                           uint32_t slot) {
+                           uint32_t slot, SamplerHandle sampler) {
   auto it = textures_->find(texture.id);
   if (it == textures_->end())
     return;
@@ -387,6 +388,15 @@ void GLCmdList::setTexture(const char *name, TextureHandle texture,
   const GLTexture &tex = it->second;
   glActiveTexture(GL_TEXTURE0 + slot);
   glBindTexture(tex.target, tex.id);
+
+  if (sampler.id != 0 && samplers_) {
+    auto sit = samplers_->find(sampler.id);
+    if (sit != samplers_->end()) {
+      glBindSampler(slot, sit->second.id);
+    }
+  } else {
+    glBindSampler(slot, 0);
+  }
 
   GLint loc = getUniformLocation(name);
   if (loc >= 0) {

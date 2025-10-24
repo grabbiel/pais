@@ -91,23 +91,46 @@ TextureHandle MetalDevice::createTexture(const TextureDesc &desc) {
 
 SamplerHandle MetalDevice::createSampler(const SamplerDesc &desc) {
   std::cerr << "MetalDevice::createSampler()" << std::endl;
-  std::cerr << "  linear=" << (desc.linear ? "true" : "false")
-            << " repeat=" << (desc.repeat ? "true" : "false")
-            << " maxAniso=" << desc.maxAnisotropy
+  std::cerr << "  minFilter="
+            << (desc.minFilter == FilterMode::Linear ? "Linear" : "Nearest")
+            << " magFilter="
+            << (desc.magFilter == FilterMode::Linear ? "Linear" : "Nearest")
             << " compareEnable=" << (desc.compareEnable ? "true" : "false")
             << std::endl;
   MTLSamplerResource sampler;
 
   MTLSamplerDescriptor *samplerDesc = [[MTLSamplerDescriptor alloc] init];
-  samplerDesc.minFilter = desc.linear ? MTLSamplerMinMagFilterLinear
-                                      : MTLSamplerMinMagFilterNearest;
-  samplerDesc.magFilter = desc.linear ? MTLSamplerMinMagFilterLinear
-                                      : MTLSamplerMinMagFilterNearest;
+  samplerDesc.minFilter = desc.minFilter == FilterMode::Linear
+                               ? MTLSamplerMinMagFilterLinear
+                               : MTLSamplerMinMagFilterNearest;
+  samplerDesc.magFilter = desc.magFilter == FilterMode::Linear
+                               ? MTLSamplerMinMagFilterLinear
+                               : MTLSamplerMinMagFilterNearest;
   samplerDesc.mipFilter = MTLSamplerMipFilterLinear;
-  samplerDesc.sAddressMode = desc.repeat ? MTLSamplerAddressModeRepeat
-                                         : MTLSamplerAddressModeClampToEdge;
-  samplerDesc.tAddressMode = desc.repeat ? MTLSamplerAddressModeRepeat
-                                         : MTLSamplerAddressModeClampToEdge;
+
+  auto to_address = [](AddressMode mode) {
+    switch (mode) {
+    case AddressMode::Repeat:
+      return MTLSamplerAddressModeRepeat;
+    case AddressMode::ClampToEdge:
+      return MTLSamplerAddressModeClampToEdge;
+    case AddressMode::ClampToBorder:
+    default:
+#ifdef MTLSamplerAddressModeClampToBorderColor
+      return MTLSamplerAddressModeClampToBorderColor;
+#else
+      return MTLSamplerAddressModeClampToEdge;
+#endif
+    }
+  };
+
+  samplerDesc.sAddressMode = to_address(desc.addressU);
+  samplerDesc.tAddressMode = to_address(desc.addressV);
+  samplerDesc.rAddressMode = to_address(desc.addressW);
+
+  if (desc.mipLodBias != 0.0f) {
+    samplerDesc.lodBias = desc.mipLodBias;
+  }
 
   if (desc.aniso || desc.maxAnisotropy > 1.0f) {
     const float kMetalMaxAnisotropy = 16.0f;
@@ -121,6 +144,20 @@ SamplerHandle MetalDevice::createSampler(const SamplerDesc &desc) {
   samplerDesc.compareFunction = desc.compareEnable
                                     ? to_mtl_compare(desc.compareOp)
                                     : MTLCompareFunctionNever;
+
+#if defined(MTLSamplerAddressModeClampToBorderColor) &&                            \
+    defined(MTLSamplerBorderColorOpaqueWhite)
+  if (desc.addressU == AddressMode::ClampToBorder ||
+      desc.addressV == AddressMode::ClampToBorder ||
+      desc.addressW == AddressMode::ClampToBorder) {
+    // Metal only supports preset border colors
+    bool is_white = desc.borderColor[0] >= 0.99f && desc.borderColor[1] >= 0.99f &&
+                    desc.borderColor[2] >= 0.99f && desc.borderColor[3] >= 0.99f;
+    samplerDesc.borderColor =
+        is_white ? MTLSamplerBorderColorOpaqueWhite
+                 : MTLSamplerBorderColorOpaqueBlack;
+  }
+#endif
 
   sampler.sampler = [impl_->device_ newSamplerStateWithDescriptor:samplerDesc];
 
@@ -146,10 +183,14 @@ ShaderHandle MetalDevice::createShader(std::string_view stage,
     functionName = @"vertex_main";
   } else if (stage == "vs_instanced") {
     functionName = @"vertex_instanced";
+  } else if (stage == "vs_shadow") {
+    functionName = @"vertex_shadow_depth";
   } else if (stage == "fs") {
     functionName = @"fragment_main";
   } else if (stage == "fs_instanced") {
     functionName = @"fragment_instanced";
+  } else if (stage == "fs_shadow") {
+    functionName = @"fragment_shadow_depth";
   } else if (stage == "cs_culling") {
     functionName = @"culling_compute";
   } else if (stage == "cs_lod") {

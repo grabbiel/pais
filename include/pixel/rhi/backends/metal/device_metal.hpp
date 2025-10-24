@@ -103,7 +103,8 @@ public:
   void setUniformBuffer(uint32_t binding, BufferHandle buffer,
                         size_t offset = 0, size_t size = 0) override;
   void setTexture(const char *name, TextureHandle texture,
-                  uint32_t slot = 0) override;
+                  uint32_t slot = 0,
+                  SamplerHandle sampler = SamplerHandle{}) override;
   void copyToTexture(TextureHandle texture, uint32_t mipLevel,
                      std::span<const std::byte> data) override;
   void copyToTextureLayer(TextureHandle texture, uint32_t layer,
