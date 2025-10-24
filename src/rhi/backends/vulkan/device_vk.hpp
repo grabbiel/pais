@@ -58,6 +58,26 @@ public:
   void finishFrame();
 
 private:
+  struct BufferResource {
+    VkBuffer buffer{VK_NULL_HANDLE};
+    VmaAllocation allocation{nullptr};
+    VmaAllocationInfo allocationInfo{};
+    BufferDesc desc{};
+  };
+
+  struct TextureResource {
+    VkImage image{VK_NULL_HANDLE};
+    VkImageView view{VK_NULL_HANDLE};
+    VmaAllocation allocation{nullptr};
+    TextureDesc desc{};
+    VkImageLayout currentLayout{VK_IMAGE_LAYOUT_UNDEFINED};
+  };
+
+  struct SamplerResource {
+    VkSampler sampler{VK_NULL_HANDLE};
+    SamplerDesc desc{};
+  };
+
   void createInstance();
   void setupDebugMessenger();
   void createSurface(GLFWwindow *window);
@@ -135,6 +155,10 @@ private:
   VmaAllocator allocator_{nullptr};
 
   std::unique_ptr<VulkanCmdList> immediateCmdList_{};
+
+  std::vector<BufferResource> buffers_{1};
+  std::vector<TextureResource> textures_{1};
+  std::vector<SamplerResource> samplers_{1};
 };
 
 class VulkanCmdList final : public CmdList {
