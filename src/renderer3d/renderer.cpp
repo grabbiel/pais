@@ -32,8 +32,29 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
     std::cout << "Initializing renderer with window spec: " << spec.w << "x"
               << spec.h << " title='" << spec.title << "'" << std::endl;
     // Step 1: Create the Window with appropriate Graphics API
-    auto window = platform::Window::create(spec, platform::GraphicsAPI::Metal);
-    std::cout << "Created Window with Metal API" << std::endl;
+    platform::GraphicsAPI window_api = platform::GraphicsAPI::None;
+#if defined(PIXEL_USE_VULKAN)
+    window_api = platform::GraphicsAPI::Vulkan;
+#elif defined(PIXEL_USE_METAL)
+    window_api = platform::GraphicsAPI::Metal;
+#elif defined(PIXEL_USE_DX12)
+    window_api = platform::GraphicsAPI::None;
+#endif
+
+    auto window = platform::Window::create(spec, window_api);
+    std::cout << "Created Window with API = ";
+    switch (window_api) {
+      case platform::GraphicsAPI::Metal:
+        std::cout << "Metal";
+        break;
+      case platform::GraphicsAPI::Vulkan:
+        std::cout << "Vulkan";
+        break;
+      case platform::GraphicsAPI::None:
+        std::cout << "None";
+        break;
+    }
+    std::cout << std::endl;
 
     if (!window) {
       throw std::runtime_error("Failed to create window");

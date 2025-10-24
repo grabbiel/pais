@@ -175,6 +175,11 @@ Device *create_metal_device(void *window);
 Device *create_dx12_device(void *window);
 #endif
 
+#if defined(PIXEL_USE_VULKAN)
+// Vulkan backend (cross-platform)
+Device *create_vulkan_device(void *window);
+#endif
+
 } // namespace pixel::rhi
 
 // ============================================================================
@@ -193,7 +198,8 @@ namespace pixel::rhi {
 enum class GraphicsAPI {
   Default,
   Metal,
-  DirectX12
+  DirectX12,
+  Vulkan
 };
 
 /**

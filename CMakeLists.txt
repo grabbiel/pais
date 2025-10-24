@@ -58,8 +58,13 @@ if(WIN32)
 endif()
 option(PIXEL_USE_DX12 "Enable the DirectX 12 graphics backend" ${PIXEL_USE_DX12_DEFAULT})
 
-if(PIXEL_USE_METAL AND PIXEL_USE_DX12)
-  message(FATAL_ERROR "PIXEL_USE_METAL and PIXEL_USE_DX12 cannot be enabled at the same time.")
+set(PIXEL_USE_VULKAN_DEFAULT OFF)
+option(PIXEL_USE_VULKAN "Enable the Vulkan graphics backend" ${PIXEL_USE_VULKAN_DEFAULT})
+
+if((PIXEL_USE_METAL AND PIXEL_USE_DX12) OR
+   (PIXEL_USE_METAL AND PIXEL_USE_VULKAN) OR
+   (PIXEL_USE_DX12 AND PIXEL_USE_VULKAN))
+  message(FATAL_ERROR "Multiple graphics backends requested. Enable only one of PIXEL_USE_METAL, PIXEL_USE_DX12, or PIXEL_USE_VULKAN.")
 endif()
 
 # ============================================================================
@@ -104,6 +109,15 @@ if(APPLE AND PIXEL_USE_METAL)
   endif()
 elseif(PIXEL_USE_METAL)
   message(WARNING "PIXEL_USE_METAL=ON but the current platform does not support Metal.")
+endif()
+
+set(PIXEL_HAS_VULKAN OFF)
+if(PIXEL_USE_VULKAN)
+  find_package(Vulkan REQUIRED)
+  if(Vulkan_FOUND)
+    message(STATUS "Vulkan SDK: ${Vulkan_VERSION}")
+    set(PIXEL_HAS_VULKAN ON)
+  endif()
 endif()
 
 # ============================================================================
@@ -187,6 +201,13 @@ add_subdirectory(src/app)
 # Clangd configuration (after all subdirectories)
 # ============================================================================
 set(_clangd_path "${CMAKE_SOURCE_DIR}/.clangd")
+set(_clangd_extra_includes "")
+if(PIXEL_USE_VULKAN AND Vulkan_INCLUDE_DIRS)
+  foreach(_vk_dir IN LISTS Vulkan_INCLUDE_DIRS)
+    string(APPEND _clangd_extra_includes "    - -I${_vk_dir}\n")
+  endforeach()
+endif()
+
 file(WRITE "${_clangd_path}"
 "CompileFlags:
   CompilationDatabase: ${CMAKE_BINARY_DIR}
@@ -196,7 +217,7 @@ file(WRITE "${_clangd_path}"
     - -I${CMAKE_BINARY_DIR}/_deps/glfw-src/include
     - -I${CMAKE_BINARY_DIR}/_deps/glm-src
     - -I${CMAKE_SOURCE_DIR}/third_party/stb
-")
+${_clangd_extra_includes}")
 message(STATUS "Clangd config: ${_clangd_path}")
 
 # ============================================================================
@@ -247,6 +268,12 @@ message(STATUS "")
 message(STATUS "Graphics Backend:")
 if(PIXEL_HAS_METAL)
   message(STATUS "  Primary:           Metal (macOS native)")
+elseif(PIXEL_HAS_VULKAN)
+  message(STATUS "  Primary:           Vulkan")
+elseif(PIXEL_USE_DX12)
+  message(STATUS "  Primary:           DirectX 12")
+else()
+  message(STATUS "  Primary:           (not configured)")
 endif()
 message(STATUS "")
 message(STATUS "Dependencies:")
