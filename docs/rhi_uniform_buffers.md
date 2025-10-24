@@ -157,17 +157,23 @@ cmd->setUniformBuffer(0, uniformBuffer, sizeof(InstanceUniforms), sizeof(Instanc
 cmd->drawIndexed(indexCount, 0, 1);
 ```
 
-## OpenGL Backend Implementation
+## Metal Backend Implementation
 
-The OpenGL backend uses:
-- `glBindBufferBase(GL_UNIFORM_BUFFER, binding, buffer)` when size is 0
-- `glBindBufferRange(GL_UNIFORM_BUFFER, binding, buffer, offset, size)` when size > 0
+The Metal backend binds uniform buffers for both the vertex and fragment stages
+using the same binding index:
 
-This provides efficient uniform buffer binding for modern OpenGL (3.3+).
+```objectivec
+[encoder setVertexBuffer:buffer offset:offset atIndex:binding];
+[encoder setFragmentBuffer:buffer offset:offset atIndex:binding];
+```
+
+This ensures that data written on the CPU matches the argument table expected by
+the Metal shader functions. Offsets are respected, so you can reuse a single
+`MTLBuffer` for many logical uniform blocks.
 
 ## Benefits
 
 1. **Performance**: Single buffer bind instead of multiple uniform calls
 2. **Flexibility**: Can update subranges without rebinding entire buffer
 3. **Instancing**: Ideal for per-instance data in instanced rendering
-4. **Standard**: Uses OpenGL UBO standard with `std140` layout
+4. **Consistency**: A single buffer binding updates both shader stages

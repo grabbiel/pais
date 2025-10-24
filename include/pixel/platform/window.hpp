@@ -10,7 +10,6 @@ struct WindowSpec;
 
 enum class GraphicsAPI {
   None,
-  OpenGL,
   Metal
 };
 

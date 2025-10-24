@@ -32,13 +32,8 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
     std::cout << "Initializing renderer with window spec: " << spec.w << "x"
               << spec.h << " title='" << spec.title << "'" << std::endl;
     // Step 1: Create the Window with appropriate Graphics API
-#ifdef PIXEL_USE_METAL
     auto window = platform::Window::create(spec, platform::GraphicsAPI::Metal);
     std::cout << "Created Window with Metal API" << std::endl;
-#else
-    auto window = platform::Window::create(spec, platform::GraphicsAPI::OpenGL);
-    std::cout << "Created Window with OpenGL API" << std::endl;
-#endif
 
     if (!window) {
       throw std::runtime_error("Failed to create window");

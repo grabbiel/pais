@@ -6,7 +6,10 @@ This directory contains shader files for the Pixel renderer. The renderer suppor
 
 ### GLSL Shaders (.vert, .frag)
 
-GLSL (OpenGL Shading Language) shaders are used by the OpenGL backend.
+GLSL (OpenGL Shading Language) shaders provide the canonical shader source used
+for cross-platform authoring and reflection. Even though the runtime now relies
+exclusively on the Metal backend, these files continue to define shader stages,
+material inputs, and reflection metadata.
 
 - **default.vert** / **default.frag** - Basic vertex and fragment shaders with:
   - MVP (Model-View-Projection) transformations
@@ -22,7 +25,8 @@ GLSL (OpenGL Shading Language) shaders are used by the OpenGL backend.
 
 ### Metal Shaders (.metal)
 
-Metal Shading Language shaders are used by the Metal backend on Apple platforms.
+Metal Shading Language shaders are used by the Metal backend on Apple
+platforms.
 
 - **basic.metal** - Example Metal shader with:
   - Standard vertex and fragment shader functions

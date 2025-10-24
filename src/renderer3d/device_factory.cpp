@@ -17,6 +17,8 @@ std::unique_ptr<Device> create_device(platform::Window *window,
     throw std::invalid_argument("Window pointer cannot be null");
   }
 
+  (void)preferred_api;
+
 #ifdef PIXEL_USE_METAL
   // ============================================================================
   // Metal backend
@@ -33,19 +35,7 @@ std::unique_ptr<Device> create_device(platform::Window *window,
   return std::unique_ptr<Device>(device);
 
 #else
-  // ============================================================================
-  // OpenGL backend
-  // ============================================================================
-  std::cout << "Creating OpenGL device..." << std::endl;
-
-  Device *device = create_gl_device(window->native_handle());
-  if (!device) {
-    throw std::runtime_error("Failed to create OpenGL device");
-  }
-
-  std::cout << "Device Backend: " << device->backend_name() << std::endl;
-  return std::unique_ptr<Device>(device);
-
+#error "PIXEL_USE_METAL must be defined when building without the OpenGL backend"
 #endif
 }
 

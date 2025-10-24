@@ -49,13 +49,13 @@ elseif(UNIX)
   message(STATUS "Platform: Linux")
 endif()
 
+if(NOT APPLE)
+  message(FATAL_ERROR "The OpenGL backend has been removed. A Metal-capable Apple platform is required.")
+endif()
+
 # ============================================================================
 # Dependencies
 # ============================================================================
-
-# OpenGL (required for all platforms as fallback)
-find_package(OpenGL REQUIRED)
-message(STATUS "OpenGL found: ${OPENGL_LIBRARIES}")
 
 # GLFW - check if system package is available
 find_package(glfw3 3.3 QUIET)
@@ -91,9 +91,11 @@ if(APPLE AND PIXEL_USE_METAL)
     message(STATUS "Metal frameworks found - Metal backend available")
     set(PIXEL_HAS_METAL ON)
   else()
-    message(WARNING "Metal frameworks not found - falling back to OpenGL")
-    set(PIXEL_USE_METAL OFF)
-    set(PIXEL_HAS_METAL OFF)
+    message(FATAL_ERROR "Metal frameworks not found. The OpenGL backend has been removed, so Metal support is required.")
+  endif()
+
+  if(NOT PIXEL_USE_METAL)
+    message(FATAL_ERROR "PIXEL_USE_METAL cannot be disabled now that the OpenGL backend has been removed.")
   endif()
 endif()
 
@@ -108,7 +110,8 @@ add_compile_definitions(
   $<$<PLATFORM_ID:Linux>:PIXEL_PLATFORM_LINUX=1>
 )
 
-# Silence OpenGL deprecation warnings on macOS
+# Silence OpenGL deprecation warnings on macOS (still suppresses legacy headers
+# that some dependencies may include)
 if(APPLE)
   add_compile_definitions(GL_SILENCE_DEPRECATION)
 endif()
@@ -232,22 +235,14 @@ message(STATUS "")
 message(STATUS "Platform:")
 if(APPLE)
   message(STATUS "  Target:            macOS ${CMAKE_OSX_DEPLOYMENT_TARGET}")
-elseif(WIN32)
-  message(STATUS "  Target:            Windows")
-else()
-  message(STATUS "  Target:            Linux")
 endif()
 message(STATUS "")
 message(STATUS "Graphics Backend:")
 if(PIXEL_HAS_METAL)
   message(STATUS "  Primary:           Metal (macOS native)")
-  message(STATUS "  Fallback:          OpenGL 3.3 Core")
-else()
-  message(STATUS "  Backend:           OpenGL 3.3 Core")
 endif()
 message(STATUS "")
 message(STATUS "Dependencies:")
-message(STATUS "  OpenGL:            ${OPENGL_LIBRARIES}")
 if(PIXEL_GLFW_SYSTEM)
   message(STATUS "  GLFW:              System")
 else()
