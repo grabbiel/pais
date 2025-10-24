@@ -2,6 +2,7 @@
 #include "pixel/platform/shader_loader.hpp"
 #include "pixel/renderer3d/shader_reflection.hpp"
 #include <cctype>
+#include <exception>
 #include <optional>
 #include <span>
 #include <sstream>
@@ -505,7 +506,8 @@ ShaderVariantKey ShaderVariantKey::from_defines(
 
 std::unique_ptr<Shader> Shader::create(rhi::Device *device,
                                        const std::string &vert_path,
-                                       const std::string &frag_path) {
+                                       const std::string &frag_path,
+                                       std::optional<std::string> metal_source_path) {
   auto shader = std::unique_ptr<Shader>(new Shader());
   shader->device_ = device;
 
@@ -521,6 +523,25 @@ std::unique_ptr<Shader> Shader::create(rhi::Device *device,
             << " bytes" << std::endl;
   std::cout << "  Fragment source size: " << shader->frag_source_.size()
             << " bytes" << std::endl;
+
+  if (metal_source_path && !metal_source_path->empty()) {
+    shader->metal_source_path_ = *metal_source_path;
+    try {
+      shader->metal_source_ =
+          platform::load_shader_file(shader->metal_source_path_);
+      shader->has_metal_source_ = !shader->metal_source_.empty();
+      std::cout << "  Metal source:   " << shader->metal_source_path_ << std::endl;
+      std::cout << "  Metal source size: " << shader->metal_source_.size()
+                << " bytes" << std::endl;
+    } catch (const std::exception &e) {
+      std::cerr << "  WARNING: Failed to load Metal shader source '"
+                << shader->metal_source_path_ << "': " << e.what()
+                << std::endl;
+      shader->metal_source_.clear();
+      shader->metal_source_path_.clear();
+      shader->has_metal_source_ = false;
+    }
+  }
 
   const bool is_instanced_shader =
       vert_path.find("instanced") != std::string::npos ||
@@ -579,9 +600,29 @@ Shader::build_variant(const ShaderVariantKey &variant) const {
 
   VariantData data{};
 
-  std::span<const uint8_t> vs_bytes(
-      reinterpret_cast<const uint8_t *>(processed_vert.data()),
-      processed_vert.size());
+  bool is_metal_backend = false;
+  if (device_) {
+    const char *backend = device_->backend_name();
+    if (backend) {
+      std::string_view backend_name(backend);
+      is_metal_backend = backend_name.find("Metal") != std::string_view::npos;
+    }
+  }
+
+  bool use_metal_source = has_metal_source_ && is_metal_backend;
+
+  std::span<const uint8_t> vs_bytes;
+  if (use_metal_source) {
+    vs_bytes = std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t *>(metal_source_.data()),
+        metal_source_.size());
+  } else if (is_metal_backend) {
+    vs_bytes = std::span<const uint8_t>();
+  } else {
+    vs_bytes = std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t *>(processed_vert.data()),
+        processed_vert.size());
+  }
   data.vs = device_->createShader(vs_stage_, vs_bytes);
   if (data.vs.id == 0) {
     std::cerr << "  ERROR: createShader returned invalid vertex shader handle"
@@ -590,9 +631,18 @@ Shader::build_variant(const ShaderVariantKey &variant) const {
     std::cout << "  Vertex shader handle: " << data.vs.id << std::endl;
   }
 
-  std::span<const uint8_t> fs_bytes(
-      reinterpret_cast<const uint8_t *>(processed_frag.data()),
-      processed_frag.size());
+  std::span<const uint8_t> fs_bytes;
+  if (use_metal_source) {
+    fs_bytes = std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t *>(metal_source_.data()),
+        metal_source_.size());
+  } else if (is_metal_backend) {
+    fs_bytes = std::span<const uint8_t>();
+  } else {
+    fs_bytes = std::span<const uint8_t>(
+        reinterpret_cast<const uint8_t *>(processed_frag.data()),
+        processed_frag.size());
+  }
   data.fs = device_->createShader(fs_stage_, fs_bytes);
   if (data.fs.id == 0) {
     std::cerr << "  ERROR: createShader returned invalid fragment shader handle"

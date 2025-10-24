@@ -9,6 +9,7 @@
 #include <initializer_list>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -125,9 +126,10 @@ constexpr ShaderID INVALID_SHADER = 0;
 
 class Shader {
 public:
-  static std::unique_ptr<Shader> create(rhi::Device *device,
-                                        const std::string &vert_path,
-                                        const std::string &frag_path);
+  static std::unique_ptr<Shader>
+  create(rhi::Device *device, const std::string &vert_path,
+         const std::string &frag_path,
+         std::optional<std::string> metal_source_path = std::nullopt);
   ~Shader() = default;
 
   rhi::PipelineHandle pipeline(Material::BlendMode mode) const;
@@ -149,6 +151,9 @@ private:
   rhi::Device *device_{nullptr};
   std::string vert_source_;
   std::string frag_source_;
+  std::string metal_source_;
+  std::string metal_source_path_;
+  bool has_metal_source_{false};
   std::string vs_stage_;
   std::string fs_stage_;
   mutable std::unordered_map<std::string, VariantData> variant_cache_;
@@ -179,7 +184,8 @@ public:
   bool process_events();
 
   ShaderID load_shader(const std::string &vert_path,
-                       const std::string &frag_path);
+                       const std::string &frag_path,
+                       std::optional<std::string> metal_path = std::nullopt);
   Shader *get_shader(ShaderID id);
 
   rhi::TextureHandle load_texture(const std::string &path);

@@ -19,6 +19,8 @@ out vec4 Color;
 out float TextureIndex;
 out float LODAlpha;
 
+uniform mat4 model;
+uniform mat4 normalMatrix;
 uniform mat4 view;
 uniform mat4 projection;
 
@@ -46,10 +48,14 @@ void main() {
   // Apply scale and rotation to position
   vec4 scaledPos = vec4(aPos * iScale, 1.0);
   vec4 rotatedPos = rotation * scaledPos;
-  vec4 worldPos = rotatedPos + vec4(iPosition, 0.0);
+  vec4 instanceWorldPos = rotatedPos + vec4(iPosition, 0.0);
+
+  // Apply the shared model transform so Metal and GLSL stay in sync
+  vec4 worldPos = model * instanceWorldPos;
 
   FragPos = worldPos.xyz;
-  Normal = mat3(rotation) * aNormal;
+  vec3 transformedNormal = mat3(rotation) * aNormal;
+  Normal = mat3(normalMatrix) * transformedNormal;
   TexCoord = aTexCoord;
   Color = aColor * iColor;
   TextureIndex = iTextureIndex;

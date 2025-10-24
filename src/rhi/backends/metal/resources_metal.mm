@@ -3,7 +3,9 @@
 #ifdef __APPLE__
 
 #include "pixel/rhi/backends/metal/metal_internal.hpp"
+#include <functional>
 #include <iostream>
+#include <string_view>
 
 namespace pixel::rhi {
 
@@ -137,16 +139,7 @@ ShaderHandle MetalDevice::createShader(std::string_view stage,
                                        std::span<const uint8_t> bytes) {
   std::cerr << "MetalDevice::createShader() stage=" << stage
             << " byteCount=" << bytes.size() << std::endl;
-  (void)bytes;
   MTLShaderResource shader;
-
-  if (!impl_->library_) {
-    impl_->library_ = [impl_->device_ newDefaultLibrary];
-    if (!impl_->library_) {
-      std::cerr << "Failed to load default Metal library" << std::endl;
-      return ShaderHandle{0};
-    }
-  }
 
   NSString *functionName = nil;
   if (stage == "vs") {
@@ -168,7 +161,58 @@ ShaderHandle MetalDevice::createShader(std::string_view stage,
     return ShaderHandle{0};
   }
 
-  shader.function = [impl_->library_ newFunctionWithName:functionName];
+  bool is_compute_stage = stage.size() >= 2 && stage[0] == 'c' && stage[1] == 's';
+
+  id<MTLLibrary> library = nil;
+  if (!bytes.empty() && !is_compute_stage) {
+    std::string_view src(reinterpret_cast<const char *>(bytes.data()),
+                         bytes.size());
+    size_t hash = std::hash<std::string_view>{}(src);
+    auto it = impl_->shader_library_cache_.find(hash);
+    if (it != impl_->shader_library_cache_.end()) {
+      library = it->second;
+      std::cerr << "  Reusing cached Metal shader library for hash=" << hash
+                << std::endl;
+    } else {
+      NSString *source = [[NSString alloc] initWithBytes:bytes.data()
+                                                length:bytes.size()
+                                              encoding:NSUTF8StringEncoding];
+      if (!source) {
+        std::cerr << "Failed to decode Metal shader source as UTF-8"
+                  << std::endl;
+        return ShaderHandle{0};
+      }
+
+      NSError *error = nil;
+      MTLCompileOptions *options = [[MTLCompileOptions alloc] init];
+      library = [impl_->device_ newLibraryWithSource:source
+                                             options:options
+                                               error:&error];
+      if (!library) {
+        std::cerr << "Failed to compile Metal shader source: "
+                  << [[error localizedDescription] UTF8String] << std::endl;
+        return ShaderHandle{0};
+      }
+
+      impl_->shader_library_cache_[hash] = library;
+      std::cerr << "  Compiled Metal shader library hash=" << hash
+                << std::endl;
+    }
+  }
+
+  if (!library) {
+    if (!impl_->library_) {
+      impl_->library_ = [impl_->device_ newDefaultLibrary];
+      if (!impl_->library_) {
+        std::cerr << "Failed to load default Metal library" << std::endl;
+        return ShaderHandle{0};
+      }
+    }
+    library = impl_->library_;
+  }
+
+  shader.function = [library newFunctionWithName:functionName];
+  shader.library = library;
   shader.stage = std::string(stage);
 
   if (!shader.function) {
