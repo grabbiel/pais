@@ -153,9 +153,9 @@ public:
     }
   }
 
-  Vec3 position{0.0f, 4.0f, 12.0f};
-  float yaw = -90.0f;
-  float pitch = -15.0f;
+  Vec3 position{0.0f, 16.0f, 24.0f};
+  float yaw = -135.0f;
+  float pitch = -28.0f;
   float move_speed = 12.0f;
   float mouse_sensitivity = 0.15f;
 
@@ -373,9 +373,9 @@ int main() {
     renderer->begin_shadow_pass();
     renderer->draw_shadow_mesh(*terrain_mesh, Vec3{0.0f, 0.0f, 0.0f},
                                Vec3{0.0f, 0.0f, 0.0f}, Vec3{1.0f, 1.0f, 1.0f});
-    renderer->draw_shadow_mesh_instanced(*grass_instanced, Vec3{0.0f, 0.0f, 0.0f},
-                                         Vec3{0.0f, 0.0f, 0.0f},
-                                         Vec3{1.0f, 1.0f, 1.0f});
+    renderer->draw_shadow_mesh_instanced(
+        *grass_instanced, Vec3{0.0f, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, 0.0f},
+        Vec3{1.0f, 1.0f, 1.0f}, &grass_material);
     renderer->end_shadow_pass();
 
     renderer->begin_frame(Color(0.55f, 0.75f, 0.95f, 1.0f));

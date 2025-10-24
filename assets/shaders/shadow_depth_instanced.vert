@@ -1,12 +1,22 @@
 #version 330 core
 layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aNormal;
+layout (location = 2) in vec2 aTexCoord;
+layout (location = 3) in vec4 aColor;
 
 layout (location = 4) in vec3 iPosition;
 layout (location = 5) in vec3 iRotation;
 layout (location = 6) in vec3 iScale;
+layout (location = 7) in vec4 iColor;
+layout (location = 8) in float iTextureIndex;
+layout (location = 9) in float iLODAlpha;
 
 uniform mat4 model;
 uniform mat4 lightViewProj;
+
+out vec2 TexCoord;
+out float TextureIndex;
+out float VertexAlpha;
 
 mat4 rotationMatrix(vec3 axis, float angle) {
   axis = normalize(axis);
@@ -33,5 +43,8 @@ void main() {
   vec4 instanceWorldPos = rotatedPos + vec4(iPosition, 0.0);
 
   vec4 worldPos = model * instanceWorldPos;
+  TexCoord = aTexCoord;
+  TextureIndex = iTextureIndex;
+  VertexAlpha = aColor.a * iColor.a;
   gl_Position = lightViewProj * worldPos;
 }
