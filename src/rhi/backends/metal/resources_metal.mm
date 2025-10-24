@@ -129,7 +129,8 @@ SamplerHandle MetalDevice::createSampler(const SamplerDesc &desc) {
   samplerDesc.rAddressMode = to_address(desc.addressW);
 
   if (desc.mipLodBias != 0.0f) {
-    samplerDesc.lodBias = desc.mipLodBias;
+    std::cerr << "Metal sampler mip LOD bias is not supported; ignoring value"
+              << std::endl;
   }
 
   if (desc.aniso || desc.maxAnisotropy > 1.0f) {
