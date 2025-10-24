@@ -99,6 +99,10 @@ private:
     bool isCompute{false};
   };
 
+  struct FenceResource {
+    VkFence fence{VK_NULL_HANDLE};
+  };
+
   void createInstance();
   void setupDebugMessenger();
   void createSurface(GLFWwindow *window);
@@ -113,6 +117,7 @@ private:
   void createDescriptorPool();
   void cleanupSwapchain();
   void recreateSwapchain();
+  VkFence fenceFromHandle(FenceHandle handle) const;
 
   struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
@@ -167,6 +172,7 @@ private:
   std::array<VkSemaphore, kMaxFramesInFlight> imageAvailableSemaphores_{};
   std::array<VkSemaphore, kMaxFramesInFlight> renderFinishedSemaphores_{};
   std::array<VkFence, kMaxFramesInFlight> inFlightFences_{};
+  std::array<VkFence, kMaxFramesInFlight> frameFences_{};
   std::vector<VkFence> imagesInFlight_{};
   size_t currentFrame_{0};
   uint32_t currentImageIndex_{0};
@@ -182,6 +188,7 @@ private:
   std::vector<SamplerResource> samplers_{1};
   std::vector<ShaderResource> shaders_{1};
   std::vector<PipelineResource> pipelines_{1};
+  std::vector<FenceResource> fences_{1};
 };
 
 class VulkanCmdList final : public CmdList {
@@ -238,6 +245,10 @@ public:
 private:
   [[noreturn]] void notImplemented(const char *feature) const;
 
+  friend class VulkanDevice;
+
+  std::optional<FenceHandle> takePendingFence();
+
   VulkanDevice &device_;
   VkCommandBuffer activeCommandBuffer_{VK_NULL_HANDLE};
   RenderPassDesc pendingRenderPass_{};
@@ -246,6 +257,7 @@ private:
   VkFramebuffer activeFramebuffer_{VK_NULL_HANDLE};
   PipelineHandle currentGraphicsPipeline_{};
   PipelineHandle currentComputePipeline_{};
+  std::optional<FenceHandle> pendingFence_{};
 };
 
 } // namespace pixel::rhi

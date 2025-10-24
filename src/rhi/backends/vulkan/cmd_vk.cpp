@@ -512,8 +512,12 @@ void VulkanCmdList::endQuery(QueryHandle, QueryType) {
   notImplemented("endQuery");
 }
 
-void VulkanCmdList::signalFence(FenceHandle) {
-  notImplemented("signalFence");
+void VulkanCmdList::signalFence(FenceHandle handle) {
+  if (handle.id == 0) {
+    pendingFence_.reset();
+    return;
+  }
+  pendingFence_ = handle;
 }
 
 void VulkanCmdList::drawIndexed(uint32_t indexCount, uint32_t firstIndex,
@@ -571,6 +575,15 @@ void VulkanCmdList::end() {
 [[noreturn]] void VulkanCmdList::notImplemented(const char *feature) const {
   throw std::runtime_error(std::string("Vulkan backend: ") + feature +
                            " not implemented yet");
+}
+
+std::optional<FenceHandle> VulkanCmdList::takePendingFence() {
+  if (!pendingFence_.has_value()) {
+    return std::nullopt;
+  }
+  auto result = pendingFence_;
+  pendingFence_.reset();
+  return result;
 }
 
 } // namespace pixel::rhi

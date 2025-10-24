@@ -335,6 +335,8 @@ VulkanDevice::VulkanDevice(GLFWwindow *window) {
   createSyncObjects();
   createDescriptorPool();
 
+  frameFences_ = inFlightFences_;
+
   immediateCmdList_ = std::make_unique<VulkanCmdList>(*this);
 }
 
@@ -358,6 +360,13 @@ VulkanDevice::~VulkanDevice() {
       }
       if (pipelines_[i].renderPass != VK_NULL_HANDLE) {
         vkDestroyRenderPass(device_, pipelines_[i].renderPass, nullptr);
+      }
+    }
+
+    for (size_t i = 1; i < fences_.size(); ++i) {
+      if (fences_[i].fence != VK_NULL_HANDLE) {
+        vkDestroyFence(device_, fences_[i].fence, nullptr);
+        fences_[i].fence = VK_NULL_HANDLE;
       }
     }
 
@@ -978,20 +987,88 @@ void VulkanDevice::destroyQuery(QueryHandle) {}
 
 bool VulkanDevice::getQueryResult(QueryHandle, uint64_t &, bool) { return false; }
 
-FenceHandle VulkanDevice::createFence(bool) {
-  throw std::runtime_error("Vulkan fence creation not implemented yet");
+FenceHandle VulkanDevice::createFence(bool signaled) {
+  if (device_ == VK_NULL_HANDLE) {
+    throw std::runtime_error("Vulkan device must be created before creating fences");
+  }
+
+  VkFenceCreateInfo createInfo{};
+  createInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+  createInfo.flags = signaled ? VK_FENCE_CREATE_SIGNALED_BIT : 0;
+
+  VkFence fence = VK_NULL_HANDLE;
+  if (vkCreateFence(device_, &createInfo, nullptr, &fence) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create Vulkan fence");
+  }
+
+  fences_.push_back(FenceResource{fence});
+  return FenceHandle{static_cast<uint32_t>(fences_.size() - 1)};
 }
 
-void VulkanDevice::destroyFence(FenceHandle) {}
+void VulkanDevice::destroyFence(FenceHandle handle) {
+  if (device_ == VK_NULL_HANDLE || handle.id == 0 ||
+      handle.id >= fences_.size()) {
+    return;
+  }
 
-void VulkanDevice::waitFence(FenceHandle, uint64_t) {}
+  VkFence fence = fences_[handle.id].fence;
+  if (fence != VK_NULL_HANDLE) {
+    vkDestroyFence(device_, fence, nullptr);
+    fences_[handle.id].fence = VK_NULL_HANDLE;
+  }
+}
 
-void VulkanDevice::resetFence(FenceHandle) {}
+void VulkanDevice::waitFence(FenceHandle handle, uint64_t timeout_ns) {
+  VkFence fence = fenceFromHandle(handle);
+  if (fence == VK_NULL_HANDLE) {
+    return;
+  }
+
+  uint64_t timeout = timeout_ns == ~0ull ? UINT64_MAX : timeout_ns;
+  VkResult result = vkWaitForFences(device_, 1, &fence, VK_TRUE, timeout);
+  if (result == VK_TIMEOUT) {
+    return;
+  }
+  if (result != VK_SUCCESS) {
+    throw std::runtime_error("Failed to wait for Vulkan fence");
+  }
+}
+
+void VulkanDevice::resetFence(FenceHandle handle) {
+  VkFence fence = fenceFromHandle(handle);
+  if (fence == VK_NULL_HANDLE) {
+    return;
+  }
+  if (vkResetFences(device_, 1, &fence) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to reset Vulkan fence");
+  }
+}
 
 CmdList *VulkanDevice::getImmediate() { return immediateCmdList_.get(); }
 
 void VulkanDevice::present() {
-  beginFrameIfNeeded();
+  if (!frameActive_) {
+    beginFrameIfNeeded();
+  }
+
+  VkFence submitFence = frameFences_[currentFrame_];
+  if (auto pendingFence = immediateCmdList_->takePendingFence()) {
+    VkFence fenceHandle = fenceFromHandle(*pendingFence);
+    if (fenceHandle != VK_NULL_HANDLE) {
+      if (vkResetFences(device_, 1, &fenceHandle) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to reset user-provided Vulkan fence");
+      }
+      submitFence = fenceHandle;
+      frameFences_[currentFrame_] = fenceHandle;
+      if (!imagesInFlight_.empty() && currentImageIndex_ < imagesInFlight_.size()) {
+        imagesInFlight_[currentImageIndex_] = fenceHandle;
+      }
+    }
+  }
+
+  if (submitFence == VK_NULL_HANDLE) {
+    throw std::runtime_error("No Vulkan fence available for frame submission");
+  }
 
   VkSemaphore waitSemaphores[] = {
       imageAvailableSemaphores_[currentFrame_],
@@ -1013,8 +1090,7 @@ void VulkanDevice::present() {
   submitInfo.pSignalSemaphores =
       &renderFinishedSemaphores_[currentFrame_];
 
-  if (vkQueueSubmit(graphicsQueue_, 1, &submitInfo,
-                    inFlightFences_[currentFrame_]) != VK_SUCCESS) {
+  if (vkQueueSubmit(graphicsQueue_, 1, &submitInfo, submitFence) != VK_SUCCESS) {
     throw std::runtime_error("Failed to submit draw command buffer");
   }
 
@@ -1054,8 +1130,20 @@ void VulkanDevice::beginFrameIfNeeded() {
     return;
   }
 
-  VkFence fence = inFlightFences_[currentFrame_];
-  vkWaitForFences(device_, 1, &fence, VK_TRUE, UINT64_MAX);
+  VkFence fenceToWait = frameFences_[currentFrame_];
+  if (fenceToWait != VK_NULL_HANDLE) {
+    VkResult waitResult =
+        vkWaitForFences(device_, 1, &fenceToWait, VK_TRUE, UINT64_MAX);
+    if (waitResult != VK_SUCCESS) {
+      throw std::runtime_error("Failed to wait for Vulkan frame fence");
+    }
+  }
+
+  VkFence defaultFence = inFlightFences_[currentFrame_];
+  if (vkResetFences(device_, 1, &defaultFence) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to reset Vulkan frame fence");
+  }
+  frameFences_[currentFrame_] = defaultFence;
 
   uint32_t imageIndex = 0;
   while (true) {
@@ -1074,19 +1162,22 @@ void VulkanDevice::beginFrameIfNeeded() {
     break;
   }
 
-  if (!imagesInFlight_.empty() &&
-      imagesInFlight_[currentImageIndex_] != VK_NULL_HANDLE) {
-    vkWaitForFences(device_, 1, &imagesInFlight_[currentImageIndex_], VK_TRUE,
-                    UINT64_MAX);
-  }
   if (!imagesInFlight_.empty()) {
-    imagesInFlight_[currentImageIndex_] = inFlightFences_[currentFrame_];
+    VkFence imageFence = imagesInFlight_[currentImageIndex_];
+    if (imageFence != VK_NULL_HANDLE) {
+      VkResult waitResult =
+          vkWaitForFences(device_, 1, &imageFence, VK_TRUE, UINT64_MAX);
+      if (waitResult != VK_SUCCESS) {
+        throw std::runtime_error("Failed to wait for Vulkan image fence");
+      }
+    }
+    imagesInFlight_[currentImageIndex_] = frameFences_[currentFrame_];
   }
-
-  vkResetFences(device_, 1, &inFlightFences_[currentFrame_]);
 
   VkCommandBuffer cmd = commandBuffers_[currentFrame_];
-  vkResetCommandBuffer(cmd, 0);
+  if (vkResetCommandBuffer(cmd, 0) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to reset Vulkan command buffer");
+  }
 
   frameActive_ = true;
 }
@@ -1543,6 +1634,13 @@ void VulkanDevice::createDescriptorPool() {
       VK_SUCCESS) {
     throw std::runtime_error("Failed to create Vulkan descriptor pool");
   }
+}
+
+VkFence VulkanDevice::fenceFromHandle(FenceHandle handle) const {
+  if (handle.id == 0 || handle.id >= fences_.size()) {
+    return VK_NULL_HANDLE;
+  }
+  return fences_[handle.id].fence;
 }
 
 void VulkanDevice::cleanupSwapchain() {
