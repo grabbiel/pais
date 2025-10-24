@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -14,11 +15,6 @@ enum class ShaderStage : uint8_t {
   Fragment = 1,
   Compute = 2,
   Unknown = 3,
-};
-
-enum class ShaderLanguage : uint8_t {
-  GLSL = 0,
-  Metal = 1,
 };
 
 enum class ShaderUniformType : uint8_t {
@@ -109,15 +105,7 @@ private:
   std::unordered_map<std::string, size_t> block_lookup_;
 };
 
-ShaderLanguage detect_shader_language(std::string_view source);
-
-ShaderReflection reflect_shader(std::string_view source, ShaderStage stage,
-                                ShaderLanguage language);
-
-ShaderReflection reflect_shader(std::string_view source, ShaderStage stage);
-
-ShaderReflection reflect_glsl(std::string_view source, ShaderStage stage);
-
-ShaderReflection reflect_metal(std::string_view source, ShaderStage stage);
+ShaderReflection reflect_spirv(std::span<const uint32_t> words,
+                               ShaderStage stage);
 
 } // namespace pixel::renderer3d

@@ -155,11 +155,8 @@ private:
   VariantData build_variant(const ShaderVariantKey &variant) const;
 
   rhi::Device *device_{nullptr};
-  std::string vert_source_;
-  std::string frag_source_;
-  std::string metal_source_;
-  std::string metal_source_path_;
-  bool has_metal_source_{false};
+  std::string vert_path_;
+  std::string frag_path_;
   std::string vs_stage_;
   std::string fs_stage_;
   mutable std::unordered_map<std::string, VariantData> variant_cache_;

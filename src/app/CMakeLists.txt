@@ -7,6 +7,11 @@ add_executable(pixel_life
   main.cpp
 )
 
+if(TARGET pixel_renderer3d_shaders)
+  add_dependencies(pixel_life pixel_renderer3d_shaders)
+endif()
+add_dependencies(pixel_life pixel_stage_assets)
+
 # ============================================================================
 # Include directories
 # ============================================================================
@@ -64,10 +69,10 @@ if(APPLE)
   endif()
 
   # Copy assets to bundle Resources
-  if(EXISTS ${CMAKE_SOURCE_DIR}/assets)
+  if(EXISTS ${PIXEL_ASSETS_OUTPUT_DIR})
     add_custom_command(TARGET pixel_life POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/assets
+        ${PIXEL_ASSETS_OUTPUT_DIR}
         $<TARGET_BUNDLE_CONTENT_DIR:pixel_life>/Resources/assets
       COMMENT "Copying assets into macOS app bundle Resources"
       VERBATIM
@@ -183,10 +188,10 @@ elseif(WIN32)
   # set_target_properties(pixel_life PROPERTIES WIN32_EXECUTABLE TRUE)
 
   # Copy assets next to executable
-  if(EXISTS ${CMAKE_SOURCE_DIR}/assets)
+  if(EXISTS ${PIXEL_ASSETS_OUTPUT_DIR})
     add_custom_command(TARGET pixel_life POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/assets
+        ${PIXEL_ASSETS_OUTPUT_DIR}
         $<TARGET_FILE_DIR:pixel_life>/assets
       COMMENT "Copying assets to Windows build directory"
       VERBATIM
@@ -214,10 +219,10 @@ elseif(UNIX)
   # ============================================================
 
   # Copy assets next to executable
-  if(EXISTS ${CMAKE_SOURCE_DIR}/assets)
+  if(EXISTS ${PIXEL_ASSETS_OUTPUT_DIR})
     add_custom_command(TARGET pixel_life POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/assets
+        ${PIXEL_ASSETS_OUTPUT_DIR}
         $<TARGET_FILE_DIR:pixel_life>/assets
       COMMENT "Copying assets to Linux build directory"
       VERBATIM
@@ -247,11 +252,11 @@ install(TARGETS pixel_life
 )
 
 # Install assets
-if(EXISTS ${CMAKE_SOURCE_DIR}/assets)
+if(EXISTS ${PIXEL_ASSETS_OUTPUT_DIR})
   if(APPLE)
     # Assets are already bundled for macOS
   else()
-    install(DIRECTORY ${CMAKE_SOURCE_DIR}/assets
+    install(DIRECTORY ${PIXEL_ASSETS_OUTPUT_DIR}
       DESTINATION share/pixel-life
     )
   endif()

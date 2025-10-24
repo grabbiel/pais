@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 
 namespace pixel::platform {
 
@@ -15,5 +16,9 @@ std::string load_shader_file(const std::string &relative_path);
 // Throws std::runtime_error if either file cannot be read
 std::pair<std::string, std::string>
 load_shader_pair(const std::string &vert_path, const std::string &frag_path);
+
+// Load compiled shader bytecode
+std::vector<uint8_t>
+load_shader_bytecode(const std::string &relative_path);
 
 } // namespace pixel::platform
