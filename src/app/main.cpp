@@ -7,7 +7,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 
-#include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -26,75 +26,62 @@ using pixel::renderer3d::Vec3;
 
 namespace {
 
-constexpr size_t kGrassBladeCount = 8000;
-constexpr float kTerrainSize = 60.0f;
-constexpr float kGrassHalfWidth = 0.08f;
-constexpr float kGrassBaseHeight = 1.2f;
+constexpr size_t kSphereCount = 4096;
+constexpr float kTerrainSize = 100.0f;
+constexpr float kSphereRadius = 0.5f;
 
-struct GrassWindState {
-  Vec3 base_position{0.0f, 0.0f, 0.0f};
-  float sway_phase = 0.0f;
-  float sway_speed = 1.0f;
-  float sway_strength = 0.05f;
-};
+std::unique_ptr<Mesh> create_sphere_mesh(Renderer &renderer,
+                                         int segments = 48,
+                                         int rings = 24,
+                                         float radius = kSphereRadius) {
+  if (segments < 3) {
+    segments = 3;
+  }
+  if (rings < 2) {
+    rings = 2;
+  }
 
-std::unique_ptr<Mesh> create_grass_mesh(Renderer &renderer) {
   std::vector<pixel::renderer3d::Vertex> vertices;
-  vertices.reserve(16);
+  std::vector<uint32_t> indices;
 
-  const float half_width = kGrassHalfWidth;
-  const float height = kGrassBaseHeight;
+  const int ring_stride = segments + 1;
+  vertices.reserve(static_cast<size_t>((rings + 1) * ring_stride));
+  indices.reserve(static_cast<size_t>(rings * segments * 6));
 
-  auto push_vertex = [&](const Vec3 &pos, const Vec3 &normal, const Vec2 &uv) {
-    vertices.push_back({pos, normal, uv, Color::White()});
-  };
+  for (int y = 0; y <= rings; ++y) {
+    float v = static_cast<float>(y) / static_cast<float>(rings);
+    float theta = glm::pi<float>() * v;
+    float sin_theta = std::sin(theta);
+    float cos_theta = std::cos(theta);
 
-  // Quad facing +Z
-  push_vertex(Vec3{-half_width, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, 1.0f},
-              Vec2{0.0f, 0.0f});
-  push_vertex(Vec3{half_width, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, 1.0f},
-              Vec2{1.0f, 0.0f});
-  push_vertex(Vec3{half_width, height, 0.0f}, Vec3{0.0f, 0.0f, 1.0f},
-              Vec2{1.0f, 1.0f});
-  push_vertex(Vec3{-half_width, height, 0.0f}, Vec3{0.0f, 0.0f, 1.0f},
-              Vec2{0.0f, 1.0f});
+    for (int x = 0; x <= segments; ++x) {
+      float u = static_cast<float>(x) / static_cast<float>(segments);
+      float phi = glm::two_pi<float>() * u;
+      float sin_phi = std::sin(phi);
+      float cos_phi = std::cos(phi);
 
-  // Quad facing -Z
-  push_vertex(Vec3{-half_width, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, -1.0f},
-              Vec2{0.0f, 0.0f});
-  push_vertex(Vec3{-half_width, height, 0.0f}, Vec3{0.0f, 0.0f, -1.0f},
-              Vec2{0.0f, 1.0f});
-  push_vertex(Vec3{half_width, height, 0.0f}, Vec3{0.0f, 0.0f, -1.0f},
-              Vec2{1.0f, 1.0f});
-  push_vertex(Vec3{half_width, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, -1.0f},
-              Vec2{1.0f, 0.0f});
+      Vec3 normal{cos_phi * sin_theta, cos_theta, sin_phi * sin_theta};
+      Vec3 position = normal * radius;
+      Vec2 uv{u, 1.0f - v};
 
-  // Quad facing +X
-  push_vertex(Vec3{0.0f, 0.0f, -half_width}, Vec3{1.0f, 0.0f, 0.0f},
-              Vec2{0.0f, 0.0f});
-  push_vertex(Vec3{0.0f, height, -half_width}, Vec3{1.0f, 0.0f, 0.0f},
-              Vec2{0.0f, 1.0f});
-  push_vertex(Vec3{0.0f, height, half_width}, Vec3{1.0f, 0.0f, 0.0f},
-              Vec2{1.0f, 1.0f});
-  push_vertex(Vec3{0.0f, 0.0f, half_width}, Vec3{1.0f, 0.0f, 0.0f},
-              Vec2{1.0f, 0.0f});
+      vertices.push_back({position, normal.normalized(), uv, Color::White()});
+    }
+  }
 
-  // Quad facing -X
-  push_vertex(Vec3{0.0f, 0.0f, -half_width}, Vec3{-1.0f, 0.0f, 0.0f},
-              Vec2{0.0f, 0.0f});
-  push_vertex(Vec3{0.0f, 0.0f, half_width}, Vec3{-1.0f, 0.0f, 0.0f},
-              Vec2{1.0f, 0.0f});
-  push_vertex(Vec3{0.0f, height, half_width}, Vec3{-1.0f, 0.0f, 0.0f},
-              Vec2{1.0f, 1.0f});
-  push_vertex(Vec3{0.0f, height, -half_width}, Vec3{-1.0f, 0.0f, 0.0f},
-              Vec2{0.0f, 1.0f});
+  for (int y = 0; y < rings; ++y) {
+    for (int x = 0; x < segments; ++x) {
+      uint32_t first = static_cast<uint32_t>(y * ring_stride + x);
+      uint32_t second = static_cast<uint32_t>((y + 1) * ring_stride + x);
 
-  std::vector<uint32_t> indices = {
-      0,  1,  2,  2,  3,  0,  // +Z
-      4,  5,  6,  6,  7,  4,  // -Z
-      8,  9,  10, 10, 11, 8,  // +X
-      12, 13, 14, 14, 15, 12, // -X
-  };
+      indices.push_back(first);
+      indices.push_back(second);
+      indices.push_back(first + 1);
+
+      indices.push_back(second);
+      indices.push_back(second + 1);
+      indices.push_back(first + 1);
+    }
+  }
 
   return Mesh::create(renderer.device(), vertices, indices);
 }
@@ -211,7 +198,7 @@ int main() {
   pixel::platform::WindowSpec spec;
   spec.w = 1600;
   spec.h = 900;
-  spec.title = "Pixel Life - Instanced Grass Field";
+  spec.title = "Pixel Life - Sunset Sphere Field";
 
   auto renderer = Renderer::create(spec);
   if (!renderer) {
@@ -226,11 +213,10 @@ int main() {
   renderer->camera().far_clip = 500.0f;
 
   DirectionalLight sunlight;
-  sunlight.direction = Vec3{-0.35f, -1.0f, -0.25f}.normalized();
-  sunlight.position =
-      Vec3{-sunlight.direction.x * 60.0f, 60.0f, -sunlight.direction.z * 60.0f};
-  sunlight.color = Color(1.0f, 0.96f, 0.88f, 1.0f);
-  sunlight.intensity = 1.25f;
+  sunlight.direction = Vec3{-0.55f, -0.8f, -0.25f}.normalized();
+  sunlight.position = sunlight.direction * -120.0f;
+  sunlight.color = Color(1.0f, 0.58f, 0.38f, 1.0f);
+  sunlight.intensity = 2.2f;
   renderer->set_directional_light(sunlight);
 
   if (auto *shadow_map = renderer->shadow_map()) {
@@ -253,9 +239,9 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  auto grass_mesh = create_grass_mesh(*renderer);
-  if (!grass_mesh) {
-    std::cerr << "Failed to create grass mesh" << std::endl;
+  auto sphere_mesh = create_sphere_mesh(*renderer);
+  if (!sphere_mesh) {
+    std::cerr << "Failed to create sphere mesh" << std::endl;
     return EXIT_FAILURE;
   }
 
@@ -265,81 +251,96 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  auto grass_instanced = RendererInstanced::create_instanced_mesh(
-      device, *grass_mesh, kGrassBladeCount);
-  if (!grass_instanced) {
-    std::cerr << "Failed to create instanced grass mesh" << std::endl;
+  auto sphere_instanced =
+      RendererInstanced::create_instanced_mesh(device, *sphere_mesh, kSphereCount);
+  if (!sphere_instanced) {
+    std::cerr << "Failed to create instanced sphere mesh" << std::endl;
     return EXIT_FAILURE;
   }
 
-  std::vector<InstanceData> base_instances;
-  base_instances.reserve(kGrassBladeCount);
-  std::vector<GrassWindState> wind_states;
-  wind_states.reserve(kGrassBladeCount);
-  std::vector<InstanceData> current_instances;
-  current_instances.reserve(kGrassBladeCount);
+  std::vector<InstanceData> sphere_instances;
+  sphere_instances.reserve(kSphereCount);
 
-  std::mt19937 rng(42);
-  std::uniform_real_distribution<float> position_dist(-(kTerrainSize * 0.5f),
-                                                      kTerrainSize * 0.5f);
-  std::uniform_real_distribution<float> height_dist(0.8f, 1.6f);
-  std::uniform_real_distribution<float> sway_speed_dist(0.6f, 1.4f);
-  std::uniform_real_distribution<float> sway_strength_dist(0.02f, 0.08f);
-  std::uniform_real_distribution<float> color_variation(0.85f, 1.05f);
-  std::uniform_real_distribution<float> phase_dist(0.0f,
-                                                   2.0f * glm::pi<float>());
+  std::mt19937 rng(1337);
+  std::uniform_real_distribution<float> jitter(-0.3f, 0.3f);
+  std::uniform_real_distribution<float> hue_shift(0.85f, 1.15f);
 
-  for (size_t i = 0; i < kGrassBladeCount; ++i) {
-    float x = position_dist(rng);
-    float z = position_dist(rng);
-    float height_variation = height_dist(rng);
-
-    InstanceData data;
-    data.position = Vec3{x, 0.0f, z};
-    data.rotation = Vec3{0.0f, phase_dist(rng), 0.0f};
-    data.scale = Vec3{1.0f, height_variation, 1.0f};
-    float green = std::clamp(color_variation(rng), 0.7f, 1.1f);
-    float brightness = std::clamp(color_variation(rng), 0.7f, 1.1f);
-    data.color = Color(0.3f * brightness, green, 0.2f * brightness, 1.0f);
-    data.texture_index = 0.0f;
-    data.culling_radius = 0.75f * height_variation;
-    data.lod_transition_alpha = 1.0f;
-
-    base_instances.push_back(data);
-
-    GrassWindState wind_state;
-    wind_state.base_position = data.position;
-    wind_state.sway_phase = phase_dist(rng);
-    wind_state.sway_speed = sway_speed_dist(rng);
-    wind_state.sway_strength = sway_strength_dist(rng);
-    wind_states.push_back(wind_state);
-    current_instances.push_back(data);
+  int grid_size = static_cast<int>(std::sqrt(static_cast<float>(kSphereCount)));
+  if (grid_size * grid_size < static_cast<int>(kSphereCount)) {
+    ++grid_size;
   }
 
-  grass_instanced->set_instances(base_instances);
+  float spacing = (kTerrainSize - 10.0f) / static_cast<float>(grid_size);
+  float start_offset = -0.5f * spacing * static_cast<float>(grid_size - 1);
+
+  size_t instance_index = 0;
+  for (int z = 0; z < grid_size && instance_index < kSphereCount; ++z) {
+    for (int x = 0; x < grid_size && instance_index < kSphereCount; ++x) {
+      float px = start_offset + spacing * static_cast<float>(x) + jitter(rng);
+      float pz = start_offset + spacing * static_cast<float>(z) + jitter(rng);
+
+      float gradient = glm::clamp((static_cast<float>(z) / grid_size), 0.0f, 1.0f);
+      float warm_factor = glm::mix(0.6f, 1.0f, gradient);
+
+      InstanceData data;
+      data.position = Vec3{px, kSphereRadius, pz};
+      data.rotation = Vec3{0.0f, 0.0f, 0.0f};
+      data.scale = Vec3{1.0f, 1.0f, 1.0f};
+      float tint = hue_shift(rng);
+      data.color =
+          Color(0.9f * warm_factor * tint, 0.85f * tint, 1.0f * tint, 1.0f);
+      data.texture_index = 0.0f;
+      data.culling_radius = kSphereRadius * 1.5f;
+      data.lod_transition_alpha = 1.0f;
+
+      sphere_instances.push_back(data);
+      ++instance_index;
+    }
+  }
+
+  sphere_instanced->set_instances(sphere_instances);
 
   Material terrain_material;
   terrain_material.blend_mode = Material::BlendMode::Opaque;
-  terrain_material.texture = renderer->load_texture("assets/textures/dirt.png");
+  constexpr int kWoodTextureSize = 4;
+  std::array<uint8_t, kWoodTextureSize * kWoodTextureSize * 4> wood_pixels{};
+  const glm::vec4 dark_tone{96.0f, 56.0f, 32.0f, 255.0f};
+  const glm::vec4 mid_tone{132.0f, 82.0f, 46.0f, 255.0f};
+  const glm::vec4 light_tone{174.0f, 112.0f, 66.0f, 255.0f};
+  for (int y = 0; y < kWoodTextureSize; ++y) {
+    for (int x = 0; x < kWoodTextureSize; ++x) {
+      int index = (y * kWoodTextureSize + x) * 4;
+      glm::vec4 color = ((x + y) % 3 == 0)
+                            ? dark_tone
+                            : (((x + y) % 3 == 1) ? mid_tone : light_tone);
+      wood_pixels[index + 0] = static_cast<uint8_t>(color.r);
+      wood_pixels[index + 1] = static_cast<uint8_t>(color.g);
+      wood_pixels[index + 2] = static_cast<uint8_t>(color.b);
+      wood_pixels[index + 3] = static_cast<uint8_t>(color.a);
+    }
+  }
+  terrain_material.texture = renderer->create_texture(
+      kWoodTextureSize, kWoodTextureSize, wood_pixels.data());
   terrain_material.depth_test = true;
   terrain_material.depth_write = true;
   terrain_material.color = Color::White();
   if (terrain_material.texture.id == 0) {
-    std::cerr << "Failed to load terrain texture" << std::endl;
+    std::cerr << "Failed to create terrain texture" << std::endl;
     return EXIT_FAILURE;
   }
 
-  Material grass_material;
-  grass_material.blend_mode = Material::BlendMode::Alpha;
-  grass_material.texture_array =
-      renderer->load_texture_array({"assets/textures/grass.png"});
-  grass_material.depth_test = true;
-  grass_material.depth_write = false;
-  grass_material.color = Color::White();
-  if (grass_material.texture_array.id == 0) {
-    std::cerr << "Failed to load grass texture" << std::endl;
-    return EXIT_FAILURE;
-  }
+  Material sphere_material;
+  sphere_material.blend_mode = Material::BlendMode::Opaque;
+  sphere_material.depth_test = true;
+  sphere_material.depth_write = true;
+  sphere_material.color = Color::White();
+  sphere_material.roughness = 0.12f;
+  sphere_material.metallic = 0.9f;
+
+  camera_controller.position = Vec3{26.0f, 20.0f, 42.0f};
+  camera_controller.yaw = -135.0f;
+  camera_controller.pitch = -25.0f;
+  camera_controller.apply(renderer->camera());
 
   double last_time = renderer->time();
 
@@ -352,40 +353,27 @@ int main() {
     camera_controller.apply(renderer->camera());
 
     DirectionalLight active_light = renderer->directional_light();
-    Vec3 camera_position = renderer->camera().position;
-    Vec3 light_offset = active_light.direction * -60.0f;
-    active_light.position =
-        camera_position + light_offset + Vec3{0.0f, 25.0f, 0.0f};
+    active_light.position = renderer->camera().position +
+                            active_light.direction * -80.0f +
+                            Vec3{0.0f, 20.0f, 0.0f};
     renderer->set_directional_light(active_light);
-
-    for (size_t i = 0; i < base_instances.size(); ++i) {
-      const GrassWindState &wind = wind_states[i];
-      InstanceData updated = base_instances[i];
-      float sway = std::sin(static_cast<float>(now) * wind.sway_speed +
-                            wind.sway_phase) *
-                   wind.sway_strength;
-      updated.rotation.x = sway;
-      updated.rotation.z = sway * 0.5f;
-      current_instances[i] = updated;
-      grass_instanced->update_instance(i, updated);
-    }
 
     renderer->begin_shadow_pass();
     renderer->draw_shadow_mesh(*terrain_mesh, Vec3{0.0f, 0.0f, 0.0f},
                                Vec3{0.0f, 0.0f, 0.0f}, Vec3{1.0f, 1.0f, 1.0f});
     renderer->draw_shadow_mesh_instanced(
-        *grass_instanced, Vec3{0.0f, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, 0.0f},
-        Vec3{1.0f, 1.0f, 1.0f}, &grass_material);
+        *sphere_instanced, Vec3{0.0f, 0.0f, 0.0f}, Vec3{0.0f, 0.0f, 0.0f},
+        Vec3{1.0f, 1.0f, 1.0f}, &sphere_material);
     renderer->end_shadow_pass();
 
-    renderer->begin_frame(Color(0.55f, 0.75f, 0.95f, 1.0f));
+    renderer->begin_frame(Color(0.32f, 0.23f, 0.35f, 1.0f));
 
     renderer->draw_mesh(*terrain_mesh, Vec3{0.0f, 0.0f, 0.0f},
                         Vec3{0.0f, 0.0f, 0.0f}, Vec3{1.0f, 1.0f, 1.0f},
                         terrain_material);
 
-    RendererInstanced::draw_instanced(*renderer, *grass_instanced,
-                                      grass_material);
+    RendererInstanced::draw_instanced(*renderer, *sphere_instanced,
+                                      sphere_material);
 
     renderer->end_frame();
   }
