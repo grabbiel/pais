@@ -258,6 +258,8 @@ protected:
   Renderer() = default;
   void setup_default_shaders();
   void reset_depth_bias(rhi::CmdList *cmd);
+  void ensure_swapchain_depth_texture();
+  bool needs_explicit_swapchain_sync() const;
 
   platform::Window *window_ = nullptr;
   rhi::Device *device_ = nullptr;
@@ -286,6 +288,10 @@ protected:
 
   rhi::RenderPassDesc current_pass_desc_{};
   bool render_pass_active_ = false;
+
+  rhi::TextureHandle swapchain_depth_texture_{};
+  bool swapchain_depth_has_stencil_{false};
+  bool swapchain_depth_initialized_{false};
 };
 
 } // namespace pixel::renderer3d

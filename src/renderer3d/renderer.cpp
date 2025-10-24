@@ -8,6 +8,8 @@
 #include "pixel/resources/texture_loader.hpp"
 #include "pixel/platform/shader_loader.hpp"
 #include "pixel/platform/window.hpp"
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <glm/gtc/matrix_transform.hpp>
@@ -17,6 +19,7 @@
 #include <string_view>
 #include <stdexcept>
 #include <cstdlib>
+#include <vector>
 
 namespace pixel::renderer3d {
 
@@ -62,7 +65,16 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
 
     // Step 2: Create the Device from the Window
     std::cout << "Creating RHI device from window..." << std::endl;
-    auto device = rhi::create_device(window.get());
+    rhi::GraphicsAPI device_api = rhi::GraphicsAPI::Default;
+#if defined(PIXEL_USE_VULKAN)
+    device_api = rhi::GraphicsAPI::Vulkan;
+#elif defined(PIXEL_USE_METAL)
+    device_api = rhi::GraphicsAPI::Metal;
+#elif defined(PIXEL_USE_DX12)
+    device_api = rhi::GraphicsAPI::DirectX12;
+#endif
+
+    auto device = rhi::create_device(window.get(), device_api);
     if (!device) {
       std::cerr << "Failed to create RHI device" << std::endl;
       throw std::runtime_error("RHI device creation failed");
@@ -72,6 +84,8 @@ Renderer::create(const pixel::platform::WindowSpec &spec) {
     // Transfer ownership to renderer
     renderer->window_ = window.release();
     renderer->device_ = device.release();
+
+    renderer->ensure_swapchain_depth_texture();
 
     std::cout << "Renderer backend name: " << renderer->backend_name()
               << std::endl;
@@ -196,6 +210,59 @@ void Renderer::reset_depth_bias(rhi::CmdList *cmd) {
 
   rhi::DepthBiasState bias_state{};
   cmd->setDepthBias(bias_state);
+}
+
+bool Renderer::needs_explicit_swapchain_sync() const {
+  if (!device_) {
+    return false;
+  }
+
+  const char *backend = device_->backend_name();
+  if (!backend) {
+    return false;
+  }
+
+  std::string_view backend_name(backend);
+  return backend_name.find("Vulkan") != std::string_view::npos;
+}
+
+void Renderer::ensure_swapchain_depth_texture() {
+  if (!device_ || !window_) {
+    return;
+  }
+
+  if (!needs_explicit_swapchain_sync()) {
+    return;
+  }
+
+  if (swapchain_depth_texture_.id != 0) {
+    return;
+  }
+
+  int window_width = std::max(window_->width(), 1);
+  int window_height = std::max(window_->height(), 1);
+  if (window_width <= 0 || window_height <= 0) {
+    return;
+  }
+
+  rhi::TextureDesc depth_desc{};
+  depth_desc.size = {static_cast<uint32_t>(window_width),
+                     static_cast<uint32_t>(window_height)};
+  depth_desc.format = rhi::Format::D24S8;
+  depth_desc.mipLevels = 1;
+  depth_desc.layers = 1;
+  depth_desc.renderTarget = true;
+
+  swapchain_depth_texture_ = device_->createTexture(depth_desc);
+  if (swapchain_depth_texture_.id != 0) {
+    swapchain_depth_has_stencil_ = true;
+    swapchain_depth_initialized_ = false;
+    std::cout << "[Renderer] Created swapchain depth texture "
+              << depth_desc.size.w << "x" << depth_desc.size.h << std::endl;
+  } else {
+    std::cerr << "[Renderer] Failed to create swapchain depth texture"
+              << std::endl;
+  }
 }
 
 void Renderer::set_directional_light(const DirectionalLight &light) {
@@ -428,6 +495,8 @@ void Renderer::begin_frame(const Color &clear_color) {
   std::cout << "  Clear color: (" << clear_color.r << ", " << clear_color.g
             << ", " << clear_color.b << ", " << clear_color.a << ")"
             << std::endl;
+  ensure_swapchain_depth_texture();
+
   auto *cmd = device_->getImmediate();
   if (!command_list_open_) {
     cmd->begin();
@@ -447,6 +516,44 @@ void Renderer::begin_frame(const Color &clear_color) {
     render_pass_active_ = false;
   }
 
+  if (needs_explicit_swapchain_sync()) {
+    std::vector<rhi::ResourceBarrierDesc> barriers;
+    barriers.reserve(2);
+
+    rhi::ResourceBarrierDesc color_barrier{};
+    color_barrier.type = rhi::BarrierType::Texture;
+    color_barrier.texture = rhi::TextureHandle{0};
+    color_barrier.srcStage = rhi::PipelineStage::BottomOfPipe;
+    color_barrier.dstStage = rhi::PipelineStage::TopOfPipe;
+    color_barrier.srcState = rhi::ResourceState::Present;
+    color_barrier.dstState = rhi::ResourceState::RenderTarget;
+    color_barrier.levelCount = 0;
+    color_barrier.layerCount = 0;
+    barriers.push_back(color_barrier);
+
+    if (swapchain_depth_texture_.id != 0) {
+      rhi::ResourceBarrierDesc depth_barrier{};
+      depth_barrier.type = rhi::BarrierType::Texture;
+      depth_barrier.texture = swapchain_depth_texture_;
+      depth_barrier.srcStage =
+          swapchain_depth_initialized_ ? rhi::PipelineStage::FragmentShader
+                                       : rhi::PipelineStage::TopOfPipe;
+      depth_barrier.dstStage = rhi::PipelineStage::FragmentShader;
+      depth_barrier.srcState = swapchain_depth_initialized_
+                                   ? rhi::ResourceState::DepthStencilWrite
+                                   : rhi::ResourceState::Undefined;
+      depth_barrier.dstState = rhi::ResourceState::DepthStencilWrite;
+      depth_barrier.levelCount = 0;
+      depth_barrier.layerCount = 0;
+      barriers.push_back(depth_barrier);
+      swapchain_depth_initialized_ = true;
+    }
+
+    if (!barriers.empty()) {
+      cmd->resourceBarrier(barriers);
+    }
+  }
+
   rhi::RenderPassDesc pass{};
   pass.colorAttachmentCount = 1;
   pass.colorAttachments[0].texture = rhi::TextureHandle{0};
@@ -458,12 +565,17 @@ void Renderer::begin_frame(const Color &clear_color) {
   pass.colorAttachments[0].clearColor[3] = clear_color.a;
 
   pass.hasDepthAttachment = true;
-  pass.depthAttachment.texture = rhi::TextureHandle{0};
+  const bool use_explicit_depth = swapchain_depth_texture_.id != 0;
+  pass.depthAttachment.texture =
+      use_explicit_depth ? swapchain_depth_texture_ : rhi::TextureHandle{0};
   pass.depthAttachment.depthLoadOp = rhi::LoadOp::Clear;
   pass.depthAttachment.depthStoreOp = rhi::StoreOp::DontCare;
   pass.depthAttachment.clearDepth = 1.0f;
-  pass.depthAttachment.hasStencil = true;
-  pass.depthAttachment.stencilLoadOp = rhi::LoadOp::Clear;
+  pass.depthAttachment.hasStencil =
+      use_explicit_depth ? swapchain_depth_has_stencil_ : true;
+  pass.depthAttachment.stencilLoadOp =
+      pass.depthAttachment.hasStencil ? rhi::LoadOp::Clear
+                                      : rhi::LoadOp::DontCare;
   pass.depthAttachment.stencilStoreOp = rhi::StoreOp::DontCare;
   pass.depthAttachment.clearStencil = 0;
 
@@ -492,6 +604,20 @@ void Renderer::end_frame() {
     shadow_map_->end(cmd);
     shadow_pass_active_ = false;
     reset_depth_bias(cmd);
+  }
+
+  if (command_list_open_ && needs_explicit_swapchain_sync()) {
+    rhi::ResourceBarrierDesc present_barrier{};
+    present_barrier.type = rhi::BarrierType::Texture;
+    present_barrier.texture = rhi::TextureHandle{0};
+    present_barrier.srcStage = rhi::PipelineStage::FragmentShader;
+    present_barrier.dstStage = rhi::PipelineStage::BottomOfPipe;
+    present_barrier.srcState = rhi::ResourceState::RenderTarget;
+    present_barrier.dstState = rhi::ResourceState::Present;
+    present_barrier.levelCount = 0;
+    present_barrier.layerCount = 0;
+    std::array<rhi::ResourceBarrierDesc, 1> barriers{present_barrier};
+    cmd->resourceBarrier(barriers);
   }
 
   if (command_list_open_) {
