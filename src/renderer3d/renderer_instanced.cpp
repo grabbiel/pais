@@ -405,6 +405,14 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
     std::cerr << "  ✓ lightColor set" << std::endl;
   }
 
+  float lighting_params[4] = {renderer.directional_light().intensity,
+                              renderer.directional_light().ambient_intensity,
+                              0.0f, 0.0f};
+  if (reflection.has_uniform("lightingParams") || force_metal_uniforms) {
+    cmd->setUniformVec4("lightingParams", lighting_params);
+    std::cerr << "  ✓ lightingParams set" << std::endl;
+  }
+
   if (has_time_uniform || force_metal_uniforms) {
     cmd->setUniformFloat("uTime", static_cast<float>(renderer.time()));
     std::cerr << "  ✓ uTime set" << std::endl;
@@ -444,6 +452,13 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
                           base_material.color.b, base_material.color.a};
     cmd->setUniformVec4("materialColor", mat_color);
     std::cerr << "  ✓ materialColor set" << std::endl;
+  }
+
+  if (reflection.has_uniform("materialParams") || force_metal_uniforms) {
+    float material_params[4] = {base_material.roughness, base_material.metallic,
+                                base_material.glare_intensity, 0.0f};
+    cmd->setUniformVec4("materialParams", material_params);
+    std::cerr << "  ✓ materialParams set" << std::endl;
   }
 
   auto sampler_binding = [&](std::string_view sampler_name) -> uint32_t {

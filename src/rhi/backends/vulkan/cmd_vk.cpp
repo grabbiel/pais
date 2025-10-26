@@ -167,6 +167,8 @@ struct VulkanCmdList::PixelUniformBufferData {
   alignas(16) float ditherScale[4]{1.0f, 0.0f, 0.0f, 0.0f};
   alignas(16) float crossfadeDuration[4]{};
   alignas(16) float padMisc[4]{};
+  alignas(16) float lightingParams[4]{1.0f, 0.3f, 0.0f, 0.0f};
+  alignas(16) float materialParams[4]{0.5f, 0.0f, 0.0f, 0.0f};
   alignas(16) int32_t useTexture[4]{};
   alignas(16) int32_t useTextureArray[4]{};
   alignas(16) int32_t uDitherEnabled[4]{};
@@ -642,7 +644,24 @@ void VulkanCmdList::setUniformVec4(const char *name, const float *vec4) {
     std::memcpy(pixelUniforms_.materialColor, vec4, sizeof(float) * 4);
     ensurePixelUniformResources();
     pixelUniformsDirty_ = true;
+    return;
   }
+
+  if (uniformName == "lightingParams") {
+    std::memcpy(pixelUniforms_.lightingParams, vec4, sizeof(float) * 4);
+    ensurePixelUniformResources();
+    pixelUniformsDirty_ = true;
+    return;
+  }
+
+  if (uniformName == "materialParams") {
+    std::memcpy(pixelUniforms_.materialParams, vec4, sizeof(float) * 4);
+    ensurePixelUniformResources();
+    pixelUniformsDirty_ = true;
+    return;
+  }
+
+  (void)vec4;
 }
 
 void VulkanCmdList::setUniformInt(const char *name, int value) {
