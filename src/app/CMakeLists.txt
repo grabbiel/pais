@@ -5,6 +5,7 @@
 
 add_executable(pixel_life
   main.cpp
+  orbit_camera_controller.cpp
 )
 
 if(TARGET pixel_renderer3d_shaders)
