@@ -27,6 +27,8 @@ layout(std140, set = 0, binding = 1) uniform PixelUniforms {
   float ditherScale;
   float crossfadeDuration;
   float _padMisc;
+  vec4 lightingParams;
+  vec4 materialParams;
   int useTexture;
   int useTextureArray;
   int uDitherEnabled;
@@ -54,25 +56,38 @@ float calculateShadow(vec4 fragPosLightSpace) {
 }
 
 void main() {
-  float ambientStrength = 0.3;
-  vec3 ambient = ambientStrength * lightColor;
+  float lightIntensity = lightingParams.x;
+  float ambientStrength = lightingParams.y;
+  float roughness = clamp(materialParams.x, 0.02, 1.0);
+  float metallic = clamp(materialParams.y, 0.0, 1.0);
+  float glareStrength = max(materialParams.z, 0.0);
 
   vec3 norm = normalize(Normal);
   vec3 lightDir = normalize(lightPos - FragPos);
-  float diff = max(dot(norm, lightDir), 0.0);
-  vec3 diffuse = diff * lightColor;
-
   vec3 viewDir = normalize(viewPos - FragPos);
   vec3 reflectDir = reflect(-lightDir, norm);
-  float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
-  vec3 specular = 0.5 * spec * lightColor;
+
+  float diff = max(dot(norm, lightDir), 0.0);
+  vec3 diffuse = diff * lightColor * lightIntensity;
+
+  float shininess = mix(8.0, 128.0, 1.0 - roughness);
+  float spec_angle = max(dot(viewDir, reflectDir), 0.0);
+  float spec = pow(spec_angle, shininess);
+  float specularStrength = mix(0.1, 1.0, metallic);
+  vec3 specular = specularStrength * spec * lightColor * lightIntensity;
+
+  vec3 ambient = ambientStrength * lightColor * lightIntensity;
 
   // Use materialColor with vertex color
   vec4 baseColor = materialColor * Color;
   vec4 texColor = (useTexture == 1) ? texture(uTexture, TexCoord) * baseColor : baseColor;
 
   float shadowFactor = shadowsEnabled == 1 ? calculateShadow(FragPosLightSpace) : 1.0;
-  vec3 result = ambient + (diffuse + specular) * shadowFactor;
-  result *= texColor.rgb;
+  vec3 lighting = ambient + (diffuse + specular) * shadowFactor;
+  vec3 result = lighting * texColor.rgb;
+
+  vec3 glare = glareStrength * spec * lightColor;
+  result += glare;
+
   FragColor = vec4(result, texColor.a);
 }
