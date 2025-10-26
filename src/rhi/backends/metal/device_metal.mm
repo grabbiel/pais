@@ -9,6 +9,35 @@
 #include <GLFW/glfw3native.h>
 #include <cstring>
 
+namespace {
+
+bool supports_sampler_compare(id<MTLDevice> device) {
+  if (!device) {
+    return false;
+  }
+
+  MTLSamplerDescriptor *descriptor = [[MTLSamplerDescriptor alloc] init];
+  descriptor.minFilter = MTLSamplerMinMagFilterLinear;
+  descriptor.magFilter = MTLSamplerMinMagFilterLinear;
+  descriptor.mipFilter = MTLSamplerMipFilterNotMipmapped;
+  descriptor.sAddressMode = MTLSamplerAddressModeClampToEdge;
+  descriptor.tAddressMode = MTLSamplerAddressModeClampToEdge;
+  descriptor.rAddressMode = MTLSamplerAddressModeClampToEdge;
+  descriptor.compareFunction = MTLCompareFunctionLessEqual;
+
+  id<MTLSamplerState> sampler = [device newSamplerStateWithDescriptor:descriptor];
+  bool supported = sampler != nil;
+
+#if !__has_feature(objc_arc)
+  [sampler release];
+  [descriptor release];
+#endif
+
+  return supported;
+}
+
+} // namespace
+
 namespace pixel::rhi {
 
 MetalDevice::MetalDevice(void *device, void *layer, void *depth_texture,
@@ -34,21 +63,24 @@ MetalDevice::MetalDevice(void *device, void *layer, void *depth_texture,
   if (backend_name_.empty()) {
     backend_name_ = "Metal";
   }
+
+  caps_.instancing = true;
+  caps_.samplerAniso = true;
+  caps_.maxSamplerAnisotropy = 16.0f;
+  caps_.samplerCompare = supports_sampler_compare(metalDevice);
+  if (!caps_.samplerCompare) {
+    std::cerr << "[Metal] Warning: depth comparison sampling not supported on this"
+                 " device. Shadows will be disabled."
+              << std::endl;
+  }
+  caps_.uniformBuffers = true;
+  caps_.clipSpaceYDown = false;
+  caps_.clipSpaceDepthZeroToOne = true;
 }
 
 MetalDevice::~MetalDevice() = default;
 
-const Caps &MetalDevice::caps() const {
-  static Caps caps;
-  caps.instancing = true;
-  caps.samplerAniso = true;
-  caps.maxSamplerAnisotropy = 16.0f;
-  caps.samplerCompare = true;
-  caps.uniformBuffers = true;
-  caps.clipSpaceYDown = false;
-  caps.clipSpaceDepthZeroToOne = true; // Metal expects depth in the [0, 1] range
-  return caps;
-}
+const Caps &MetalDevice::caps() const { return caps_; }
 
 const char *MetalDevice::backend_name() const { return backend_name_.c_str(); }
 
