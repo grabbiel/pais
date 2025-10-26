@@ -371,6 +371,10 @@ void Renderer::draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
   cmd->setIndexBuffer(mesh.index_buffer());
 
   const ShaderReflection &reflection = shader->reflection();
+  const bool force_metal_uniforms =
+      device_ && device_->backend_name() &&
+      std::string_view(device_->backend_name()).find("Metal") !=
+          std::string_view::npos;
 
   glm::mat4 model = glm::mat4(1.0f);
   model = glm::translate(model, glm::vec3(position.x, position.y, position.z));
@@ -379,7 +383,7 @@ void Renderer::draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
   model = glm::rotate(model, rotation.x, glm::vec3(1, 0, 0));
   model = glm::scale(model, glm::vec3(scale.x, scale.y, scale.z));
 
-  if (reflection.has_uniform("model")) {
+  if (reflection.has_uniform("model") || force_metal_uniforms) {
     cmd->setUniformMat4("model", glm::value_ptr(model));
   }
   if (reflection.has_uniform("lightViewProj") && shadow_map_) {
@@ -819,17 +823,18 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
   // Calculate and set normal matrix
   glm::mat3 normalMatrix3x3 = glm::transpose(glm::inverse(glm::mat3(model)));
   glm::mat4 normalMatrix4x4 = glm::mat4(normalMatrix3x3);
-  if (reflection.has_uniform("normalMatrix")) {
+  if (reflection.has_uniform("normalMatrix") || force_metal_uniforms) {
     cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix4x4));
   }
-  if (reflection.has_uniform("view")) {
+  if (reflection.has_uniform("view") || force_metal_uniforms) {
     cmd->setUniformMat4("view", glm::value_ptr(view_mat));
   }
-  if (reflection.has_uniform("projection")) {
+  if (reflection.has_uniform("projection") || force_metal_uniforms) {
     cmd->setUniformMat4("projection", glm::value_ptr(projection_mat));
   }
 
-  if (shadow_map_ && reflection.has_uniform("lightViewProj")) {
+  if (shadow_map_ &&
+      (reflection.has_uniform("lightViewProj") || force_metal_uniforms)) {
     cmd->setUniformMat4("lightViewProj",
                         glm::value_ptr(shadow_map_->light_view_projection()));
   }
@@ -843,18 +848,18 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
   float light_color[3] = {directional_light_.color.r,
                           directional_light_.color.g,
                           directional_light_.color.b};
-  if (reflection.has_uniform("lightPos")) {
+  if (reflection.has_uniform("lightPos") || force_metal_uniforms) {
     cmd->setUniformVec3("lightPos", light_pos);
   }
-  if (reflection.has_uniform("viewPos")) {
+  if (reflection.has_uniform("viewPos") || force_metal_uniforms) {
     cmd->setUniformVec3("viewPos", view_pos);
   }
-  if (reflection.has_uniform("lightColor")) {
+  if (reflection.has_uniform("lightColor") || force_metal_uniforms) {
     cmd->setUniformVec3("lightColor", light_color);
   }
 
   // Set material uniforms
-  if (reflection.has_uniform("useTexture")) {
+  if (reflection.has_uniform("useTexture") || force_metal_uniforms) {
     cmd->setUniformInt("useTexture", (material.texture.id != 0) ? 1 : 0);
   }
 
@@ -894,13 +899,13 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
     std::cerr << "[Renderer] Shader expects shadow map but it is unavailable"
               << std::endl;
   }
-  if (reflection.has_uniform("shadowBias")) {
+  if (reflection.has_uniform("shadowBias") || force_metal_uniforms) {
     float bias = shadow_map_ ? shadow_map_->settings().shadow_bias : 0.0f;
     std::cout << "[Renderer] Setting shadow bias uniform to " << bias
               << std::endl;
     cmd->setUniformFloat("shadowBias", bias);
   }
-  if (reflection.has_uniform("shadowsEnabled")) {
+  if (reflection.has_uniform("shadowsEnabled") || force_metal_uniforms) {
     std::cout << "[Renderer] Setting shadowsEnabled uniform to "
               << (shadows_enabled ? 1 : 0) << std::endl;
     cmd->setUniformInt("shadowsEnabled", shadows_enabled ? 1 : 0);
@@ -909,7 +914,7 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
   // Set material color
   float mat_color[4] = {material.color.r, material.color.g, material.color.b,
                         material.color.a};
-  if (reflection.has_uniform("materialColor")) {
+  if (reflection.has_uniform("materialColor") || force_metal_uniforms) {
     cmd->setUniformVec4("materialColor", mat_color);
   }
 
