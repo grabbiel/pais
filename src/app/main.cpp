@@ -29,7 +29,8 @@ using pixel::renderer3d::Vec3;
 namespace {
 
 constexpr float kSphereRadius = 1.0f;
-constexpr float kTerrainSize = 20.0f;
+constexpr float kRoomSize = 14.0f;
+constexpr float kWallHeight = 8.0f;
 
 std::unique_ptr<Mesh> create_sphere_mesh(Renderer &renderer, int segments = 48,
                                          int rings = 24,
@@ -140,9 +141,21 @@ int main() {
   configure_shadow_map(*renderer);
   renderer->set_directional_light(create_key_light());
 
-  auto terrain_mesh = renderer->create_plane(kTerrainSize, kTerrainSize, 1);
-  if (!terrain_mesh) {
-    std::cerr << "Failed to create terrain mesh" << std::endl;
+  auto floor_mesh = renderer->create_plane(kRoomSize, kRoomSize, 1);
+  if (!floor_mesh) {
+    std::cerr << "Failed to create floor mesh" << std::endl;
+    return EXIT_FAILURE;
+  }
+
+  auto front_back_wall_mesh = renderer->create_plane(kRoomSize, kWallHeight, 1);
+  if (!front_back_wall_mesh) {
+    std::cerr << "Failed to create front/back wall mesh" << std::endl;
+    return EXIT_FAILURE;
+  }
+
+  auto side_wall_mesh = renderer->create_plane(kWallHeight, kRoomSize, 1);
+  if (!side_wall_mesh) {
+    std::cerr << "Failed to create side wall mesh" << std::endl;
     return EXIT_FAILURE;
   }
 
@@ -152,14 +165,23 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  Material terrain_material;
-  terrain_material.blend_mode = Material::BlendMode::Opaque;
-  terrain_material.depth_test = true;
-  terrain_material.depth_write = true;
-  terrain_material.color = Color(0.38f, 0.24f, 0.12f, 1.0f);
-  terrain_material.roughness = 0.8f;
-  terrain_material.metallic = 0.05f;
-  terrain_material.glare_intensity = 0.0f;
+  Material floor_material;
+  floor_material.blend_mode = Material::BlendMode::Opaque;
+  floor_material.depth_test = true;
+  floor_material.depth_write = true;
+  floor_material.color = Color(0.22f, 0.22f, 0.24f, 1.0f);
+  floor_material.roughness = 0.9f;
+  floor_material.metallic = 0.05f;
+  floor_material.glare_intensity = 0.0f;
+
+  Material wall_material;
+  wall_material.blend_mode = Material::BlendMode::Opaque;
+  wall_material.depth_test = true;
+  wall_material.depth_write = true;
+  wall_material.color = Color(0.75f, 0.75f, 0.78f, 1.0f);
+  wall_material.roughness = 0.85f;
+  wall_material.metallic = 0.02f;
+  wall_material.glare_intensity = 0.0f;
 
   Material sphere_material;
   sphere_material.blend_mode = Material::BlendMode::Opaque;
@@ -192,21 +214,55 @@ int main() {
 
     rotation += delta_time * glm::radians(15.0f);
 
+    const float half_room = kRoomSize * 0.5f;
+    const float half_wall_height = kWallHeight * 0.5f;
+
     renderer->begin_shadow_pass();
-    renderer->draw_shadow_mesh(*terrain_mesh, Vec3{0.0f, 0.0f, 0.0f},
+    renderer->draw_shadow_mesh(*floor_mesh, Vec3{0.0f, 0.0f, 0.0f},
                                Vec3{0.0f, 0.0f, 0.0f}, Vec3{1.0f, 1.0f, 1.0f},
-                               &terrain_material);
+                               &floor_material);
+    renderer->draw_shadow_mesh(*front_back_wall_mesh,
+                               Vec3{0.0f, half_wall_height, half_room},
+                               Vec3{-glm::half_pi<float>(), 0.0f, 0.0f},
+                               Vec3{1.0f, 1.0f, 1.0f}, &wall_material);
+    renderer->draw_shadow_mesh(*front_back_wall_mesh,
+                               Vec3{0.0f, half_wall_height, -half_room},
+                               Vec3{glm::half_pi<float>(), 0.0f, 0.0f},
+                               Vec3{1.0f, 1.0f, 1.0f}, &wall_material);
+    renderer->draw_shadow_mesh(*side_wall_mesh,
+                               Vec3{-half_room, half_wall_height, 0.0f},
+                               Vec3{0.0f, 0.0f, -glm::half_pi<float>()},
+                               Vec3{1.0f, 1.0f, 1.0f}, &wall_material);
+    renderer->draw_shadow_mesh(*side_wall_mesh,
+                               Vec3{half_room, half_wall_height, 0.0f},
+                               Vec3{0.0f, 0.0f, glm::half_pi<float>()},
+                               Vec3{1.0f, 1.0f, 1.0f}, &wall_material);
     renderer->draw_shadow_mesh(*sphere_mesh, Vec3{0.0f, kSphereRadius, 0.0f},
                                Vec3{0.0f, rotation, 0.0f},
                                Vec3{1.0f, 1.0f, 1.0f}, &sphere_material);
     renderer->end_shadow_pass();
 
-    renderer->begin_frame(Color(0.08f, 0.09f, 0.12f, 1.0f));
+    renderer->begin_frame(Color(0.05f, 0.06f, 0.08f, 1.0f));
 
-    renderer->draw_mesh(*terrain_mesh, Vec3{0.0f, 0.0f, 0.0f},
+    renderer->draw_mesh(*floor_mesh, Vec3{0.0f, 0.0f, 0.0f},
                         Vec3{0.0f, 0.0f, 0.0f}, Vec3{1.0f, 1.0f, 1.0f},
-                        terrain_material);
-
+                        floor_material);
+    renderer->draw_mesh(*front_back_wall_mesh,
+                        Vec3{0.0f, half_wall_height, half_room},
+                        Vec3{-glm::half_pi<float>(), 0.0f, 0.0f},
+                        Vec3{1.0f, 1.0f, 1.0f}, wall_material);
+    renderer->draw_mesh(*front_back_wall_mesh,
+                        Vec3{0.0f, half_wall_height, -half_room},
+                        Vec3{glm::half_pi<float>(), 0.0f, 0.0f},
+                        Vec3{1.0f, 1.0f, 1.0f}, wall_material);
+    renderer->draw_mesh(*side_wall_mesh,
+                        Vec3{-half_room, half_wall_height, 0.0f},
+                        Vec3{0.0f, 0.0f, -glm::half_pi<float>()},
+                        Vec3{1.0f, 1.0f, 1.0f}, wall_material);
+    renderer->draw_mesh(*side_wall_mesh,
+                        Vec3{half_room, half_wall_height, 0.0f},
+                        Vec3{0.0f, 0.0f, glm::half_pi<float>()},
+                        Vec3{1.0f, 1.0f, 1.0f}, wall_material);
     renderer->draw_mesh(*sphere_mesh, Vec3{0.0f, kSphereRadius, 0.0f},
                         Vec3{0.0f, rotation, 0.0f}, Vec3{1.0f, 1.0f, 1.0f},
                         sphere_material);
