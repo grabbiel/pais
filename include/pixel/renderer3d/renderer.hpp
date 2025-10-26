@@ -159,6 +159,8 @@ private:
   std::string frag_path_;
   std::string vs_stage_;
   std::string fs_stage_;
+  bool is_vulkan_backend_{false};
+  std::string metal_source_code_;
   mutable std::unordered_map<std::string, VariantData> variant_cache_;
 
 public:
