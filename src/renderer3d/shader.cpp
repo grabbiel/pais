@@ -85,6 +85,34 @@ std::span<const uint32_t> bytes_to_words(const std::vector<uint8_t> &bytes) {
       bytes.size() / sizeof(uint32_t));
 }
 
+std::string apply_variant_defines(const std::string &source,
+                                  const ShaderVariantKey &variant) {
+  if (variant.empty()) {
+    return source;
+  }
+
+  std::string with_defines;
+  with_defines.reserve(source.size() + 128);
+  with_defines.append("// Auto-generated variant defines\n");
+  for (const auto &[name, value] : variant.defines()) {
+    with_defines.append("#define ");
+    with_defines.append(name);
+    if (!value.empty()) {
+      with_defines.push_back(' ');
+      with_defines.append(value);
+    }
+    with_defines.push_back('\n');
+  }
+  with_defines.push_back('\n');
+  with_defines.append(source);
+  return with_defines;
+}
+
+std::span<const uint8_t> string_to_span(const std::string &str) {
+  return std::span<const uint8_t>(
+      reinterpret_cast<const uint8_t *>(str.data()), str.size());
+}
+
 } // namespace
 
 // ============================================================================
@@ -139,7 +167,24 @@ std::unique_ptr<Shader> Shader::create(rhi::Device *device,
   shader->device_ = device;
   shader->vert_path_ = vert_path;
   shader->frag_path_ = frag_path;
-  (void)metal_source_path;
+  shader->is_vulkan_backend_ = is_vulkan_backend(device);
+
+  if (!shader->is_vulkan_backend_) {
+    if (metal_source_path) {
+      try {
+        shader->metal_source_code_ =
+            platform::load_shader_file(*metal_source_path);
+        std::cout << "  Loaded Metal shader source: " << *metal_source_path
+                  << std::endl;
+      } catch (const std::exception &e) {
+        std::cerr << "  Warning: Failed to load Metal shader source '"
+                  << *metal_source_path << "': " << e.what() << std::endl;
+      }
+    } else {
+      std::cout << "  Metal backend detected without explicit source; using"
+                << " default library" << std::endl;
+    }
+  }
 
   std::cout << "Shader::create() loading precompiled stages:" << std::endl;
   std::cout << "  Vertex source:   " << vert_path << std::endl;
@@ -172,7 +217,7 @@ std::unique_ptr<Shader> Shader::create(rhi::Device *device,
   shader->variant_cache_.emplace(default_variant.cache_key(),
                                  shader->build_variant(default_variant));
 
-  std::cout << "  Default shader variant loaded from SPIR-V" << std::endl;
+  std::cout << "  Default shader variant loaded" << std::endl;
 
   return shader;
 }
@@ -197,40 +242,92 @@ Shader::VariantData Shader::build_variant(const ShaderVariantKey &variant) const
     throw std::runtime_error("Shader created without a valid device");
   }
 
-  if (!is_vulkan_backend(device_)) {
-    throw std::runtime_error(
-        "Shader::build_variant requires a Vulkan backend with SPIR-V bytecode");
-  }
-
   std::string cache_key = variant.cache_key();
   std::cout << "Shader::build_variant()" << std::endl;
   std::cout << "  Variant cache key: '" << cache_key << "'" << std::endl;
-
-  std::string vert_spirv_path = make_spirv_path(vert_path_, variant);
-  std::string frag_spirv_path = make_spirv_path(frag_path_, variant);
-
-  std::cout << "  Vertex SPIR-V:   " << vert_spirv_path << std::endl;
-  std::cout << "  Fragment SPIR-V: " << frag_spirv_path << std::endl;
-
-  std::vector<uint8_t> vert_bytes =
-      platform::load_shader_bytecode(vert_spirv_path);
-  std::vector<uint8_t> frag_bytes =
-      platform::load_shader_bytecode(frag_spirv_path);
-
   VariantData data{};
 
-  auto vert_span = std::span<const uint8_t>(vert_bytes.data(), vert_bytes.size());
-  auto frag_span = std::span<const uint8_t>(frag_bytes.data(), frag_bytes.size());
+  if (is_vulkan_backend_) {
+    std::string vert_spirv_path = make_spirv_path(vert_path_, variant);
+    std::string frag_spirv_path = make_spirv_path(frag_path_, variant);
 
-  data.vs = device_->createShaderFromBytecode(vs_stage_, vert_span);
-  if (data.vs.id == 0) {
-    throw std::runtime_error("Failed to create vertex shader from SPIR-V bytecode");
+    std::cout << "  Vertex SPIR-V:   " << vert_spirv_path << std::endl;
+    std::cout << "  Fragment SPIR-V: " << frag_spirv_path << std::endl;
+
+    std::vector<uint8_t> vert_bytes =
+        platform::load_shader_bytecode(vert_spirv_path);
+    std::vector<uint8_t> frag_bytes =
+        platform::load_shader_bytecode(frag_spirv_path);
+
+    auto vert_span =
+        std::span<const uint8_t>(vert_bytes.data(), vert_bytes.size());
+    auto frag_span =
+        std::span<const uint8_t>(frag_bytes.data(), frag_bytes.size());
+
+    data.vs = device_->createShaderFromBytecode(vs_stage_, vert_span);
+    if (data.vs.id == 0) {
+      throw std::runtime_error(
+          "Failed to create vertex shader from SPIR-V bytecode");
+    }
+
+    data.fs = device_->createShaderFromBytecode(fs_stage_, frag_span);
+    if (data.fs.id == 0) {
+      throw std::runtime_error(
+          "Failed to create fragment shader from SPIR-V bytecode");
+    }
+
+    auto build_desc = [&](const rhi::BlendState &blend) {
+      rhi::PipelineDesc desc{};
+      desc.vs = data.vs;
+      desc.fs = data.fs;
+      desc.colorAttachmentCount = 1;
+      desc.colorAttachments[0].format = rhi::Format::BGRA8;
+      desc.colorAttachments[0].blend = blend;
+      return desc;
+    };
+
+    data.pipelines[static_cast<size_t>(Material::BlendMode::Alpha)] =
+        device_->createPipeline(build_desc(rhi::make_alpha_blend_state()));
+    data.pipelines[static_cast<size_t>(Material::BlendMode::Additive)] =
+        device_->createPipeline(build_desc(rhi::make_additive_blend_state()));
+    data.pipelines[static_cast<size_t>(Material::BlendMode::Multiply)] =
+        device_->createPipeline(build_desc(rhi::make_multiply_blend_state()));
+    data.pipelines[static_cast<size_t>(Material::BlendMode::Opaque)] =
+        device_->createPipeline(build_desc(rhi::make_disabled_blend_state()));
+
+    ShaderReflection vert_reflection =
+        reflect_spirv(bytes_to_words(vert_bytes), ShaderStage::Vertex);
+    ShaderReflection frag_reflection =
+        reflect_spirv(bytes_to_words(frag_bytes), ShaderStage::Fragment);
+    data.reflection = std::move(vert_reflection);
+    data.reflection.merge(frag_reflection);
+    std::cout << "  Reflection summary: uniforms="
+              << data.reflection.uniforms().size() << std::endl;
+    return data;
   }
 
-  data.fs = device_->createShaderFromBytecode(fs_stage_, frag_span);
+  std::cout << "  Using Metal shader compilation path" << std::endl;
+
+  std::span<const uint8_t> source_span{};
+  std::string variant_source_storage;
+  if (!metal_source_code_.empty()) {
+    if (variant.empty()) {
+      source_span = string_to_span(metal_source_code_);
+    } else {
+      variant_source_storage = apply_variant_defines(metal_source_code_, variant);
+      source_span = string_to_span(variant_source_storage);
+    }
+  }
+
+  data.vs = device_->createShader(vs_stage_, source_span);
+  if (data.vs.id == 0) {
+    throw std::runtime_error("Failed to create vertex shader for Metal backend");
+  }
+
+  data.fs = device_->createShader(fs_stage_, source_span);
   if (data.fs.id == 0) {
     throw std::runtime_error(
-        "Failed to create fragment shader from SPIR-V bytecode");
+        "Failed to create fragment shader for Metal backend");
   }
 
   auto build_desc = [&](const rhi::BlendState &blend) {
@@ -252,12 +349,29 @@ Shader::VariantData Shader::build_variant(const ShaderVariantKey &variant) const
   data.pipelines[static_cast<size_t>(Material::BlendMode::Opaque)] =
       device_->createPipeline(build_desc(rhi::make_disabled_blend_state()));
 
-  ShaderReflection vert_reflection =
-      reflect_spirv(bytes_to_words(vert_bytes), ShaderStage::Vertex);
-  ShaderReflection frag_reflection =
-      reflect_spirv(bytes_to_words(frag_bytes), ShaderStage::Fragment);
-  data.reflection = std::move(vert_reflection);
-  data.reflection.merge(frag_reflection);
+  try {
+    std::string vert_spirv_path = make_spirv_path(vert_path_, variant);
+    std::string frag_spirv_path = make_spirv_path(frag_path_, variant);
+    std::cout << "  Attempting to load SPIR-V reflection data from:"
+              << "\n    VS: " << vert_spirv_path << "\n    FS: " << frag_spirv_path
+              << std::endl;
+
+    std::vector<uint8_t> vert_bytes =
+        platform::load_shader_bytecode(vert_spirv_path);
+    std::vector<uint8_t> frag_bytes =
+        platform::load_shader_bytecode(frag_spirv_path);
+
+    ShaderReflection vert_reflection =
+        reflect_spirv(bytes_to_words(vert_bytes), ShaderStage::Vertex);
+    ShaderReflection frag_reflection =
+        reflect_spirv(bytes_to_words(frag_bytes), ShaderStage::Fragment);
+    data.reflection = std::move(vert_reflection);
+    data.reflection.merge(frag_reflection);
+  } catch (const std::exception &e) {
+    std::cerr << "  Warning: Metal shader reflection unavailable: "
+              << e.what() << std::endl;
+  }
+
   std::cout << "  Reflection summary: uniforms="
             << data.reflection.uniforms().size() << std::endl;
 
