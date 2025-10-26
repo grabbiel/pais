@@ -35,7 +35,12 @@ void main() {
   float alpha = baseAlpha * VertexAlpha;
 
   if (useTextureArray == 1) {
-    alpha *= texture(uTextureArray, vec3(TexCoord, TextureIndex)).a;
+    int layerCount = textureSize(uTextureArray, 0).z;
+    float clampedIndex = (layerCount > 0)
+                             ? clamp(TextureIndex, 0.0,
+                                     float(layerCount - 1))
+                             : 0.0;
+    alpha *= texture(uTextureArray, vec3(TexCoord, clampedIndex)).a;
   } else if (useTexture == 1) {
     alpha *= texture(uTexture, TexCoord).a;
   }

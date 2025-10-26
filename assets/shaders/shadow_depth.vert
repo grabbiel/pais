@@ -1,5 +1,10 @@
 #version 450 core
 layout (location = 0) in vec3 aPos;
+layout (location = 2) in vec2 aTexCoord;
+layout (location = 3) in vec4 aColor;
+
+layout (location = 0) out vec2 TexCoord;
+layout (location = 1) out float VertexAlpha;
 
 layout(std140, set = 0, binding = 1) uniform PixelUniforms {
   mat4 model;
@@ -27,5 +32,7 @@ layout(std140, set = 0, binding = 1) uniform PixelUniforms {
 };
 
 void main() {
+  TexCoord = aTexCoord;
+  VertexAlpha = aColor.a;
   gl_Position = lightViewProj * model * vec4(aPos, 1.0);
 }

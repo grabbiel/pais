@@ -41,6 +41,11 @@ public:
   const glm::mat4 &light_projection() const { return light_projection_; }
   const glm::mat4 &light_view_projection() const { return light_view_projection_; }
 
+  bool is_initialized() const { return initialized_; }
+  bool supports_hardware_compare() const { return supports_compare_sampling_; }
+  bool depth_ready_for_sampling() const { return depth_ready_for_sampling_; }
+  bool is_ready_for_sampling() const;
+
   rhi::TextureHandle texture() const { return depth_texture_; }
   rhi::FramebufferHandle framebuffer() const { return framebuffer_; }
   rhi::RenderPassDesc render_pass_desc() const { return pass_desc_; }
@@ -71,6 +76,7 @@ private:
   bool initialized_{false};
   bool depth_initialized_{false};
   bool depth_ready_for_sampling_{false};
+  bool supports_compare_sampling_{false};
 };
 
 } // namespace pixel::renderer3d

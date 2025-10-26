@@ -322,6 +322,9 @@ fragment float4 fragment_instanced(
 
 struct ShadowVertexOut {
     float4 position [[position]];
+    float2 texCoord;
+    float vertexAlpha;
+    float textureIndex;
 };
 
 vertex ShadowVertexOut vertex_shadow_depth(
@@ -330,6 +333,9 @@ vertex ShadowVertexOut vertex_shadow_depth(
     ShadowVertexOut out;
     float4 worldPos = uniforms.model * float4(in.position, 1.0);
     out.position = uniforms.lightViewProj * worldPos;
+    out.texCoord = in.texCoord;
+    out.vertexAlpha = in.color.a;
+    out.textureIndex = 0.0f;
     return out;
 }
 
@@ -371,10 +377,35 @@ vertex ShadowVertexOut vertex_shadow_depth_instanced(
 
     float4 worldPos = uniforms.model * float4(worldPosition, 1.0);
     out.position = uniforms.lightViewProj * worldPos;
+    out.texCoord = in.texCoord;
+    out.vertexAlpha = in.color.a * in.instanceColor.a;
+    out.textureIndex = in.instanceTextureIndex;
     return out;
 }
 
-fragment void fragment_shadow_depth() {}
+fragment void fragment_shadow_depth(
+    ShadowVertexOut in [[stage_in]],
+    constant Uniforms& uniforms [[buffer(1)]],
+    texture2d<float> colorTexture [[texture(0)]],
+    texture2d_array<float> textureArray [[texture(1)]],
+    sampler textureSampler [[sampler(0)]]) {
+    float alpha = uniforms.baseAlpha * in.vertexAlpha;
+
+    if (uniforms.useTextureArray != 0) {
+        uint layerCount = textureArray.get_array_size();
+        if (layerCount > 0) {
+            float roundedIndex = floor(in.textureIndex + 0.5f);
+            uint clampedIndex = min(uint(max(0.0f, roundedIndex)), layerCount - 1);
+            alpha *= textureArray.sample(textureSampler, in.texCoord, clampedIndex).a;
+        }
+    } else if (uniforms.useTexture != 0) {
+        alpha *= colorTexture.sample(textureSampler, in.texCoord).a;
+    }
+
+    if (alpha < uniforms.alphaCutoff) {
+        discard_fragment();
+    }
+}
 
 // ============================================================================
 // Compute Shaders

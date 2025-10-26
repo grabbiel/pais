@@ -345,7 +345,8 @@ void Renderer::end_shadow_pass() {
 }
 
 void Renderer::draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
-                                const Vec3 &rotation, const Vec3 &scale) {
+                                const Vec3 &rotation, const Vec3 &scale,
+                                const Material *material) {
   if (!shadow_pass_active_) {
     std::cerr << "[Renderer] Cannot draw shadow mesh: shadow pass not active"
               << std::endl;
@@ -370,6 +371,12 @@ void Renderer::draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
   cmd->setVertexBuffer(mesh.vertex_buffer());
   cmd->setIndexBuffer(mesh.index_buffer());
 
+  rhi::DepthStencilState depth_state{};
+  depth_state.depthTestEnable = true;
+  depth_state.depthWriteEnable = true;
+  depth_state.depthCompare = rhi::CompareOp::LessEqual;
+  cmd->setDepthStencilState(depth_state);
+
   const ShaderReflection &reflection = shader->reflection();
   const bool force_metal_uniforms =
       device_ && device_->backend_name() &&
@@ -389,6 +396,40 @@ void Renderer::draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
   if (reflection.has_uniform("lightViewProj") && shadow_map_) {
     cmd->setUniformMat4("lightViewProj",
                         glm::value_ptr(shadow_map_->light_view_projection()));
+  }
+
+  if (reflection.has_uniform("useTexture") || force_metal_uniforms) {
+    const int use_texture =
+        (material && material->texture.id != 0) ? 1 : 0;
+    cmd->setUniformInt("useTexture", use_texture);
+  }
+
+  if (reflection.has_uniform("useTextureArray") || force_metal_uniforms) {
+    cmd->setUniformInt("useTextureArray", 0);
+  }
+
+  if (reflection.has_uniform("alphaCutoff") || force_metal_uniforms) {
+    const float cutoff = material ? 0.3f : 0.0f;
+    cmd->setUniformFloat("alphaCutoff", cutoff);
+  }
+
+  if (reflection.has_uniform("baseAlpha") || force_metal_uniforms) {
+    const float base_alpha = material ? material->color.a : 1.0f;
+    cmd->setUniformFloat("baseAlpha", base_alpha);
+  }
+
+  auto sampler_binding = [&](std::string_view sampler_name) -> uint32_t {
+    if (const ShaderUniform *uniform = reflection.find_uniform(sampler_name)) {
+      if (uniform->binding)
+        return *uniform->binding;
+    }
+    return 0u;
+  };
+
+  if (material && material->texture.id != 0 &&
+      reflection.has_sampler("uTexture")) {
+    cmd->setTexture("uTexture", material->texture,
+                    sampler_binding("uTexture"));
   }
 
   std::cout << "[Renderer] Drawing shadow mesh with " << mesh.index_count()
@@ -435,7 +476,17 @@ void Renderer::draw_shadow_mesh_instanced(const InstancedMesh &mesh,
   cmd->setIndexBuffer(mesh.index_buffer());
   cmd->setInstanceBuffer(mesh.instance_buffer(), sizeof(InstanceGPUData));
 
+  rhi::DepthStencilState depth_state{};
+  depth_state.depthTestEnable = true;
+  depth_state.depthWriteEnable = true;
+  depth_state.depthCompare = rhi::CompareOp::LessEqual;
+  cmd->setDepthStencilState(depth_state);
+
   const ShaderReflection &reflection = shader->reflection();
+  const bool force_metal_uniforms =
+      device_ && device_->backend_name() &&
+      std::string_view(device_->backend_name()).find("Metal") !=
+          std::string_view::npos;
 
   glm::mat4 model = glm::mat4(1.0f);
   model = glm::translate(model, glm::vec3(position.x, position.y, position.z));
@@ -444,31 +495,32 @@ void Renderer::draw_shadow_mesh_instanced(const InstancedMesh &mesh,
   model = glm::rotate(model, rotation.x, glm::vec3(1, 0, 0));
   model = glm::scale(model, glm::vec3(scale.x, scale.y, scale.z));
 
-  if (reflection.has_uniform("model")) {
+  if (reflection.has_uniform("model") || force_metal_uniforms) {
     cmd->setUniformMat4("model", glm::value_ptr(model));
   }
-  if (reflection.has_uniform("lightViewProj") && shadow_map_) {
+  if ((reflection.has_uniform("lightViewProj") || force_metal_uniforms) &&
+      shadow_map_) {
     cmd->setUniformMat4("lightViewProj",
                         glm::value_ptr(shadow_map_->light_view_projection()));
   }
 
-  if (reflection.has_uniform("useTextureArray")) {
+  if (reflection.has_uniform("useTextureArray") || force_metal_uniforms) {
     int use_array =
         material && material->texture_array.id != 0 ? 1 : 0;
     cmd->setUniformInt("useTextureArray", use_array);
   }
 
-  if (reflection.has_uniform("useTexture")) {
+  if (reflection.has_uniform("useTexture") || force_metal_uniforms) {
     int use_texture = material && material->texture.id != 0 ? 1 : 0;
     cmd->setUniformInt("useTexture", use_texture);
   }
 
-  if (reflection.has_uniform("alphaCutoff")) {
-    float cutoff = 0.3f;
+  if (reflection.has_uniform("alphaCutoff") || force_metal_uniforms) {
+    float cutoff = material ? 0.3f : 0.0f;
     cmd->setUniformFloat("alphaCutoff", cutoff);
   }
 
-  if (reflection.has_uniform("baseAlpha")) {
+  if (reflection.has_uniform("baseAlpha") || force_metal_uniforms) {
     float alpha = 1.0f;
     if (material) {
       alpha = material->color.a;
@@ -887,8 +939,11 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
                     sampler_binding("uTexture"));
   }
 
-  bool shadows_enabled =
-      shadow_map_ && shadow_pipeline_.id != 0 && shadow_map_->texture().id != 0;
+  const bool shadow_map_available =
+      shadow_map_ && shadow_pipeline_.id != 0 && shadow_map_->is_initialized();
+  const bool shadow_ready =
+      shadow_map_available && shadow_map_->is_ready_for_sampling();
+  bool shadows_enabled = shadow_ready;
   if (!shadow_map_) {
     std::cerr << "[Renderer] Shadow uniforms disabled: shadow map not available"
               << std::endl;
@@ -896,8 +951,14 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
     std::cerr
         << "[Renderer] Shadow uniforms disabled: shadow pipeline handle invalid"
         << std::endl;
-  } else if (shadow_map_->texture().id == 0) {
-    std::cerr << "[Renderer] Shadow uniforms disabled: depth texture missing"
+  } else if (!shadow_map_->supports_hardware_compare()) {
+    std::cerr
+        << "[Renderer] Shadow uniforms disabled: hardware depth comparison not"
+           " available"
+        << std::endl;
+    shadows_enabled = false;
+  } else if (!shadow_ready) {
+    std::cerr << "[Renderer] Shadow uniforms disabled: depth data not ready"
               << std::endl;
   }
   if (reflection.has_sampler("shadowMap") && shadows_enabled) {
@@ -910,7 +971,9 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
               << std::endl;
   }
   if (reflection.has_uniform("shadowBias") || force_metal_uniforms) {
-    float bias = shadow_map_ ? shadow_map_->settings().shadow_bias : 0.0f;
+    float bias =
+        (shadow_map_ && shadows_enabled) ? shadow_map_->settings().shadow_bias
+                                         : 0.0f;
     std::cout << "[Renderer] Setting shadow bias uniform to " << bias
               << std::endl;
     cmd->setUniformFloat("shadowBias", bias);

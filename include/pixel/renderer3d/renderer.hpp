@@ -235,7 +235,8 @@ public:
   void begin_shadow_pass();
   void end_shadow_pass();
   void draw_shadow_mesh(const Mesh &mesh, const Vec3 &position,
-                        const Vec3 &rotation, const Vec3 &scale);
+                        const Vec3 &rotation, const Vec3 &scale,
+                        const Material *material = nullptr);
 
   int window_width() const;
   int window_height() const;
