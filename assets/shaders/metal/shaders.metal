@@ -140,9 +140,9 @@ fragment float4 fragment_main(
     VertexOut in [[stage_in]],
     constant Uniforms& uniforms [[buffer(1)]],
     texture2d<float> colorTexture [[texture(0)]],
-    depth2d<float> shadowMap [[texture(1)]],
+    depth2d<float> shadowMap [[texture(2)]],
     sampler textureSampler [[sampler(0)]],
-    sampler shadowSampler [[sampler(1)]]
+    sampler shadowSampler [[sampler(2)]]
 ) {
     float3 norm = normalize(in.normal);
     float3 lightDir = normalize(uniforms.lightPos - in.fragPos);
@@ -261,7 +261,7 @@ fragment float4 fragment_instanced(
     texture2d_array<float> textureArray [[texture(1)]],
     depth2d<float> shadowMap [[texture(2)]],
     sampler textureSampler [[sampler(0)]],
-    sampler shadowSampler [[sampler(1)]]
+    sampler shadowSampler [[sampler(2)]]
 ) {
     float3 norm = normalize(in.normal);
     float3 lightDir = normalize(uniforms.lightPos - in.fragPos);
