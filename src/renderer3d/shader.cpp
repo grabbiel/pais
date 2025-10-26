@@ -18,6 +18,77 @@ namespace pixel::renderer3d {
 
 namespace {
 
+ShaderReflection make_default_metal_reflection(bool instanced) {
+  ShaderReflection reflection;
+
+  ShaderBlock pixel_block;
+  pixel_block.type = ShaderBlockType::Uniform;
+  pixel_block.block_name = "PixelUniforms";
+  pixel_block.instance_name = "PixelUniforms";
+  pixel_block.binding = 1;
+  pixel_block.add_stage(ShaderStage::Vertex);
+  pixel_block.add_stage(ShaderStage::Fragment);
+
+  auto add_uniform = [&](std::string name, ShaderUniformType type) {
+    ShaderBlockMember member;
+    member.name = name;
+    member.type = type;
+    member.array_size = 1;
+    pixel_block.members.push_back(member);
+
+    ShaderUniform uniform;
+    uniform.name = std::move(name);
+    uniform.type = type;
+    uniform.array_size = 1;
+    uniform.binding = 1;
+    uniform.add_stage(ShaderStage::Vertex);
+    uniform.add_stage(ShaderStage::Fragment);
+    reflection.add_uniform(std::move(uniform));
+  };
+
+  add_uniform("model", ShaderUniformType::Mat4);
+  add_uniform("view", ShaderUniformType::Mat4);
+  add_uniform("projection", ShaderUniformType::Mat4);
+  add_uniform("normalMatrix", ShaderUniformType::Mat4);
+  add_uniform("lightViewProj", ShaderUniformType::Mat4);
+  add_uniform("materialColor", ShaderUniformType::Vec4);
+  add_uniform("lightPos", ShaderUniformType::Vec3);
+  add_uniform("alphaCutoff", ShaderUniformType::Float);
+  add_uniform("viewPos", ShaderUniformType::Vec3);
+  add_uniform("baseAlpha", ShaderUniformType::Float);
+  add_uniform("lightColor", ShaderUniformType::Vec3);
+  add_uniform("shadowBias", ShaderUniformType::Float);
+  add_uniform("uTime", ShaderUniformType::Float);
+  add_uniform("ditherScale", ShaderUniformType::Float);
+  add_uniform("crossfadeDuration", ShaderUniformType::Float);
+  add_uniform("_padMisc", ShaderUniformType::Float);
+  add_uniform("useTexture", ShaderUniformType::Int);
+  add_uniform("useTextureArray", ShaderUniformType::Int);
+  add_uniform("uDitherEnabled", ShaderUniformType::Int);
+  add_uniform("shadowsEnabled", ShaderUniformType::Int);
+
+  reflection.add_block(std::move(pixel_block));
+
+  auto add_sampler = [&](std::string name, ShaderUniformType type,
+                         uint32_t binding) {
+    ShaderUniform sampler;
+    sampler.name = std::move(name);
+    sampler.type = type;
+    sampler.array_size = 1;
+    sampler.binding = binding;
+    sampler.add_stage(ShaderStage::Fragment);
+    reflection.add_uniform(std::move(sampler));
+  };
+
+  add_sampler("uTexture", ShaderUniformType::Sampler2D, 0);
+  if (instanced) {
+    add_sampler("uTextureArray", ShaderUniformType::Sampler2DArray, 0);
+  }
+  add_sampler("shadowMap", ShaderUniformType::Sampler2DShadow, 2);
+
+  return reflection;
+}
+
 bool is_vulkan_backend(const rhi::Device *device) {
   if (!device)
     return false;
@@ -370,6 +441,21 @@ Shader::VariantData Shader::build_variant(const ShaderVariantKey &variant) const
   } catch (const std::exception &e) {
     std::cerr << "  Warning: Metal shader reflection unavailable: "
               << e.what() << std::endl;
+  }
+
+  auto begins_with = [](const std::string &stage, std::string_view prefix) {
+    return stage.rfind(prefix.data(), 0) == 0;
+  };
+
+  const bool graphics_stage =
+      begins_with(vs_stage_, "vs") || begins_with(fs_stage_, "fs");
+  if (graphics_stage) {
+    const bool instanced = fs_stage_ == "fs_instanced" ||
+                           fs_stage_ == "fs_shadow_instanced" ||
+                           vs_stage_ == "vs_instanced" ||
+                           vs_stage_ == "vs_shadow_instanced";
+    ShaderReflection fallback = make_default_metal_reflection(instanced);
+    data.reflection.merge(fallback);
   }
 
   std::cout << "  Reflection summary: uniforms="
