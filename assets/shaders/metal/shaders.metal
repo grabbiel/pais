@@ -150,7 +150,6 @@ fragment float4 fragment_main(
     float3 reflectDir = reflect(-lightDir, norm);
 
     float diff = max(dot(norm, lightDir), 0.0);
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
 
     float lightIntensity = uniforms.lightingParams.x;
     float ambientStrength = uniforms.lightingParams.y;
@@ -270,7 +269,6 @@ fragment float4 fragment_instanced(
     float3 reflectDir = reflect(-lightDir, norm);
 
     float diff = max(dot(norm, lightDir), 0.0);
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
 
     float lightIntensity = uniforms.lightingParams.x;
     float ambientStrength = uniforms.lightingParams.y;
