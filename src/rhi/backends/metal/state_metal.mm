@@ -326,12 +326,17 @@ void MetalCmdList::setUniformVec4(const char *name, const float *vec4) {
   std::cerr << "MetalCmdList::setUniformVec4(" << name << ") value=" << vec4[0]
             << "," << vec4[1] << "," << vec4[2] << "," << vec4[3]
             << std::endl;
-  (void)name;
-  (void)vec4;
-  if (!impl_->getCurrentUniformSlot()) {
+  Uniforms *uniforms = impl_->getCurrentUniformSlot();
+  if (!uniforms) {
     std::cerr << "  ERROR: No uniform slot available" << std::endl;
     return;
   }
+  std::string name_str(name);
+
+  if (name_str == "materialColor") {
+    memcpy(uniforms->materialColor, vec4, sizeof(float) * 4);
+  }
+
   impl_->bindCurrentUniformBlock(impl_->render_encoder_);
 }
 
@@ -350,7 +355,7 @@ void MetalCmdList::setUniformInt(const char *name, int value) {
   } else if (name_str == "useTextureArray") {
     uniforms->useTextureArray = value;
   } else if (name_str == "ditherEnabled" || name_str == "uDitherEnabled") {
-    uniforms->ditherEnabled = value;
+    uniforms->uDitherEnabled = value;
   } else if (name_str == "shadowsEnabled") {
     uniforms->shadowsEnabled = value;
   }
@@ -369,7 +374,7 @@ void MetalCmdList::setUniformFloat(const char *name, float value) {
   std::string name_str(name);
 
   if (name_str == "time" || name_str == "uTime") {
-    uniforms->time = value;
+    uniforms->uTime = value;
   } else if (name_str == "ditherScale" || name_str == "uDitherScale") {
     uniforms->ditherScale = value;
   } else if (name_str == "crossfadeDuration" ||
@@ -377,6 +382,10 @@ void MetalCmdList::setUniformFloat(const char *name, float value) {
     uniforms->crossfadeDuration = value;
   } else if (name_str == "shadowBias") {
     uniforms->shadowBias = value;
+  } else if (name_str == "alphaCutoff") {
+    uniforms->alphaCutoff = value;
+  } else if (name_str == "baseAlpha") {
+    uniforms->baseAlpha = value;
   }
 
   impl_->bindCurrentUniformBlock(impl_->render_encoder_);

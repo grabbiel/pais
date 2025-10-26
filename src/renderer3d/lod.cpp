@@ -887,9 +887,18 @@ void RendererLOD::draw_lod(Renderer &renderer, LODMesh &mesh,
     cmd->setUniformInt("uDitherEnabled", 1);
   }
 
+  auto sampler_binding = [&](std::string_view sampler_name) -> uint32_t {
+    if (const ShaderUniform *uniform = reflection.find_uniform(sampler_name)) {
+      if (uniform->binding)
+        return *uniform->binding;
+    }
+    return 0u;
+  };
+
   if (base_material.texture_array.id != 0 &&
       reflection.has_sampler("uTextureArray")) {
-    cmd->setTexture("uTextureArray", base_material.texture_array, 1);
+    cmd->setTexture("uTextureArray", base_material.texture_array,
+                    sampler_binding("uTextureArray"));
     if (reflection.has_uniform("useTextureArray")) {
       cmd->setUniformInt("useTextureArray", 1);
     }

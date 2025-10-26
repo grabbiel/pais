@@ -10,16 +10,30 @@ layout (location = 4) in float TextureIndex;
 layout (location = 5) in float LODAlpha;
 layout (location = 6) in vec4 FragPosLightSpace;
 
-layout (binding = 1) uniform sampler2DArray uTextureArray;
-layout (binding = 2) uniform sampler2DShadow shadowMap;
-uniform int useTextureArray;
-uniform vec3 lightPos;
-uniform vec3 viewPos;
-uniform float uTime;
-uniform int uDitherEnabled;
-uniform vec3 lightColor;
-uniform float shadowBias;
-uniform int shadowsEnabled;
+layout(set = 0, binding = 0) uniform sampler2DArray uTextureArray;
+layout(set = 0, binding = 2) uniform sampler2DShadow shadowMap;
+layout(std140, set = 0, binding = 1) uniform PixelUniforms {
+  mat4 model;
+  mat4 view;
+  mat4 projection;
+  mat4 normalMatrix;
+  mat4 lightViewProj;
+  vec4 materialColor;
+  vec3 lightPos;
+  float alphaCutoff;
+  vec3 viewPos;
+  float baseAlpha;
+  vec3 lightColor;
+  float shadowBias;
+  float uTime;
+  float ditherScale;
+  float crossfadeDuration;
+  float _padMisc;
+  int useTexture;
+  int useTextureArray;
+  int uDitherEnabled;
+  int shadowsEnabled;
+};
 
 float getBayerValue(vec2 pos) {
   int x = int(mod(pos.x, 4.0));

@@ -20,11 +20,28 @@ layout (location = 4) out float TextureIndex;
 layout (location = 5) out float LODAlpha;
 layout (location = 6) out vec4 FragPosLightSpace;
 
-uniform mat4 model;
-uniform mat4 normalMatrix;
-uniform mat4 view;
-uniform mat4 projection;
-uniform mat4 lightViewProj;
+layout(std140, set = 0, binding = 1) uniform PixelUniforms {
+  mat4 model;
+  mat4 view;
+  mat4 projection;
+  mat4 normalMatrix;
+  mat4 lightViewProj;
+  vec4 materialColor;
+  vec3 lightPos;
+  float alphaCutoff;
+  vec3 viewPos;
+  float baseAlpha;
+  vec3 lightColor;
+  float shadowBias;
+  float uTime;
+  float ditherScale;
+  float crossfadeDuration;
+  float _padMisc;
+  int useTexture;
+  int useTextureArray;
+  int uDitherEnabled;
+  int shadowsEnabled;
+};
 
 mat4 rotationMatrix(vec3 axis, float angle) {
   axis = normalize(axis);

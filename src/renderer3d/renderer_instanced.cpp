@@ -434,16 +434,26 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
               << std::endl;
   }
 
+  auto sampler_binding = [&](std::string_view sampler_name) -> uint32_t {
+    if (const ShaderUniform *uniform = reflection.find_uniform(sampler_name)) {
+      if (uniform->binding)
+        return *uniform->binding;
+    }
+    return 0u;
+  };
+
   if (base_material.texture_array.id != 0 &&
       reflection.has_sampler("uTextureArray")) {
-    cmd->setTexture("uTextureArray", base_material.texture_array, 1);
-    std::cerr << "  ✓ Texture array bound to slot 1" << std::endl;
+    uint32_t binding = sampler_binding("uTextureArray");
+    cmd->setTexture("uTextureArray", base_material.texture_array, binding);
+    std::cerr << "  ✓ Texture array bound to slot " << binding << std::endl;
   }
 
   if (reflection.has_sampler("shadowMap") && renderer.shadow_map()) {
-    cmd->setTexture("shadowMap", renderer.shadow_map()->texture(), 2,
+    uint32_t binding = sampler_binding("shadowMap");
+    cmd->setTexture("shadowMap", renderer.shadow_map()->texture(), binding,
                     renderer.shadow_map()->sampler());
-    std::cerr << "  ✓ Shadow map bound to slot 2" << std::endl;
+    std::cerr << "  ✓ Shadow map bound to slot " << binding << std::endl;
   }
 
   // Draw the instanced mesh

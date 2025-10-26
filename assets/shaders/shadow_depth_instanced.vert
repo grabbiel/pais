@@ -11,8 +11,28 @@ layout (location = 7) in vec4 iColor;
 layout (location = 8) in float iTextureIndex;
 layout (location = 9) in float iLODAlpha;
 
-uniform mat4 model;
-uniform mat4 lightViewProj;
+layout(std140, set = 0, binding = 1) uniform PixelUniforms {
+  mat4 model;
+  mat4 view;
+  mat4 projection;
+  mat4 normalMatrix;
+  mat4 lightViewProj;
+  vec4 materialColor;
+  vec3 lightPos;
+  float alphaCutoff;
+  vec3 viewPos;
+  float baseAlpha;
+  vec3 lightColor;
+  float shadowBias;
+  float uTime;
+  float ditherScale;
+  float crossfadeDuration;
+  float _padMisc;
+  int useTexture;
+  int useTextureArray;
+  int uDitherEnabled;
+  int shadowsEnabled;
+};
 
 layout (location = 0) out vec2 TexCoord;
 layout (location = 1) out float TextureIndex;

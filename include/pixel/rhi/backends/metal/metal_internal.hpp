@@ -43,23 +43,22 @@ struct Uniforms {
   float view[16];
   float projection[16];
   float normalMatrix[16];
+  float lightViewProj[16];
+  float materialColor[4];
   float lightPos[3];
-  float _pad1;
+  float alphaCutoff;
   float viewPos[3];
-  float _pad2;
-  float time;
-  int useTexture;
-  int useTextureArray;
-  int ditherEnabled;
+  float baseAlpha;
+  float lightColor[3];
+  float shadowBias;
+  float uTime;
   float ditherScale;
   float crossfadeDuration;
-  float _pad3[2];
-  float lightViewProj[16];
-  float lightColor[3];
-  float _pad4;
-  float shadowBias;
+  float _padMisc;
+  int useTexture;
+  int useTextureArray;
+  int uDitherEnabled;
   int shadowsEnabled;
-  float _pad5[2];
 };
 
 struct UniformAllocator {

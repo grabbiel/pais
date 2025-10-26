@@ -472,13 +472,23 @@ void Renderer::draw_shadow_mesh_instanced(const InstancedMesh &mesh,
     cmd->setUniformFloat("baseAlpha", alpha);
   }
 
+  auto sampler_binding = [&](std::string_view sampler_name) -> uint32_t {
+    if (const ShaderUniform *uniform = reflection.find_uniform(sampler_name)) {
+      if (uniform->binding)
+        return *uniform->binding;
+    }
+    return 0u;
+  };
+
   if (material) {
     if (material->texture_array.id != 0 &&
         reflection.has_sampler("uTextureArray")) {
-      cmd->setTexture("uTextureArray", material->texture_array, 0);
+      cmd->setTexture("uTextureArray", material->texture_array,
+                      sampler_binding("uTextureArray"));
     } else if (material->texture.id != 0 &&
                reflection.has_sampler("uTexture")) {
-      cmd->setTexture("uTexture", material->texture, 1);
+      cmd->setTexture("uTexture", material->texture,
+                      sampler_binding("uTexture"));
     }
   }
 
@@ -849,8 +859,17 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
   }
 
   // Bind texture if available
+  auto sampler_binding = [&](std::string_view sampler_name) -> uint32_t {
+    if (const ShaderUniform *uniform = reflection.find_uniform(sampler_name)) {
+      if (uniform->binding)
+        return *uniform->binding;
+    }
+    return 0u;
+  };
+
   if (material.texture.id != 0 && reflection.has_sampler("uTexture")) {
-    cmd->setTexture("uTexture", material.texture, 0);
+    cmd->setTexture("uTexture", material.texture,
+                    sampler_binding("uTexture"));
   }
 
   bool shadows_enabled =
@@ -868,7 +887,8 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
   }
   if (reflection.has_sampler("shadowMap") && shadows_enabled) {
     std::cout << "[Renderer] Binding shadow map texture" << std::endl;
-    cmd->setTexture("shadowMap", shadow_map_->texture(), 1,
+    const uint32_t binding = sampler_binding("shadowMap");
+    cmd->setTexture("shadowMap", shadow_map_->texture(), binding,
                     shadow_map_->sampler());
   } else if (reflection.has_sampler("shadowMap")) {
     std::cerr << "[Renderer] Shader expects shadow map but it is unavailable"
