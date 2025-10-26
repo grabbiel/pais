@@ -36,23 +36,43 @@ layout(std140, set = 0, binding = 1) uniform PixelUniforms {
 };
 
 float calculateShadow(vec4 fragPosLightSpace) {
+  if (fragPosLightSpace.w <= 0.0) {
+    return 1.0;
+  }
+
   vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+  if (projCoords.z <= 0.0) {
+    return 1.0;
+  }
+
   projCoords = projCoords * 0.5 + 0.5;
   if (projCoords.z > 1.0) {
     return 1.0;
   }
+  if (projCoords.x < 0.0 || projCoords.x > 1.0 || projCoords.y < 0.0 ||
+      projCoords.y > 1.0) {
+    return 1.0;
+  }
 
-  vec2 texelSize = 1.0 / textureSize(shadowMap, 0);
+  ivec2 shadowSize = textureSize(shadowMap, 0);
+  if (shadowSize.x <= 0 || shadowSize.y <= 0) {
+    return 1.0;
+  }
+
+  vec2 texelSize = 1.0 / vec2(shadowSize);
   float visibility = 0.0;
-  for (int x = -1; x <= 1; ++x) {
-    for (int y = -1; y <= 1; ++y) {
-      vec3 sampleCoord = vec3(projCoords.xy + vec2(x, y) * texelSize,
-                              projCoords.z - shadowBias);
+  const int kernelRadius = 1;
+  const int kernelWidth = kernelRadius * 2 + 1;
+  for (int x = -kernelRadius; x <= kernelRadius; ++x) {
+    for (int y = -kernelRadius; y <= kernelRadius; ++y) {
+      vec2 offset = vec2(x, y) * texelSize;
+      vec3 sampleCoord =
+          vec3(projCoords.xy + offset, projCoords.z - shadowBias);
       visibility += texture(shadowMap, sampleCoord);
     }
   }
-  visibility /= 9.0;
-  return visibility;
+  visibility /= float(kernelWidth * kernelWidth);
+  return clamp(visibility, 0.0, 1.0);
 }
 
 void main() {

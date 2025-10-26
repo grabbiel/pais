@@ -194,10 +194,11 @@ int main() {
 
     renderer->begin_shadow_pass();
     renderer->draw_shadow_mesh(*terrain_mesh, Vec3{0.0f, 0.0f, 0.0f},
-                               Vec3{0.0f, 0.0f, 0.0f}, Vec3{1.0f, 1.0f, 1.0f});
+                               Vec3{0.0f, 0.0f, 0.0f}, Vec3{1.0f, 1.0f, 1.0f},
+                               &terrain_material);
     renderer->draw_shadow_mesh(*sphere_mesh, Vec3{0.0f, kSphereRadius, 0.0f},
                                Vec3{0.0f, rotation, 0.0f},
-                               Vec3{1.0f, 1.0f, 1.0f});
+                               Vec3{1.0f, 1.0f, 1.0f}, &sphere_material);
     renderer->end_shadow_pass();
 
     renderer->begin_frame(Color(0.08f, 0.09f, 0.12f, 1.0f));

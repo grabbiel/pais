@@ -440,8 +440,7 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
   }
   if (has_shadows_enabled || force_metal_uniforms) {
     const bool shadow_ready = renderer.shadow_map() &&
-                              renderer.shadow_map()->texture().id != 0 &&
-                              renderer.shadow_map()->sampler().id != 0;
+                              renderer.shadow_map()->is_ready_for_sampling();
     cmd->setUniformInt("shadowsEnabled", shadow_ready ? 1 : 0);
     std::cerr << "  ✓ shadowsEnabled set to " << (shadow_ready ? 1 : 0)
               << std::endl;
@@ -476,7 +475,8 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
     std::cerr << "  ✓ Texture array bound to slot " << binding << std::endl;
   }
 
-  if (reflection.has_sampler("shadowMap") && renderer.shadow_map()) {
+  if (reflection.has_sampler("shadowMap") && renderer.shadow_map() &&
+      renderer.shadow_map()->is_ready_for_sampling()) {
     uint32_t binding = sampler_binding("shadowMap");
     cmd->setTexture("shadowMap", renderer.shadow_map()->texture(), binding,
                     renderer.shadow_map()->sampler());

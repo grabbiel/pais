@@ -75,13 +75,23 @@ bool ShadowMap::initialize(rhi::Device *device, const Settings &settings,
   sampler_desc.addressU = rhi::AddressMode::ClampToBorder;
   sampler_desc.addressV = rhi::AddressMode::ClampToBorder;
   sampler_desc.addressW = rhi::AddressMode::ClampToBorder;
-  sampler_desc.compareEnable = device_->caps().samplerCompare;
+  supports_compare_sampling_ = device_->caps().samplerCompare;
+  sampler_desc.compareEnable = supports_compare_sampling_;
   sampler_desc.compareOp = rhi::CompareOp::LessEqual;
   sampler_desc.borderColor[0] = 1.0f;
   sampler_desc.borderColor[1] = 1.0f;
   sampler_desc.borderColor[2] = 1.0f;
   sampler_desc.borderColor[3] = 1.0f;
   sampler_ = device_->createSampler(sampler_desc);
+  if (sampler_.id == 0 && supports_compare_sampling_) {
+    std::cerr << "[ShadowMap] Failed to create comparison sampler. Falling back"
+                 " to non-comparison sampling; shadows will be disabled."
+              << std::endl;
+    sampler_desc.compareEnable = false;
+    sampler_ = device_->createSampler(sampler_desc);
+    supports_compare_sampling_ = false;
+  }
+
   if (sampler_.id == 0) {
     std::cerr << "[ShadowMap] Failed to create sampler" << std::endl;
     return false;
@@ -98,6 +108,11 @@ bool ShadowMap::initialize(rhi::Device *device, const Settings &settings,
                  (skip_framebuffer ? true : framebuffer_.id != 0);
   depth_initialized_ = false;
   depth_ready_for_sampling_ = false;
+  if (!supports_compare_sampling_) {
+    std::cerr << "[ShadowMap] Hardware depth comparison unavailable; main pass"
+                 " shadow sampling will be skipped."
+              << std::endl;
+  }
   std::cout << "[ShadowMap] Initialization "
             << (initialized_ ? "succeeded" : "failed") << std::endl;
   return initialized_;
@@ -244,6 +259,11 @@ void ShadowMap::compute_matrices() {
   }
   light_view_projection_ = light_projection_ * light_view_;
   std::cout << "[ShadowMap] light_view_projection matrix computed" << std::endl;
+}
+
+bool ShadowMap::is_ready_for_sampling() const {
+  return initialized_ && depth_texture_.id != 0 && sampler_.id != 0 &&
+         depth_ready_for_sampling_ && supports_compare_sampling_;
 }
 
 } // namespace pixel::renderer3d
