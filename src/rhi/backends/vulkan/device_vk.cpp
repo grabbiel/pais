@@ -665,10 +665,52 @@ PipelineHandle VulkanDevice::createPipeline(const PipelineDesc &desc) {
 
   PipelineResource resource{};
 
+  std::vector<VkDescriptorSetLayoutBinding> descriptorBindings;
+  if (desc.cs.id == 0) {
+    descriptorBindings.reserve(3);
+
+    VkDescriptorSetLayoutBinding textureBinding{};
+    textureBinding.binding = 0;
+    textureBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    textureBinding.descriptorCount = 1;
+    textureBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    descriptorBindings.push_back(textureBinding);
+
+    VkDescriptorSetLayoutBinding uniformBinding{};
+    uniformBinding.binding = 1;
+    uniformBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uniformBinding.descriptorCount = 1;
+    uniformBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    descriptorBindings.push_back(uniformBinding);
+
+    VkDescriptorSetLayoutBinding shadowBinding{};
+    shadowBinding.binding = 2;
+    shadowBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    shadowBinding.descriptorCount = 1;
+    shadowBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    descriptorBindings.push_back(shadowBinding);
+  }
+
+  if (!descriptorBindings.empty()) {
+    VkDescriptorSetLayoutCreateInfo setLayoutInfo{};
+    setLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    setLayoutInfo.bindingCount = static_cast<uint32_t>(descriptorBindings.size());
+    setLayoutInfo.pBindings = descriptorBindings.data();
+
+    VkDescriptorSetLayout layout = VK_NULL_HANDLE;
+    if (vkCreateDescriptorSetLayout(device_, &setLayoutInfo, nullptr, &layout) !=
+        VK_SUCCESS) {
+      throw std::runtime_error("Failed to create Vulkan descriptor set layout");
+    }
+    resource.descriptorSetLayouts.push_back(layout);
+  }
+
   VkPipelineLayoutCreateInfo layoutInfo{};
   layoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-  layoutInfo.setLayoutCount = 0;
-  layoutInfo.pSetLayouts = nullptr;
+  layoutInfo.setLayoutCount = static_cast<uint32_t>(resource.descriptorSetLayouts.size());
+  layoutInfo.pSetLayouts = resource.descriptorSetLayouts.empty()
+                               ? nullptr
+                               : resource.descriptorSetLayouts.data();
   layoutInfo.pushConstantRangeCount = 0;
   layoutInfo.pPushConstantRanges = nullptr;
 
