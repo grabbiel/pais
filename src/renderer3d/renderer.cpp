@@ -862,6 +862,12 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
     cmd->setUniformVec3("lightColor", light_color);
   }
 
+  float lighting_params[4] = {directional_light_.intensity,
+                              directional_light_.ambient_intensity, 0.0f, 0.0f};
+  if (reflection.has_uniform("lightingParams") || force_metal_uniforms) {
+    cmd->setUniformVec4("lightingParams", lighting_params);
+  }
+
   // Set material uniforms
   if (reflection.has_uniform("useTexture") || force_metal_uniforms) {
     cmd->setUniformInt("useTexture", (material.texture.id != 0) ? 1 : 0);
@@ -920,6 +926,12 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
                         material.color.a};
   if (reflection.has_uniform("materialColor") || force_metal_uniforms) {
     cmd->setUniformVec4("materialColor", mat_color);
+  }
+
+  float material_params[4] = {material.roughness, material.metallic,
+                              material.glare_intensity, 0.0f};
+  if (reflection.has_uniform("materialParams") || force_metal_uniforms) {
+    cmd->setUniformVec4("materialParams", material_params);
   }
 
   // Draw

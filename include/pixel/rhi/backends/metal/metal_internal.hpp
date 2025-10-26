@@ -56,6 +56,8 @@ struct Uniforms {
   float ditherScale{1.0f};
   float crossfadeDuration{0.0f};
   float padMisc{0.0f};
+  alignas(16) float lightingParams[4]{1.0f, 0.3f, 0.0f, 0.0f};
+  alignas(16) float materialParams[4]{0.5f, 0.0f, 0.0f, 0.0f};
   int32_t useTexture{0};
   int32_t useTextureArray{0};
   int32_t uDitherEnabled{0};
@@ -81,12 +83,16 @@ static_assert(offsetof(Uniforms, ditherScale) == 424, "Unexpected dither scale o
 static_assert(offsetof(Uniforms, crossfadeDuration) == 428,
               "Unexpected crossfade duration offset");
 static_assert(offsetof(Uniforms, padMisc) == 432, "Unexpected misc padding offset");
-static_assert(offsetof(Uniforms, useTexture) == 436, "Unexpected useTexture offset");
-static_assert(offsetof(Uniforms, useTextureArray) == 440,
+static_assert(offsetof(Uniforms, lightingParams) == 448,
+              "Unexpected lighting parameters offset");
+static_assert(offsetof(Uniforms, materialParams) == 464,
+              "Unexpected material parameters offset");
+static_assert(offsetof(Uniforms, useTexture) == 480, "Unexpected useTexture offset");
+static_assert(offsetof(Uniforms, useTextureArray) == 484,
               "Unexpected useTextureArray offset");
-static_assert(offsetof(Uniforms, uDitherEnabled) == 444,
+static_assert(offsetof(Uniforms, uDitherEnabled) == 488,
               "Unexpected dither flag offset");
-static_assert(offsetof(Uniforms, shadowsEnabled) == 448,
+static_assert(offsetof(Uniforms, shadowsEnabled) == 492,
               "Unexpected shadowsEnabled offset");
 
 struct UniformAllocator {

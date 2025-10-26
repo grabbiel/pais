@@ -68,6 +68,8 @@ struct Uniforms {
     float ditherScale;
     float crossfadeDuration;
     float padMisc;
+    float4 lightingParams;
+    float4 materialParams;
     int useTexture;
     int useTextureArray;
     int uDitherEnabled;
@@ -150,9 +152,21 @@ fragment float4 fragment_main(
     float diff = max(dot(norm, lightDir), 0.0);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
 
-    float3 ambient = 0.3 * uniforms.lightColor;
-    float3 diffuse = diff * uniforms.lightColor;
-    float3 specular = spec * 0.5 * float3(1.0);
+    float lightIntensity = uniforms.lightingParams.x;
+    float ambientStrength = uniforms.lightingParams.y;
+    float roughness = clamp(uniforms.materialParams.x, 0.02f, 1.0f);
+    float metallic = clamp(uniforms.materialParams.y, 0.0f, 1.0f);
+    float glareStrength = max(uniforms.materialParams.z, 0.0f);
+
+    float3 diffuse = diff * uniforms.lightColor * lightIntensity;
+
+    float shininess = mix(8.0f, 128.0f, 1.0f - roughness);
+    float specAngle = max(dot(viewDir, reflectDir), 0.0f);
+    float spec = pow(specAngle, shininess);
+    float specularStrength = mix(0.1f, 1.0f, metallic);
+    float3 specular = specularStrength * spec * uniforms.lightColor * lightIntensity;
+
+    float3 ambient = ambientStrength * uniforms.lightColor * lightIntensity;
 
     float shadowFactor = 1.0;
     if (uniforms.shadowsEnabled != 0) {
@@ -162,13 +176,17 @@ fragment float4 fragment_main(
     }
 
     float4 baseColor = uniforms.materialColor * in.color;
-    float4 texColor = (uniforms.useTexture != 0)
-        ? colorTexture.sample(textureSampler, in.texCoord) * baseColor
-        : baseColor;
+    if (uniforms.useTexture != 0) {
+        baseColor *= colorTexture.sample(textureSampler, in.texCoord);
+    }
 
     float3 lighting = ambient + (diffuse + specular) * shadowFactor;
-    float3 result = lighting * texColor.rgb;
-    float alpha = texColor.a;
+    float3 result = lighting * baseColor.rgb;
+
+    float3 glare = glareStrength * spec * uniforms.lightColor;
+    result += glare;
+
+    float alpha = baseColor.a;
     return float4(result, alpha);
 }
 
@@ -254,9 +272,21 @@ fragment float4 fragment_instanced(
     float diff = max(dot(norm, lightDir), 0.0);
     float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
 
-    float3 ambient = 0.3 * uniforms.lightColor;
-    float3 diffuse = diff * uniforms.lightColor;
-    float3 specular = spec * 0.5 * float3(1.0);
+    float lightIntensity = uniforms.lightingParams.x;
+    float ambientStrength = uniforms.lightingParams.y;
+    float roughness = clamp(uniforms.materialParams.x, 0.02f, 1.0f);
+    float metallic = clamp(uniforms.materialParams.y, 0.0f, 1.0f);
+    float glareStrength = max(uniforms.materialParams.z, 0.0f);
+
+    float3 diffuse = diff * uniforms.lightColor * lightIntensity;
+
+    float shininess = mix(8.0f, 128.0f, 1.0f - roughness);
+    float specAngle = max(dot(viewDir, reflectDir), 0.0f);
+    float spec = pow(specAngle, shininess);
+    float specularStrength = mix(0.1f, 1.0f, metallic);
+    float3 specular = specularStrength * spec * uniforms.lightColor * lightIntensity;
+
+    float3 ambient = ambientStrength * uniforms.lightColor * lightIntensity;
 
     float shadowFactor = 1.0;
     if (uniforms.shadowsEnabled != 0) {
@@ -265,23 +295,26 @@ fragment float4 fragment_instanced(
                                     uniforms.shadowBias);
     }
 
-    float4 texColor;
+    float4 sampledColor = float4(1.0);
     if (uniforms.useTextureArray != 0) {
         uint layerCount = textureArray.get_array_size();
         uint texIndex = layerCount > 0
             ? uint(clamp(in.textureIndex, 0.0f, float(layerCount - 1)))
             : 0u;
-        texColor = textureArray.sample(textureSampler, in.texCoord, texIndex);
+        sampledColor = textureArray.sample(textureSampler, in.texCoord, texIndex);
     } else if (uniforms.useTexture != 0) {
-        texColor = colorTexture.sample(textureSampler, in.texCoord);
-    } else {
-        texColor = float4(1.0);
+        sampledColor = colorTexture.sample(textureSampler, in.texCoord);
     }
 
+    float4 baseColor = sampledColor * uniforms.materialColor * in.color;
+
     float3 lighting = ambient + (diffuse + specular) * shadowFactor;
-    float3 result = lighting * texColor.rgb * in.color.rgb;
-    float alpha = texColor.a * in.color.a;
-    alpha *= in.lodAlpha;
+    float3 result = lighting * baseColor.rgb;
+
+    float3 glare = glareStrength * spec * uniforms.lightColor;
+    result += glare;
+
+    float alpha = baseColor.a * in.lodAlpha;
     return float4(result, alpha);
 }
 

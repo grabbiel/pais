@@ -103,6 +103,7 @@ struct Material {
   Color color = Color::White();
   float roughness = 0.5f;
   float metallic = 0.0f;
+  float glare_intensity = 0.0f;
   BlendMode blend_mode = BlendMode::Alpha;
   ShaderVariantKey shader_variant{};
   bool depth_test = true;

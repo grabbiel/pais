@@ -27,6 +27,8 @@ layout(std140, set = 0, binding = 1) uniform PixelUniforms {
   float ditherScale;
   float crossfadeDuration;
   float _padMisc;
+  vec4 lightingParams;
+  vec4 materialParams;
   int useTexture;
   int useTextureArray;
   int uDitherEnabled;

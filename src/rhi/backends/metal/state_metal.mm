@@ -338,6 +338,10 @@ void MetalCmdList::setUniformVec4(const char *name, const float *vec4) {
 
   if (name_str == "materialColor") {
     memcpy(uniforms->materialColor, vec4, sizeof(float) * 4);
+  } else if (name_str == "lightingParams") {
+    memcpy(uniforms->lightingParams, vec4, sizeof(float) * 4);
+  } else if (name_str == "materialParams") {
+    memcpy(uniforms->materialParams, vec4, sizeof(float) * 4);
   }
 
   impl_->bindCurrentUniformBlock(impl_->render_encoder_);

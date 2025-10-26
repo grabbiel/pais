@@ -11,6 +11,7 @@ struct DirectionalLight {
   Vec3 position{10.0f, 10.0f, 10.0f};
   Color color = Color::White();
   float intensity{1.0f};
+  float ambient_intensity{0.2f};
 };
 
 class ShadowMap {
