@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace pixel::rhi {
@@ -245,6 +246,13 @@ public:
 private:
   [[noreturn]] void notImplemented(const char *feature) const;
 
+  void resetDescriptorState();
+  void ensurePixelUniformResources();
+  void uploadPixelUniformsIfNeeded();
+  void ensureDescriptorSetForCurrentPipeline();
+  void bindDescriptorSetIfNeeded();
+  SamplerHandle ensureDefaultSampler();
+
   friend class VulkanDevice;
 
   std::optional<FenceHandle> takePendingFence();
@@ -258,6 +266,35 @@ private:
   PipelineHandle currentGraphicsPipeline_{};
   PipelineHandle currentComputePipeline_{};
   std::optional<FenceHandle> pendingFence_{};
+
+  struct PixelUniformBufferData;
+  struct BoundUniformBuffer {
+    BufferHandle handle{};
+    size_t offset{0};
+    size_t size{0};
+    VkDescriptorBufferInfo bufferInfo{};
+  };
+
+  struct BoundTexture {
+    TextureHandle handle{};
+    SamplerHandle sampler{};
+    VkDescriptorImageInfo imageInfo{};
+  };
+
+  static constexpr uint32_t kPixelUniformBinding = 1;
+
+  PixelUniformBufferData pixelUniforms_{};
+  bool pixelUniformsDirty_{false};
+  BufferHandle pixelUniformBuffer_{};
+  void *pixelUniformMapped_{nullptr};
+  SamplerHandle defaultSampler_{};
+
+  VkDescriptorSet currentDescriptorSet_{VK_NULL_HANDLE};
+  PipelineHandle descriptorSetPipeline_{};
+  bool descriptorSetDirty_{true};
+
+  std::unordered_map<uint32_t, BoundUniformBuffer> uniformBuffers_{};
+  std::unordered_map<uint32_t, BoundTexture> boundTextures_{};
 };
 
 } // namespace pixel::rhi
