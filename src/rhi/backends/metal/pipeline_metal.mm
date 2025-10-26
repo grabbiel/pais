@@ -69,11 +69,10 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
   if (colorAttachmentCount > kMaxColorAttachments) {
     colorAttachmentCount = kMaxColorAttachments;
   }
+
   if (colorAttachmentCount == 0) {
-    colorAttachmentCount = 1;
-    attachments[0].format = Format::BGRA8;
-    attachments[0].blend = make_alpha_blend_state();
-    std::cerr << "  No color attachments specified, defaulting to BGRA8" << std::endl;
+    std::cerr << "  No color attachments specified; creating depth-only pipeline"
+              << std::endl;
   } else {
     for (uint32_t i = 0; i < colorAttachmentCount && i < kMaxColorAttachments;
          ++i) {
@@ -133,6 +132,7 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
 
   for (uint32_t i = colorAttachmentCount; i < kMaxColorAttachments; ++i) {
     pipelineDesc.colorAttachments[i].pixelFormat = MTLPixelFormatInvalid;
+    pipelineDesc.colorAttachments[i].writeMask = 0;
     pipelineDesc.colorAttachments[i].blendingEnabled = NO;
   }
 
