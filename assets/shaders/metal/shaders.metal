@@ -81,8 +81,9 @@ float sampleShadow(depth2d<float> shadowMap,
                    float4 fragPosLightSpace,
                    float shadowBias) {
     float3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
-    projCoords = projCoords * 0.5 + 0.5;
-    if (projCoords.z > 1.0) {
+    float2 shadowUV = projCoords.xy * 0.5 + 0.5;
+    float depth = projCoords.z;
+    if (depth > 1.0) {
         return 1.0;
     }
 
@@ -93,12 +94,17 @@ float sampleShadow(depth2d<float> shadowMap,
     }
 
     float2 texelSize = 1.0 / float2(width, height);
+
+    if (shadowUV.x < 0.0 || shadowUV.x > 1.0 || shadowUV.y < 0.0 || shadowUV.y > 1.0) {
+        return 1.0;
+    }
+
     float visibility = 0.0;
     for (int x = -1; x <= 1; ++x) {
         for (int y = -1; y <= 1; ++y) {
             float2 offset = float2(x, y) * texelSize;
-            float2 sampleCoord = projCoords.xy + offset;
-            float comparisonDepth = projCoords.z - shadowBias;
+            float2 sampleCoord = shadowUV + offset;
+            float comparisonDepth = depth - shadowBias;
             visibility += shadowMap.sample_compare(shadowSampler,
                                                    sampleCoord,
                                                    comparisonDepth);
