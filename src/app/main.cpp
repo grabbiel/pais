@@ -95,6 +95,7 @@ DirectionalLight create_key_light() {
   light.position = light.direction * -30.0f;
   light.color = Color(1.0f, 0.95f, 0.85f, 1.0f);
   light.intensity = 1.5f;
+  light.ambient_intensity = 0.25f;
   return light;
 }
 
@@ -134,14 +135,16 @@ int main() {
   terrain_material.color = Color(0.38f, 0.24f, 0.12f, 1.0f);
   terrain_material.roughness = 0.8f;
   terrain_material.metallic = 0.05f;
+  terrain_material.glare_intensity = 0.0f;
 
   Material sphere_material;
   sphere_material.blend_mode = Material::BlendMode::Opaque;
   sphere_material.depth_test = true;
   sphere_material.depth_write = true;
   sphere_material.color = Color(1.0f, 0.0f, 0.0f, 1.0f);
-  sphere_material.roughness = 0.4f;
-  sphere_material.metallic = 0.1f;
+  sphere_material.roughness = 0.35f;
+  sphere_material.metallic = 0.25f;
+  sphere_material.glare_intensity = 0.8f;
 
   double last_time = renderer->time();
   float rotation = 0.0f;
