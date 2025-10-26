@@ -54,7 +54,8 @@ PipelineHandle MetalDevice::createPipeline(const PipelineDesc &desc) {
     return PipelineHandle{0};
   }
 
-  bool isInstanced = (vs_it->second.stage == "vs_instanced");
+  bool isInstanced =
+      (vs_it->second.stage.find("instanced") != std::string::npos);
   std::cerr << "  Instanced vertex stage: " << (isInstanced ? "YES" : "NO")
             << std::endl;
 
