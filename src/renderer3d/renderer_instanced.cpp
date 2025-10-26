@@ -2,6 +2,7 @@
 #include "pixel/renderer3d/clip_space.hpp"
 #include <glm/gtc/type_ptr.hpp>
 #include <iostream>
+#include <string_view>
 
 namespace pixel::renderer3d {
 
@@ -302,6 +303,10 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
   // Set model matrix
   const ShaderReflection &reflection =
       shader->reflection(base_material.shader_variant);
+  const bool force_metal_uniforms = renderer.device() &&
+                                   renderer.device()->backend_name() &&
+                                   std::string_view(renderer.device()->backend_name())
+                                           .find("Metal") != std::string_view::npos;
 
   // === DIAGNOSTIC LOGGING ===
   std::cerr << "\nUniforms:" << std::endl;
@@ -339,7 +344,7 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
             << (has_use_texture_array ? "YES" : "NO") << std::endl;
   // === END ===
 
-  if (has_model_uniform) {
+  if (has_model_uniform || force_metal_uniforms) {
     cmd->setUniformMat4("model", glm::value_ptr(model));
     std::cerr << "  ✓ Model matrix set (identity)" << std::endl;
   }
@@ -347,7 +352,7 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
   // Calculate and set normal matrix (identity in this case, but required by
   // shader)
   glm::mat4 normalMatrix = glm::transpose(glm::inverse(model));
-  if (has_normal_uniform) {
+  if (has_normal_uniform || force_metal_uniforms) {
     cmd->setUniformMat4("normalMatrix", glm::value_ptr(normalMatrix));
     std::cerr << "  ✓ Normal matrix set (identity)" << std::endl;
   }
@@ -363,15 +368,15 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
   glm::mat4 projection_matrix = glm::make_mat4(projection_raw);
   projection_matrix = apply_clip_space_correction(projection_matrix,
                                                   renderer.device()->caps());
-  if (has_view_uniform) {
+  if (has_view_uniform || force_metal_uniforms) {
     cmd->setUniformMat4("view", glm::value_ptr(view_matrix));
     std::cerr << "  ✓ View matrix uploaded" << std::endl;
   }
-  if (has_projection_uniform) {
+  if (has_projection_uniform || force_metal_uniforms) {
     cmd->setUniformMat4("projection", glm::value_ptr(projection_matrix));
     std::cerr << "  ✓ Projection matrix uploaded" << std::endl;
   }
-  if (has_light_view_proj && renderer.shadow_map()) {
+  if ((has_light_view_proj || force_metal_uniforms) && renderer.shadow_map()) {
     cmd->setUniformMat4(
         "lightViewProj",
         glm::value_ptr(renderer.shadow_map()->light_view_projection()));
@@ -387,25 +392,25 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
   float light_color[3] = {renderer.directional_light().color.r,
                           renderer.directional_light().color.g,
                           renderer.directional_light().color.b};
-  if (has_light_uniform) {
+  if (has_light_uniform || force_metal_uniforms) {
     cmd->setUniformVec3("lightPos", light_pos);
     std::cerr << "  ✓ lightPos set" << std::endl;
   }
-  if (has_viewpos_uniform) {
+  if (has_viewpos_uniform || force_metal_uniforms) {
     cmd->setUniformVec3("viewPos", view_pos);
     std::cerr << "  ✓ viewPos set" << std::endl;
   }
-  if (has_light_color) {
+  if (has_light_color || force_metal_uniforms) {
     cmd->setUniformVec3("lightColor", light_color);
     std::cerr << "  ✓ lightColor set" << std::endl;
   }
 
-  if (has_time_uniform) {
+  if (has_time_uniform || force_metal_uniforms) {
     cmd->setUniformFloat("uTime", static_cast<float>(renderer.time()));
     std::cerr << "  ✓ uTime set" << std::endl;
   }
 
-  if (has_dither_uniform) {
+  if (has_dither_uniform || force_metal_uniforms) {
     const bool dither_enabled =
         base_material.shader_variant.has_define("USE_DITHER") ||
         base_material.shader_variant.has_define("DITHER_ON");
@@ -414,24 +419,31 @@ void RendererInstanced::draw_instanced(Renderer &renderer,
               << (dither_enabled ? "ON" : "OFF") << std::endl;
   }
 
-  if (has_use_texture_array) {
+  if (has_use_texture_array || force_metal_uniforms) {
     const int use_array = base_material.texture_array.id != 0 ? 1 : 0;
     cmd->setUniformInt("useTextureArray", use_array);
     std::cerr << "  ✓ useTextureArray set to " << use_array << std::endl;
   }
 
-  if (has_shadow_bias && renderer.shadow_map()) {
+  if ((has_shadow_bias || force_metal_uniforms) && renderer.shadow_map()) {
     cmd->setUniformFloat("shadowBias",
                          renderer.shadow_map()->settings().shadow_bias);
     std::cerr << "  ✓ shadowBias set" << std::endl;
   }
-  if (has_shadows_enabled) {
+  if (has_shadows_enabled || force_metal_uniforms) {
     const bool shadow_ready = renderer.shadow_map() &&
                               renderer.shadow_map()->texture().id != 0 &&
                               renderer.shadow_map()->sampler().id != 0;
     cmd->setUniformInt("shadowsEnabled", shadow_ready ? 1 : 0);
     std::cerr << "  ✓ shadowsEnabled set to " << (shadow_ready ? 1 : 0)
               << std::endl;
+  }
+
+  if (reflection.has_uniform("materialColor") || force_metal_uniforms) {
+    float mat_color[4] = {base_material.color.r, base_material.color.g,
+                          base_material.color.b, base_material.color.a};
+    cmd->setUniformVec4("materialColor", mat_color);
+    std::cerr << "  ✓ materialColor set" << std::endl;
   }
 
   auto sampler_binding = [&](std::string_view sampler_name) -> uint32_t {
