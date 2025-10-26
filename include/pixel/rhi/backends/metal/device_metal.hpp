@@ -75,6 +75,7 @@ private:
 
   struct Impl;
   std::unique_ptr<Impl> impl_;
+  Caps caps_{};
   std::string backend_name_;
 };
 

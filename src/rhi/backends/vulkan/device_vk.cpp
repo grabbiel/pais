@@ -1334,6 +1334,34 @@ void VulkanDevice::pickPhysicalDevice() {
     caps_.samplerAniso = features.samplerAnisotropy == VK_TRUE;
     caps_.maxSamplerAnisotropy =
         caps_.samplerAniso ? properties.limits.maxSamplerAnisotropy : 1.0f;
+
+#ifdef VK_FORMAT_FEATURE_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT
+    const auto supports_depth_compare = [&](VkFormat format) {
+      VkFormatProperties format_props{};
+      vkGetPhysicalDeviceFormatProperties(device, format, &format_props);
+      return (format_props.optimalTilingFeatures &
+              VK_FORMAT_FEATURE_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT) != 0;
+    };
+
+    // Prefer the depth format we actually use (D32F), but fall back to a
+    // 16-bit depth buffer if necessary. This keeps the renderer functional on
+    // hardware that only exposes comparison sampling for one of the formats.
+    if (supports_depth_compare(VK_FORMAT_D32_SFLOAT) ||
+        supports_depth_compare(VK_FORMAT_D16_UNORM)) {
+      caps_.samplerCompare = true;
+    } else {
+      std::cerr <<
+          "[Vulkan] Warning: depth comparison sampling not supported for D32F "
+          "or D16 depth formats on this GPU. Shadows will be disabled."
+          << std::endl;
+      caps_.samplerCompare = false;
+    }
+#else
+    // Vulkan 1.0 headers do not expose the depth comparison feature flag. In
+    // practice modern GPUs support sampler compare, so we enable it here and
+    // rely on sampler creation to fail if the hardware cannot provide it.
+    caps_.samplerCompare = true;
+#endif
     break;
   }
 
