@@ -354,13 +354,13 @@ void MetalCmdList::setUniformInt(const char *name, int value) {
   std::string name_str(name);
 
   if (name_str == "useTexture") {
-    uniforms->useTexture = value;
+    uniforms->useTexture[0] = value;
   } else if (name_str == "useTextureArray") {
-    uniforms->useTextureArray = value;
+    uniforms->useTextureArray[0] = value;
   } else if (name_str == "ditherEnabled" || name_str == "uDitherEnabled") {
-    uniforms->uDitherEnabled = value;
+    uniforms->uDitherEnabled[0] = value;
   } else if (name_str == "shadowsEnabled") {
-    uniforms->shadowsEnabled = value;
+    uniforms->shadowsEnabled[0] = value;
   }
 
   impl_->bindCurrentUniformBlock(impl_->render_encoder_);
@@ -377,18 +377,18 @@ void MetalCmdList::setUniformFloat(const char *name, float value) {
   std::string name_str(name);
 
   if (name_str == "time" || name_str == "uTime") {
-    uniforms->uTime = value;
+    uniforms->uTime[0] = value;
   } else if (name_str == "ditherScale" || name_str == "uDitherScale") {
-    uniforms->ditherScale = value;
+    uniforms->ditherScale[0] = value;
   } else if (name_str == "crossfadeDuration" ||
              name_str == "uCrossfadeDuration") {
-    uniforms->crossfadeDuration = value;
+    uniforms->crossfadeDuration[0] = value;
   } else if (name_str == "shadowBias") {
-    uniforms->shadowBias = value;
+    uniforms->shadowBias[0] = value;
   } else if (name_str == "alphaCutoff") {
-    uniforms->alphaCutoff = value;
+    uniforms->alphaCutoff[0] = value;
   } else if (name_str == "baseAlpha") {
-    uniforms->baseAlpha = value;
+    uniforms->baseAlpha[0] = value;
   }
 
   impl_->bindCurrentUniformBlock(impl_->render_encoder_);
