@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -39,27 +40,54 @@ constexpr uint32_t kMaxDrawCallsPerFrame = 1024; // Maximum draws per frame
 constexpr uint32_t kTotalUniformSlots = kFramesInFlight * kMaxDrawCallsPerFrame;
 
 struct Uniforms {
-  float model[16];
-  float view[16];
-  float projection[16];
-  float normalMatrix[16];
-  float lightViewProj[16];
-  float materialColor[4];
-  float lightPos[3];
-  float alphaCutoff;
-  float viewPos[3];
-  float baseAlpha;
-  float lightColor[3];
-  float shadowBias;
-  float uTime;
-  float ditherScale;
-  float crossfadeDuration;
-  float _padMisc;
-  int useTexture;
-  int useTextureArray;
-  int uDitherEnabled;
-  int shadowsEnabled;
+  alignas(16) float model[16];
+  alignas(16) float view[16];
+  alignas(16) float projection[16];
+  alignas(16) float normalMatrix[16];
+  alignas(16) float lightViewProj[16];
+  alignas(16) float materialColor[4]{1.0f, 1.0f, 1.0f, 1.0f};
+  alignas(16) float lightPos[4]{};
+  float alphaCutoff{0.0f};
+  alignas(16) float viewPos[4]{};
+  float baseAlpha{1.0f};
+  alignas(16) float lightColor[4]{1.0f, 1.0f, 1.0f, 0.0f};
+  float shadowBias{0.0f};
+  float uTime{0.0f};
+  float ditherScale{1.0f};
+  float crossfadeDuration{0.0f};
+  float padMisc{0.0f};
+  int32_t useTexture{0};
+  int32_t useTextureArray{0};
+  int32_t uDitherEnabled{0};
+  int32_t shadowsEnabled{0};
 };
+
+static_assert(alignof(Uniforms) == 16, "Metal uniform block must stay 16-byte aligned");
+static_assert(sizeof(Uniforms) % 16 == 0, "Metal uniform block size must be multiple of 16 bytes");
+static_assert(offsetof(Uniforms, model) == 0, "Unexpected model matrix offset");
+static_assert(offsetof(Uniforms, view) == 64, "Unexpected view matrix offset");
+static_assert(offsetof(Uniforms, projection) == 128, "Unexpected projection matrix offset");
+static_assert(offsetof(Uniforms, normalMatrix) == 192, "Unexpected normal matrix offset");
+static_assert(offsetof(Uniforms, lightViewProj) == 256, "Unexpected light VP offset");
+static_assert(offsetof(Uniforms, materialColor) == 320, "Unexpected material color offset");
+static_assert(offsetof(Uniforms, lightPos) == 336, "Unexpected light position offset");
+static_assert(offsetof(Uniforms, alphaCutoff) == 352, "Unexpected alpha cutoff offset");
+static_assert(offsetof(Uniforms, viewPos) == 368, "Unexpected view position offset");
+static_assert(offsetof(Uniforms, baseAlpha) == 384, "Unexpected base alpha offset");
+static_assert(offsetof(Uniforms, lightColor) == 400, "Unexpected light color offset");
+static_assert(offsetof(Uniforms, shadowBias) == 416, "Unexpected shadow bias offset");
+static_assert(offsetof(Uniforms, uTime) == 420, "Unexpected time uniform offset");
+static_assert(offsetof(Uniforms, ditherScale) == 424, "Unexpected dither scale offset");
+static_assert(offsetof(Uniforms, crossfadeDuration) == 428,
+              "Unexpected crossfade duration offset");
+static_assert(offsetof(Uniforms, padMisc) == 432, "Unexpected misc padding offset");
+static_assert(offsetof(Uniforms, useTexture) == 436, "Unexpected useTexture offset");
+static_assert(offsetof(Uniforms, useTextureArray) == 440,
+              "Unexpected useTextureArray offset");
+static_assert(offsetof(Uniforms, uDitherEnabled) == 444,
+              "Unexpected dither flag offset");
+static_assert(offsetof(Uniforms, shadowsEnabled) == 448,
+              "Unexpected shadowsEnabled offset");
 
 struct UniformAllocator {
   struct Allocation {

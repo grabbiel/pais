@@ -313,10 +313,13 @@ void MetalCmdList::setUniformVec3(const char *name, const float *vec3) {
 
   if (name_str == "lightPos") {
     memcpy(uniforms->lightPos, vec3, sizeof(float) * 3);
+    uniforms->lightPos[3] = 0.0f;
   } else if (name_str == "viewPos") {
     memcpy(uniforms->viewPos, vec3, sizeof(float) * 3);
+    uniforms->viewPos[3] = 0.0f;
   } else if (name_str == "lightColor") {
     memcpy(uniforms->lightColor, vec3, sizeof(float) * 3);
+    uniforms->lightColor[3] = 0.0f;
   }
 
   impl_->bindCurrentUniformBlock(impl_->render_encoder_);
