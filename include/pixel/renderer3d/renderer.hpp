@@ -4,6 +4,7 @@
 #include "pixel/renderer3d/mesh.hpp"
 #include "pixel/renderer3d/shader_reflection.hpp"
 #include "pixel/renderer3d/shadow_map.hpp"
+#include "pixel/renderer3d/shader_variant_system.hpp"
 #include <glm/glm.hpp>
 #include <array>
 #include <cstdint>
@@ -144,15 +145,11 @@ public:
 
 private:
   Shader() = default;
-  struct VariantData {
-    std::array<rhi::PipelineHandle, Material::kBlendModeCount> pipelines{};
-    rhi::ShaderHandle vs{0};
-    rhi::ShaderHandle fs{0};
-    ShaderReflection reflection{};
-  };
+  using VariantData = ShaderVariantData;
 
   VariantData &get_or_create_variant(const ShaderVariantKey &variant) const;
   VariantData build_variant(const ShaderVariantKey &variant) const;
+  ShaderVariantBuildContext make_build_context() const;
 
   rhi::Device *device_{nullptr};
   std::string vert_path_;
@@ -161,6 +158,9 @@ private:
   std::string fs_stage_;
   bool is_vulkan_backend_{false};
   std::string metal_source_code_;
+  bool is_shadow_shader_{false};
+  bool is_instanced_shader_{false};
+  std::unique_ptr<ShaderVariantSystem> variant_system_;
   mutable std::unordered_map<std::string, VariantData> variant_cache_;
 
 public:

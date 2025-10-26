@@ -12,6 +12,7 @@ set(RENDERER3D_SOURCES
   mesh.cpp
   shader.cpp
   shader_reflection.cpp
+  shader_variant_system.cpp
   primitives.cpp
   renderer_instanced.cpp
   shadow_map.cpp
