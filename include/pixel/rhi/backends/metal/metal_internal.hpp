@@ -39,26 +39,26 @@ constexpr uint32_t kMaxDrawCallsPerFrame = 1024; // Maximum draws per frame
 constexpr uint32_t kTotalUniformSlots = kFramesInFlight * kMaxDrawCallsPerFrame;
 
 struct Uniforms {
-  float model[16];
-  float view[16];
-  float projection[16];
-  float normalMatrix[16];
-  float lightViewProj[16];
-  float materialColor[4];
-  float lightPos[3];
-  float alphaCutoff;
-  float viewPos[3];
-  float baseAlpha;
-  float lightColor[3];
-  float shadowBias;
-  float uTime;
-  float ditherScale;
-  float crossfadeDuration;
-  float _padMisc;
-  int useTexture;
-  int useTextureArray;
-  int uDitherEnabled;
-  int shadowsEnabled;
+  alignas(16) float model[16];
+  alignas(16) float view[16];
+  alignas(16) float projection[16];
+  alignas(16) float normalMatrix[16];
+  alignas(16) float lightViewProj[16];
+  alignas(16) float materialColor[4]{1.0f, 1.0f, 1.0f, 1.0f};
+  alignas(16) float lightPos[4]{};
+  alignas(16) float alphaCutoff[4]{};
+  alignas(16) float viewPos[4]{};
+  alignas(16) float baseAlpha[4]{1.0f, 0.0f, 0.0f, 0.0f};
+  alignas(16) float lightColor[4]{1.0f, 1.0f, 1.0f, 0.0f};
+  alignas(16) float shadowBias[4]{};
+  alignas(16) float uTime[4]{};
+  alignas(16) float ditherScale[4]{1.0f, 0.0f, 0.0f, 0.0f};
+  alignas(16) float crossfadeDuration[4]{};
+  alignas(16) float _padMisc[4]{};
+  alignas(16) int32_t useTexture[4]{};
+  alignas(16) int32_t useTextureArray[4]{};
+  alignas(16) int32_t uDitherEnabled[4]{};
+  alignas(16) int32_t shadowsEnabled[4]{};
 };
 
 struct UniformAllocator {
