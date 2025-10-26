@@ -796,6 +796,10 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
 
   const ShaderReflection &reflection =
       shader->reflection(material.shader_variant);
+  const bool force_metal_uniforms =
+      device_ && device_->backend_name() &&
+      std::string_view(device_->backend_name()).find("Metal") !=
+          std::string_view::npos;
 
   // Build model matrix
   glm::mat4 model = glm::mat4(1.0f);
@@ -817,7 +821,7 @@ void Renderer::draw_mesh(const Mesh &mesh, const Vec3 &position,
       apply_clip_space_correction(projection_mat, device_->caps());
 
   // Set transformation uniforms
-  if (reflection.has_uniform("model")) {
+  if (reflection.has_uniform("model") || force_metal_uniforms) {
     cmd->setUniformMat4("model", glm::value_ptr(model));
   }
   // Calculate and set normal matrix
