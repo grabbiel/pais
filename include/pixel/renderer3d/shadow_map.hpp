@@ -21,6 +21,7 @@ public:
     float near_plane{1.0f};
     float far_plane{100.0f};
     float ortho_size{25.0f};
+    Vec3 focus_point{0.0f, 0.0f, 0.0f};
     float depth_bias_constant{1.5f};
     float depth_bias_slope{1.0f};
     float shadow_bias{0.005f};

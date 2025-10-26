@@ -26,6 +26,9 @@ bool ShadowMap::initialize(rhi::Device *device, const Settings &settings,
   std::cout << "  Near/Far planes: " << settings_.near_plane << " / "
             << settings_.far_plane << std::endl;
   std::cout << "  Ortho size: " << settings_.ortho_size << std::endl;
+  std::cout << "  Focus point: (" << settings_.focus_point.x << ", "
+            << settings_.focus_point.y << ", " << settings_.focus_point.z
+            << ")" << std::endl;
 
   if (!device_) {
     std::cerr << "[ShadowMap] Initialization failed: device is null"
@@ -137,6 +140,9 @@ void ShadowMap::update_settings(const Settings &settings) {
             << settings_.depth_bias_constant << " / "
             << settings_.depth_bias_slope << std::endl;
   std::cout << "  New ortho size: " << settings_.ortho_size << std::endl;
+  std::cout << "  New focus point: (" << settings_.focus_point.x << ", "
+            << settings_.focus_point.y << ", " << settings_.focus_point.z
+            << ")" << std::endl;
   compute_matrices();
   rebuild_pass_desc();
 }
@@ -238,13 +244,18 @@ void ShadowMap::compute_matrices() {
   std::cout << "[ShadowMap] Computing matrices" << std::endl;
   glm::vec3 light_position = to_glm(light_.position);
   glm::vec3 light_direction = glm::normalize(to_glm(light_.direction));
+  glm::vec3 focus_point = to_glm(settings_.focus_point);
   glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
   if (glm::abs(glm::dot(light_direction, up)) > 0.99f) {
     up = glm::vec3(0.0f, 0.0f, 1.0f);
   }
 
-  light_view_ =
-      glm::lookAt(light_position, light_position + light_direction, up);
+  glm::vec3 to_focus = light_position - focus_point;
+  if (glm::dot(to_focus, to_focus) < 1e-4f) {
+    light_position = focus_point - light_direction * settings_.near_plane;
+  }
+
+  light_view_ = glm::lookAt(light_position, focus_point, up);
 
   float ortho = settings_.ortho_size;
   light_projection_ =
