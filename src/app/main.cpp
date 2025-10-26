@@ -31,7 +31,6 @@ namespace {
 
 constexpr float kSphereRadius = 1.0f;
 constexpr float kTerrainSize = 40.0f;
-constexpr float kStaticCubeSize = 2.5f;
 
 std::unique_ptr<Mesh> create_sphere_mesh(Renderer &renderer, int segments = 48,
                                          int rings = 24,
@@ -167,18 +166,10 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  auto cube_mesh = renderer->create_cube(kStaticCubeSize);
-  if (!cube_mesh) {
-    std::cerr << "Failed to create static cube mesh" << std::endl;
-    return EXIT_FAILURE;
-  }
-
   Material ground_material =
       make_opaque_material(Color(0.82f, 0.79f, 0.73f, 1.0f), 0.7f);
   Material sphere_material =
       make_opaque_material(Color(0.9f, 0.1f, 0.1f, 1.0f), 0.35f, 0.2f);
-  Material cube_material =
-      make_opaque_material(Color(0.1f, 0.4f, 0.85f, 1.0f), 0.5f, 0.1f);
 
   InputManager input_manager(renderer->window());
   OrbitCameraController camera_controller(renderer->camera(), input_manager);
@@ -188,7 +179,6 @@ int main() {
   float rotation = 0.0f;
 
   const Vec3 sphere_position{0.0f, 2.0f, 0.0f};
-  const Vec3 cube_position{5.0f, 1.5f, 2.0f};
 
   while (renderer->process_events()) {
     double now = renderer->time();
@@ -212,9 +202,6 @@ int main() {
     renderer->draw_shadow_mesh(*sphere_mesh, sphere_position,
                                Vec3{rotation, rotation * 0.5f, 0.0f},
                                Vec3{1.0f, 1.0f, 1.0f}, &sphere_material);
-    renderer->draw_shadow_mesh(*cube_mesh, cube_position,
-                               Vec3{0.0f, glm::radians(25.0f), 0.0f},
-                               Vec3{1.0f, 1.0f, 1.0f}, &cube_material);
     renderer->end_shadow_pass();
 
     renderer->begin_frame(Color(0.55f, 0.78f, 0.93f, 1.0f));
@@ -225,9 +212,6 @@ int main() {
     renderer->draw_mesh(*sphere_mesh, sphere_position,
                         Vec3{rotation, rotation * 0.5f, 0.0f},
                         Vec3{1.0f, 1.0f, 1.0f}, sphere_material);
-    renderer->draw_mesh(*cube_mesh, cube_position,
-                        Vec3{0.0f, glm::radians(25.0f), 0.0f},
-                        Vec3{1.0f, 1.0f, 1.0f}, cube_material);
 
     renderer->end_frame();
   }
