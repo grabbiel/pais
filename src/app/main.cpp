@@ -7,6 +7,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <cmath>
 #include <cstdint>
@@ -29,8 +30,8 @@ using pixel::renderer3d::Vec3;
 namespace {
 
 constexpr float kSphereRadius = 1.0f;
-constexpr float kRoomSize = 14.0f;
-constexpr float kWallHeight = 8.0f;
+constexpr float kTerrainSize = 40.0f;
+constexpr float kStaticCubeSize = 2.5f;
 
 std::unique_ptr<Mesh> create_sphere_mesh(Renderer &renderer, int segments = 48,
                                          int rings = 24,
@@ -89,21 +90,21 @@ std::unique_ptr<Mesh> create_sphere_mesh(Renderer &renderer, int segments = 48,
 }
 
 void configure_camera(Camera &camera) {
-  camera.position = Vec3{6.0f, 6.0f, 10.0f};
-  camera.target = Vec3{0.0f, kSphereRadius * 0.75f, 0.0f};
+  camera.position = Vec3{12.0f, 10.0f, 18.0f};
+  camera.target = Vec3{0.0f, 2.0f, 0.0f};
   camera.up = Vec3{0.0f, 1.0f, 0.0f};
   camera.near_clip = 0.1f;
-  camera.far_clip = 100.0f;
-  camera.fov = 50.0f;
+  camera.far_clip = 200.0f;
+  camera.fov = 55.0f;
 }
 
-DirectionalLight create_key_light() {
+DirectionalLight create_directional_light() {
   DirectionalLight light;
-  light.direction = Vec3{-0.55f, -1.0f, -0.25f}.normalized();
-  light.position = Vec3{12.0f, 18.0f, 12.0f};
-  light.color = Color(1.0f, 0.98f, 0.9f, 1.0f);
-  light.intensity = 2.0f;
-  light.ambient_intensity = 0.3f;
+  light.direction = Vec3{-0.5f, -1.0f, -0.3f}.normalized();
+  light.position = Vec3{15.0f, 25.0f, 15.0f};
+  light.color = Color(1.0f, 0.97f, 0.92f, 1.0f);
+  light.intensity = 1.6f;
+  light.ambient_intensity = 0.15f;
   return light;
 }
 
@@ -114,13 +115,26 @@ void configure_shadow_map(Renderer &renderer) {
   }
 
   ShadowMap::Settings settings = shadow_map->settings();
-  settings.near_plane = 0.5f;
-  settings.far_plane = 60.0f;
-  settings.ortho_size = 25.0f;
-  settings.depth_bias_constant = 0.7f;
-  settings.depth_bias_slope = 1.5f;
-  settings.shadow_bias = 0.0015f;
+  settings.near_plane = 1.0f;
+  settings.far_plane = 80.0f;
+  settings.ortho_size = 30.0f;
+  settings.depth_bias_constant = 0.6f;
+  settings.depth_bias_slope = 1.2f;
+  settings.shadow_bias = 0.0012f;
   shadow_map->update_settings(settings);
+}
+
+Material make_opaque_material(const Color &color, float roughness,
+                              float metallic = 0.0f) {
+  Material material;
+  material.blend_mode = Material::BlendMode::Opaque;
+  material.depth_test = true;
+  material.depth_write = true;
+  material.color = color;
+  material.roughness = roughness;
+  material.metallic = metallic;
+  material.glare_intensity = 0.0f;
+  return material;
 }
 
 } // namespace
@@ -129,7 +143,7 @@ int main() {
   pixel::platform::WindowSpec spec;
   spec.w = 1280;
   spec.h = 720;
-  spec.title = "Pixel Life - Shadowed Sphere";
+  spec.title = "Pixel Life - Shadow Demo";
 
   auto renderer = Renderer::create(spec);
   if (!renderer) {
@@ -139,65 +153,42 @@ int main() {
 
   configure_camera(renderer->camera());
   configure_shadow_map(*renderer);
-  renderer->set_directional_light(create_key_light());
+  renderer->set_directional_light(create_directional_light());
 
-  auto floor_mesh = renderer->create_plane(kRoomSize, kRoomSize, 1);
-  if (!floor_mesh) {
-    std::cerr << "Failed to create floor mesh" << std::endl;
-    return EXIT_FAILURE;
-  }
-
-  auto front_back_wall_mesh = renderer->create_plane(kRoomSize, kWallHeight, 1);
-  if (!front_back_wall_mesh) {
-    std::cerr << "Failed to create front/back wall mesh" << std::endl;
-    return EXIT_FAILURE;
-  }
-
-  auto side_wall_mesh = renderer->create_plane(kWallHeight, kRoomSize, 1);
-  if (!side_wall_mesh) {
-    std::cerr << "Failed to create side wall mesh" << std::endl;
+  auto ground_mesh = renderer->create_plane(kTerrainSize, kTerrainSize, 1);
+  if (!ground_mesh) {
+    std::cerr << "Failed to create ground plane mesh" << std::endl;
     return EXIT_FAILURE;
   }
 
   auto sphere_mesh = create_sphere_mesh(*renderer);
   if (!sphere_mesh) {
-    std::cerr << "Failed to create sphere mesh" << std::endl;
+    std::cerr << "Failed to create dynamic sphere mesh" << std::endl;
     return EXIT_FAILURE;
   }
 
-  Material floor_material;
-  floor_material.blend_mode = Material::BlendMode::Opaque;
-  floor_material.depth_test = true;
-  floor_material.depth_write = true;
-  floor_material.color = Color(0.22f, 0.22f, 0.24f, 1.0f);
-  floor_material.roughness = 0.9f;
-  floor_material.metallic = 0.05f;
-  floor_material.glare_intensity = 0.0f;
+  auto cube_mesh = renderer->create_cube(kStaticCubeSize);
+  if (!cube_mesh) {
+    std::cerr << "Failed to create static cube mesh" << std::endl;
+    return EXIT_FAILURE;
+  }
 
-  Material wall_material;
-  wall_material.blend_mode = Material::BlendMode::Opaque;
-  wall_material.depth_test = true;
-  wall_material.depth_write = true;
-  wall_material.color = Color(0.75f, 0.75f, 0.78f, 1.0f);
-  wall_material.roughness = 0.85f;
-  wall_material.metallic = 0.02f;
-  wall_material.glare_intensity = 0.0f;
-
-  Material sphere_material;
-  sphere_material.blend_mode = Material::BlendMode::Opaque;
-  sphere_material.depth_test = true;
-  sphere_material.depth_write = true;
-  sphere_material.color = Color(0.9f, 0.05f, 0.05f, 1.0f);
-  sphere_material.roughness = 0.35f;
-  sphere_material.metallic = 0.25f;
-  sphere_material.glare_intensity = 0.6f;
+  Material ground_material =
+      make_opaque_material(Color(0.82f, 0.79f, 0.73f, 1.0f), 0.7f);
+  Material sphere_material =
+      make_opaque_material(Color(0.9f, 0.1f, 0.1f, 1.0f), 0.35f, 0.2f);
+  Material cube_material =
+      make_opaque_material(Color(0.1f, 0.4f, 0.85f, 1.0f), 0.5f, 0.1f);
 
   InputManager input_manager(renderer->window());
   OrbitCameraController camera_controller(renderer->camera(), input_manager);
-  camera_controller.set_zoom_limits(1.5f, 45.0f);
+  camera_controller.set_zoom_limits(2.0f, 60.0f);
 
   double last_time = renderer->time();
   float rotation = 0.0f;
+
+  const Vec3 sphere_position{0.0f, 2.0f, 0.0f};
+  const Vec3 cube_position{5.0f, 1.5f, 2.0f};
 
   while (renderer->process_events()) {
     double now = renderer->time();
@@ -212,63 +203,35 @@ int main() {
 
     camera_controller.update(delta_time);
 
-    rotation += delta_time * glm::radians(15.0f);
-
-    const float half_room = kRoomSize * 0.5f;
-    const float half_wall_height = kWallHeight * 0.5f;
+    rotation += delta_time * glm::radians(20.0f);
 
     renderer->begin_shadow_pass();
-    renderer->draw_shadow_mesh(*floor_mesh, Vec3{0.0f, 0.0f, 0.0f},
+    renderer->draw_shadow_mesh(*ground_mesh, Vec3{0.0f, 0.0f, 0.0f},
                                Vec3{0.0f, 0.0f, 0.0f}, Vec3{1.0f, 1.0f, 1.0f},
-                               &floor_material);
-    renderer->draw_shadow_mesh(*front_back_wall_mesh,
-                               Vec3{0.0f, half_wall_height, half_room},
-                               Vec3{-glm::half_pi<float>(), 0.0f, 0.0f},
-                               Vec3{1.0f, 1.0f, 1.0f}, &wall_material);
-    renderer->draw_shadow_mesh(*front_back_wall_mesh,
-                               Vec3{0.0f, half_wall_height, -half_room},
-                               Vec3{glm::half_pi<float>(), 0.0f, 0.0f},
-                               Vec3{1.0f, 1.0f, 1.0f}, &wall_material);
-    renderer->draw_shadow_mesh(*side_wall_mesh,
-                               Vec3{-half_room, half_wall_height, 0.0f},
-                               Vec3{0.0f, 0.0f, -glm::half_pi<float>()},
-                               Vec3{1.0f, 1.0f, 1.0f}, &wall_material);
-    renderer->draw_shadow_mesh(*side_wall_mesh,
-                               Vec3{half_room, half_wall_height, 0.0f},
-                               Vec3{0.0f, 0.0f, glm::half_pi<float>()},
-                               Vec3{1.0f, 1.0f, 1.0f}, &wall_material);
-    renderer->draw_shadow_mesh(*sphere_mesh, Vec3{0.0f, kSphereRadius, 0.0f},
-                               Vec3{0.0f, rotation, 0.0f},
+                               &ground_material);
+    renderer->draw_shadow_mesh(*sphere_mesh, sphere_position,
+                               Vec3{rotation, rotation * 0.5f, 0.0f},
                                Vec3{1.0f, 1.0f, 1.0f}, &sphere_material);
+    renderer->draw_shadow_mesh(*cube_mesh, cube_position,
+                               Vec3{0.0f, glm::radians(25.0f), 0.0f},
+                               Vec3{1.0f, 1.0f, 1.0f}, &cube_material);
     renderer->end_shadow_pass();
 
-    renderer->begin_frame(Color(0.05f, 0.06f, 0.08f, 1.0f));
+    renderer->begin_frame(Color(0.55f, 0.78f, 0.93f, 1.0f));
 
-    renderer->draw_mesh(*floor_mesh, Vec3{0.0f, 0.0f, 0.0f},
+    renderer->draw_mesh(*ground_mesh, Vec3{0.0f, 0.0f, 0.0f},
                         Vec3{0.0f, 0.0f, 0.0f}, Vec3{1.0f, 1.0f, 1.0f},
-                        floor_material);
-    renderer->draw_mesh(*front_back_wall_mesh,
-                        Vec3{0.0f, half_wall_height, half_room},
-                        Vec3{-glm::half_pi<float>(), 0.0f, 0.0f},
-                        Vec3{1.0f, 1.0f, 1.0f}, wall_material);
-    renderer->draw_mesh(*front_back_wall_mesh,
-                        Vec3{0.0f, half_wall_height, -half_room},
-                        Vec3{glm::half_pi<float>(), 0.0f, 0.0f},
-                        Vec3{1.0f, 1.0f, 1.0f}, wall_material);
-    renderer->draw_mesh(*side_wall_mesh,
-                        Vec3{-half_room, half_wall_height, 0.0f},
-                        Vec3{0.0f, 0.0f, -glm::half_pi<float>()},
-                        Vec3{1.0f, 1.0f, 1.0f}, wall_material);
-    renderer->draw_mesh(*side_wall_mesh,
-                        Vec3{half_room, half_wall_height, 0.0f},
-                        Vec3{0.0f, 0.0f, glm::half_pi<float>()},
-                        Vec3{1.0f, 1.0f, 1.0f}, wall_material);
-    renderer->draw_mesh(*sphere_mesh, Vec3{0.0f, kSphereRadius, 0.0f},
-                        Vec3{0.0f, rotation, 0.0f}, Vec3{1.0f, 1.0f, 1.0f},
-                        sphere_material);
+                        ground_material);
+    renderer->draw_mesh(*sphere_mesh, sphere_position,
+                        Vec3{rotation, rotation * 0.5f, 0.0f},
+                        Vec3{1.0f, 1.0f, 1.0f}, sphere_material);
+    renderer->draw_mesh(*cube_mesh, cube_position,
+                        Vec3{0.0f, glm::radians(25.0f), 0.0f},
+                        Vec3{1.0f, 1.0f, 1.0f}, cube_material);
 
     renderer->end_frame();
   }
 
   return EXIT_SUCCESS;
 }
+
