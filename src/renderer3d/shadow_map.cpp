@@ -250,9 +250,12 @@ void ShadowMap::rebuild_pass_desc() {
 void ShadowMap::compute_matrices() {
   std::cout << "[ShadowMap] Computing matrices" << std::endl;
   glm::vec3 light_position = to_glm(light_.position);
-  glm::vec3 light_direction = glm::normalize(to_glm(light_.direction));
-  if (glm::length2(light_direction) <= std::numeric_limits<float>::epsilon()) {
+  glm::vec3 light_direction = to_glm(light_.direction);
+  float light_dir_length_sq = glm::length2(light_direction);
+  if (!(light_dir_length_sq > std::numeric_limits<float>::epsilon())) {
     light_direction = glm::vec3(0.0f, -1.0f, 0.0f);
+  } else {
+    light_direction = glm::normalize(light_direction);
   }
 
   glm::vec3 focus_point = to_glm(settings_.focus_point);
