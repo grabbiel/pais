@@ -2,8 +2,10 @@
 #include "pixel/renderer3d/clip_space.hpp"
 #include "pixel/math/vec3.hpp"
 #include <array>
+#include <glm/geometric.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
+#include <limits>
 #include <string_view>
 
 namespace pixel::renderer3d {
@@ -26,6 +28,11 @@ bool ShadowMap::initialize(rhi::Device *device, const Settings &settings,
   std::cout << "  Near/Far planes: " << settings_.near_plane << " / "
             << settings_.far_plane << std::endl;
   std::cout << "  Ortho size: " << settings_.ortho_size << std::endl;
+  std::cout << "  Focus point: (" << settings_.focus_point.x << ", "
+            << settings_.focus_point.y << ", " << settings_.focus_point.z
+            << ")" << std::endl;
+  std::cout << "  Use focus point override: "
+            << (settings_.use_focus_point ? "yes" : "no") << std::endl;
 
   if (!device_) {
     std::cerr << "[ShadowMap] Initialization failed: device is null"
@@ -137,6 +144,12 @@ void ShadowMap::update_settings(const Settings &settings) {
             << settings_.depth_bias_constant << " / "
             << settings_.depth_bias_slope << std::endl;
   std::cout << "  New ortho size: " << settings_.ortho_size << std::endl;
+  std::cout << "  New focus point: (" << settings_.focus_point.x << ", "
+            << settings_.focus_point.y << ", " << settings_.focus_point.z
+            << ")" << std::endl;
+  std::cout << "  Focus point override: "
+            << (settings_.use_focus_point ? "enabled" : "disabled")
+            << std::endl;
   compute_matrices();
   rebuild_pass_desc();
 }
@@ -237,14 +250,42 @@ void ShadowMap::rebuild_pass_desc() {
 void ShadowMap::compute_matrices() {
   std::cout << "[ShadowMap] Computing matrices" << std::endl;
   glm::vec3 light_position = to_glm(light_.position);
-  glm::vec3 light_direction = glm::normalize(to_glm(light_.direction));
+  glm::vec3 light_direction = to_glm(light_.direction);
+  float light_dir_length_sq = glm::length2(light_direction);
+  if (!(light_dir_length_sq > std::numeric_limits<float>::epsilon())) {
+    light_direction = glm::vec3(0.0f, -1.0f, 0.0f);
+  } else {
+    light_direction = glm::normalize(light_direction);
+  }
+
+  glm::vec3 focus_point = to_glm(settings_.focus_point);
+  if (!settings_.use_focus_point) {
+    float focus_distance = settings_.ortho_size;
+    if (focus_distance <= 0.0f) {
+      focus_distance = settings_.far_plane * 0.5f;
+    }
+    if (focus_distance <= 0.0f) {
+      focus_distance = 1.0f;
+    }
+    focus_point = light_position + light_direction * focus_distance;
+    settings_.focus_point =
+        Vec3{focus_point.x, focus_point.y, focus_point.z};
+  }
   glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
   if (glm::abs(glm::dot(light_direction, up)) > 0.99f) {
     up = glm::vec3(0.0f, 0.0f, 1.0f);
   }
 
-  light_view_ =
-      glm::lookAt(light_position, light_position + light_direction, up);
+  glm::vec3 to_focus = focus_point - light_position;
+  if (glm::dot(to_focus, to_focus) < 1e-4f) {
+    focus_point = light_position + light_direction * settings_.near_plane;
+    to_focus = focus_point - light_position;
+    if (glm::dot(to_focus, to_focus) < 1e-4f) {
+      focus_point = light_position + light_direction;
+    }
+  }
+
+  light_view_ = glm::lookAt(light_position, focus_point, up);
 
   float ortho = settings_.ortho_size;
   light_projection_ =
